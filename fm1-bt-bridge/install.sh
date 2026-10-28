@@ -127,7 +127,6 @@ install -D -m 644 "$DIR/deskpages.py"                           ~/.local/share/f
 install -D -m 644 "$DIR/pads.py"                                ~/.local/share/fm1-bridge/pads.py
 install -D -m 644 "$DIR/deskpads.py"                            ~/.local/share/fm1-bridge/deskpads.py
 install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/fm1-bridge/deskdecks.py
-install -D -m 644 "$DIR/deskfm1.py"                             ~/.local/share/fm1-bridge/deskfm1.py
 install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
 install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/fm1-bridge/deskboot.py
 install -D -m 644 "$DIR/netmidi.py"                             ~/.local/share/fm1-bridge/netmidi.py
@@ -137,10 +136,8 @@ install -D -m 644 "$DIR/samplefast.py"                          ~/.local/share/f
 install -D -m 644 "$DIR/sampler.py"                             ~/.local/share/fm1-bridge/sampler.py
 install -D -m 644 "$DIR/sampleui.py"                            ~/.local/share/fm1-bridge/sampleui.py
 install -D -m 755 "$DIR/library.py"                             ~/.local/share/fm1-bridge/library.py
-install -D -m 644 "$DIR/x0x.py"                                 ~/.local/share/fm1-bridge/x0x.py
 install -D -m 644 "$DIR/decks.py"                               ~/.local/share/fm1-bridge/decks.py
 install -D -m 644 "$DIR/djlib.py"                               ~/.local/share/fm1-bridge/djlib.py
-install -D -m 644 "$DIR/fm1map.py"                              ~/.local/share/fm1-bridge/fm1map.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
 mkdir -p ~/.local/share/fm1-bridge/vendor/sloop ~/fm1-library/backups ~/fm1-library/projects \
     ~/fm1-library/samples ~/fm1-library/firmware
