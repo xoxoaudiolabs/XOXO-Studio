@@ -43,21 +43,6 @@ def write_wav(path, seconds=0.3, hz=220):
     return path
 
 
-def test_firmware_label():
-    """The screens say what the FM-1 runs, not its USB name (Felucca whatever the firmware)."""
-    saved, library.FIRMWARE = library.FIRMWARE, TMP / "fm1-firmware.json"
-    try:
-        assert library.firmware_label() is None
-        for said, shown in (("FELUCCA SLOOP 2.8", "SLOOP 2.8"), ("FELUCCA CLIPPER 0.3", "Clipper 0.3"),
-                            ("FELUCCA 1.4", "Felucca 1.4")):
-            library.FIRMWARE.write_text(json.dumps({"firmware": said}))
-            assert library.firmware_label() == shown, (said, library.firmware_label())
-        library.forget_firmware()
-        assert library.firmware_label() is None
-    finally:
-        library.FIRMWARE = saved
-
-
 def test_encodings():
     for data in (b"", b"\x00", bytes(range(256)), bytes([0xFF] * 7), bytes([0x80] * 15)):
         assert sloop.unpack7(sloop.pack7(data)) == data
@@ -150,48 +135,6 @@ def test_projects():
         pass
 
 
-def test_samples():
-    fake, dev = device()
-    wavs = [write_wav(TMP / "bass_C2.wav", 0.4, 65.4), write_wav(TMP / "lead_A4.wav", 0.2, 440)]
-    n = dev.load_samples(2, "synths", wavs)
-    obj = fake.objects[34]
-    assert obj[:4] == b"FSMP" and obj[6] == 2 and obj[8:14] == b"SYNTHS" and len(obj) == 512 + n
-    roots = [struct.unpack_from("<h", obj, 32 + z * 28 + 20)[0] // 16 for z in range(2)]
-    assert roots == [36, 69], roots                         # C2 and A4 from the file names, sorted
-    assert dev.sample_slots()[2]["name"] == "SYNTHS"
-
-
-def test_library_jobs():
-    fake = fake_fm1.FakeFM1()
-    use(fake)
-    library.job_backup(auto=True)
-    state = library.read_state()
-    assert state["state"] == "done" and state["job"] == "backup", state
-    backups = list((TMP / "library" / "backups").glob("*_auto.json"))
-    assert len(backups) == 1 and "sloop-2.7.1" in backups[0].name
-    # restore makes its own backup first
-    library.job_restore(str(backups[0]))
-    assert library.read_state()["state"] == "done"
-    assert list((TMP / "library" / "backups").glob("*_before-restore.json"))
-    # a project from the backup, into C
-    library.job_load_project(str(backups[0]), "A", "C")
-    assert fake.objects[4] == fake.objects[2]
-    saved = library.job_save_project(str(backups[0]), "D", "Night Drive")
-    assert saved.name == "night-drive.json"
-    library.job_load_project(str(saved), "-", "working")
-    assert fake.objects[0] == fake.objects[5]
-    # a sample
-    library.job_load_sample(4, "drum", [write_wav(TMP / "hit.wav", 0.1)])
-    assert fake.objects[35][8:12] == b"DRUM"
-    # pruning keeps the newest 20 auto backups
-    for k in range(25):
-        (TMP / "library" / "backups" / f"2020-01-01_0000{k:02d}_x_auto.json").write_text("{}")
-    library.prune_auto()
-    assert len(list((TMP / "library" / "backups").glob("*_auto.json"))) == 20
-    listing = library.listing()
-    assert listing["projects"][0]["title"] == "Night Drive"
-
-
 def write_recording(path, before=1.0, sound=10.0, hz=110.0):
     """a 48 kHz stereo recording: silence, a sawtooth-like synth note, silence"""
     import numpy as np
@@ -207,20 +150,20 @@ def write_recording(path, before=1.0, sound=10.0, hz=110.0):
 
 
 def test_sample_editor():
-    """A recording, edited, saved to the samples; a sample edited again; then loaded into a slot."""
+    """A recording, edited, saved to the samples; a sample edited again."""
     import numpy as np
     import sampler
     rec = write_recording(library.folder("recordings") / "2026-10-22_001217_fm1.wav")
-    info = sampler.info(rec)                               # opens on the sound, a slot long, its note found
+    info = sampler.info(rec)                               # opens on the sound, its note found
     assert info["name"] == "rec-001217" and info["note"] == "A2" and info["rate"] == 48000, info  # 110 Hz: A2
-    assert 0.98 < info["start"] < 1.0 and abs(info["end"] - info["start"] - library.SLOT_SECONDS) < 0.01, info
+    assert 0.98 < info["start"] < 1.0 < info["end"], info
     out = sampler.save(rec, info["name"], sampler.parse_note(info["note"]), 1.0, 3.0,
                        fade_in=0.1, fade_out=0.2, normalize=True, reverse=False)
     assert out.parent.name == "samples" and out.name == "rec-001217_A2.wav", out.name
     rate, y = sampler.load(out)
     assert rate == 48000 and abs(len(y) - 2 * 48000) <= 1                 # mono, the take's rate, 2 s
     assert abs(y[0]) < 50 and abs(y[-1]) < 50                            # faded in and out
-    assert abs(np.abs(y).max() - library.sample_peak()) <= 1             # normalized to the Sample level
+    assert abs(np.abs(y).max() - sampler.PEAK) <= 1                      # normalized: -6 dBFS
     rate, x = sampler.load(rec)
     back = sampler.render(x, rate, 1.0, 3.0, fade_in=0, fade_out=0, normalize=False, reverse=True)
     assert np.array_equal(back[::-1], np.clip(np.round(x[48000:144000]), -32768, 32767).astype("<i2"))
@@ -229,7 +172,7 @@ def test_sample_editor():
     assert info["name"] == "rec-001217" and info["note"] == "A2" and (info["start"], info["end"]) == (0.0, 2.0), info
     again = sampler.save(out, "rec-001217", 45, 0.0, 1.0)
     assert again.name == "rec-001217-2_A2.wav" and out.exists()
-    assert sampler.file_name("pad A3 soft", 60) == "pad-soft_C4.wav"     # no second note to confuse SLOOP
+    assert sampler.file_name("pad A3 soft", 60) == "pad-soft_C4.wav"     # no second note to confuse a sampler
     for bad in ("H2", "C9"):
         try:
             sampler.parse_note(bad)
@@ -241,119 +184,6 @@ def test_sample_editor():
         raise AssertionError("a selection that short was accepted")
     except ValueError:
         pass
-    # Sloop > Load sample takes it from the samples, into USR2 of the pretend FM-1
-    fake = fake_fm1.FakeFM1()
-    use(fake)
-    library.job_load_sample(2, "REC0012", [str(out)])
-    assert library.read_state()["state"] == "done", library.read_state()
-    assert fake.objects[33][8:15] == b"REC0012"
-
-
-def test_fast_conversion_and_sample_level():
-    import sampleio as sio
-    import samplefast as fast
-    for wav in (write_wav(TMP / "c1.wav", 0.4, 220), write_wav(TMP / "c2.wav", 0.4, 1760)):
-        rate, x = sio.read_any_wav(wav)
-        assert fast.read_any_wav(wav) == (rate, x)                       # the same floats as SLOOP's code
-        y = sio.resample(x, rate, sio.SLOT_RATE)
-        assert fast.resample(x, rate, sio.SLOT_RATE) == y
-        ints = sio.to_int16(y)
-        assert fast.to_int16(y) == ints and max(map(abs, fast.to_int16(y, 16422))) == 16422
-        assert fast.ima_encode(ints, 0) == sio.ima_encode(ints, 0)       # the same bytes, faster
-        assert sloop.build_slot("x", [wav]) == sio.user_slot("x", [(ints, sio.note_from_name(wav.stem), None, None)])
-    settings = TMP / "settings.json"
-    settings.unlink(missing_ok=True)
-    assert library.sample_peak() == 16422                                # -6 dB unless set
-    settings.write_text(json.dumps({"sample_level": "full"}))
-    assert library.sample_peak() == 30000
-    settings.write_text(json.dumps({"sample_level": "-3 dB"}))
-    assert library.sample_peak() == 23197
-    settings.unlink()
-    # a load at -6 dB: quieter than SLOOP's own 30000, converted while the backup ran
-    fake = fake_fm1.FakeFM1()
-    use(fake)
-    backups = len(list(library.folder("backups").glob("*.json")))
-    library.job_load_sample(3, "quiet", [write_wav(TMP / "q.wav", 0.2)])
-    assert library.read_state()["state"] == "done"
-    assert len(list(library.folder("backups").glob("*.json"))) == backups      # no backup for a sample
-    loud = sloop.build_slot("quiet", [TMP / "q.wav"], 30000)[1]
-    assert fake.objects[34][8:13] == b"QUIET" and loud not in fake.objects[34]
-    bad = TMP / "bad.wav"
-    bad.write_bytes(b"RIFF....not audio")
-    try:
-        library.job_load_sample(3, "bad", [bad])
-        raise AssertionError("a bad WAV was loaded")
-    except Exception as e:
-        assert library.read_state()["state"] == "error" and fake.objects[34][8:13] == b"QUIET", e
-
-
-def test_timed_backups_skip_unchanged():
-    fake = fake_fm1.FakeFM1()
-    use(fake)
-    backups = TMP / "library" / "backups"
-    library.job_backup(auto=True)
-    count = len(list(backups.glob("*_auto.json")))
-    library.job_backup(auto=True)                          # nothing changed: no new file
-    state = library.read_state()
-    assert state["result"].get("unchanged") and "No changes" in state["message"], state
-    assert len(list(backups.glob("*_auto.json"))) == count
-    newest = library.newest_auto()
-    fake.objects[2] = fake_fm1.project(6, 99)             # project A edited on the FM-1
-    import time
-    time.sleep(1.1)                                        # (file names carry the second)
-    library.job_backup(auto=True)
-    assert library.newest_auto() != newest and library.same_content(library.newest_auto(), {
-        "format": "sloop-backup", "version": 1,
-        "objects": sloop.load_json(library.newest_auto())["objects"]})
-    library.job_backup()                                   # a manual backup is always saved
-    assert library.read_state()["result"].get("unchanged") is None
-
-
-def test_sloop_and_clipper_dont_mix():
-    assert sloop.family("FELUCCA SLOOP 2.8") == "sloop" and sloop.family("clipper-1.1-experimental.fwsc") == "clipper"
-    assert sloop.family("FELUCCA 1.6") is None
-    sloop_backup = device()[1].backup()
-    clipper, dev = device(version="FELUCCA CLIPPER 1.1", pcount=126, proto=14)
-    before = dict(clipper.objects)
-    for attempt in (lambda: dev.restore(sloop_backup),
-                    lambda: dev.put_project(sloop.project_from(sloop_backup, "A"), "working",
-                                            firmware=sloop_backup["firmware"]),
-                    lambda: dev.load_samples(0, "x", [write_wav(TMP / "c.wav", 0.1)])):
-        try:
-            attempt()
-            raise AssertionError("SLOOP data went onto Clipper")
-        except sloop.SloopError as e:
-            assert e.code == "family", e
-    assert clipper.objects == before                       # nothing was written
-    dev.restore(dev.backup())                              # Clipper's own backup: fine
-    # the library jobs refuse before they make a safety backup
-    use(clipper)
-    path = library.write_backup(sloop_backup, "manual")
-    count = len(list((TMP / "library" / "backups").glob("*.json")))
-    assert library.main(["restore", str(path)]) == 1 and "Clipper" in library.read_state()["message"]
-    assert len(list((TMP / "library" / "backups").glob("*.json"))) == count
-
-
-def test_newest_firmware_release():
-    releases = [{"tag_name": "v1.2", "draft": True, "assets": [{"name": "c-1.2.fwsc"}]},
-                {"tag_name": "v1.1-experimental", "prerelease": True,
-                 "assets": [{"name": "demo.wav"}, {"name": "clipper-1.1-experimental.fwsc"}]},
-                {"tag_name": "v1.0", "assets": [{"name": "clipper-1.0.fwsc"}]}]
-    release, asset = library.newest_firmware(releases)
-    assert release["tag_name"] == "v1.1-experimental" and asset["name"] == "clipper-1.1-experimental.fwsc"
-    assert library.newest_firmware([{"assets": [{"name": "x.wav"}]}]) == (None, None)
-    assert set(library.FIRMWARES) == {"sloop", "clipper"}
-
-
-def test_job_errors_are_reported():
-    fake = fake_fm1.FakeFM1()
-    use(fake)
-    fake.playing = True
-    backup = next((TMP / "library" / "backups").glob("*_manual.json"), None) or \
-        library.write_backup(sloop.Sloop(sloop.Link(mido=fake, time_scale=0.02)).backup(), "manual")
-    assert library.main(["restore", str(backup)]) == 1
-    state = library.read_state()
-    assert state["state"] == "error" and "stop the song" in state["message"], state
 
 
 def test_sd_import():

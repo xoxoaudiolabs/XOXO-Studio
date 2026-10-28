@@ -1,11 +1,12 @@
 """The sample editor's sums: a recording, or a sample already in the library, -> an edited sample WAV in the
-samples folder, where Sloop > Load sample picks it up. An edit is always saved as a new file. The box's editor screen (sampleui.py) and the web page use the same steps,
+samples folder, where the pads pick it up. An edit is always saved as a new file. The box's editor screen
+(sampleui.py) and the web page use the same steps,
 so a preview sounds the way the saved file will. numpy does the work: a minute of 44.1 kHz audio is 2.6 M
 samples, far too many for plain Python on a Zero W.
 
-An edit: start and end (seconds into the take), fade_in and fade_out (seconds), normalize (the peak to the
-Sample level) and reverse. The note it plays goes into the file's name (kick_C2.wav), where SLOOP looks for
-the root note, so the sample plays in tune across the keyboard.
+An edit: start and end (seconds into the take), fade_in and fade_out (seconds), normalize (the peak to PEAK)
+and reverse. The note it plays goes into the file's name (kick_C2.wav): its root note, so a sampler that reads it
+plays it in tune across the keyboard.
 """
 import re
 import wave
@@ -18,6 +19,7 @@ MAX_SECONDS = 120                       # how much of a take is read: the sound 
 SILENCE = 32768 * 10 ** (-45 / 20)      # -45 dBFS: quieter than this is the silence around a take
 NOTES = (24, 96)                        # the Note setting's range: C1..C7
 SHORTEST = 0.02                         # seconds: a selection can't be shorter
+PEAK = 16422                            # normalize: the peak at -6 dBFS, room for the pads to mix several
 DEFAULT_EDIT = {"fade_in": 0.0, "fade_out": 0.01, "normalize": True, "reverse": False}
 NOTE_NAME = re.compile(r"(?<![A-Za-z])([A-G])([#b]?)(-?\d)(?!\d)")      # as SLOOP finds one in a file name
 
@@ -40,16 +42,16 @@ def load(path):
 
 
 def suggest(x, rate):
-    """(start, end) in seconds for a new edit: the first sound to the last, at most a SLOOP slot long"""
+    """(start, end) in seconds for a new edit: the first sound to the last"""
     n = np()
     total = len(x) / rate
     level = n.abs(x)
     quiet = max(SILENCE, 0.03 * float(level.max()) if len(x) else 0.0)   # -30 dB under the peak: a take's hiss
     loud = n.nonzero(level > quiet)[0]                                    # isn't its sound
     if not len(loud):
-        return 0.0, round(min(total, library.SLOT_SECONDS), 3)
+        return 0.0, round(total, 3)
     start = max(0, int(loud[0]) - rate // 200) / rate
-    end = min(int(loud[-1]) / rate + 0.05, start + library.SLOT_SECONDS, total)
+    end = min(int(loud[-1]) / rate + 0.05, total)
     return round(start, 3), round(end, 3)
 
 
@@ -93,7 +95,7 @@ def render(x, rate, start, end, fade_in=0.0, fade_out=0.01, normalize=True, reve
         y[len(y) - fo:] *= n.linspace(1.0, 0.0, fo, dtype=n.float32)
     peak = float(n.abs(y).max())
     if normalize and peak > 0:
-        y *= library.sample_peak() / peak
+        y *= PEAK / peak
     return n.clip(n.round(y), -32768, 32767).astype("<i2")
 
 
@@ -161,8 +163,7 @@ def info(path):
     rate, x = load(path)
     start, end, note = opening(path, x, rate)
     return {"seconds": round(len(x) / rate, 3), "rate": rate, "start": start, "end": end,
-            "note": meters.note_name(note) if note is not None else None, "name": default_name(path),
-            "slot_seconds": library.SLOT_SECONDS}
+            "note": meters.note_name(note) if note is not None else None, "name": default_name(path)}
 
 
 def waveform(x, columns):

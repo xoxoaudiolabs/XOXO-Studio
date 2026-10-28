@@ -532,7 +532,7 @@ def test_touch_screens():
     tap(row[0][0] + 20, row[0][1] + 10)
     assert ui.tab == "THEME"
     ui.render(now, force=True)
-    assert {w[3] for w in ui.widgets} >= {("theme", n) for n in ["follow"] + sloopstyle.ALL}   # every theme
+    assert {w[3] for w in ui.widgets} >= {("theme", n) for n in sloopstyle.ALL}   # every theme
     swatch = next(w for w in ui.widgets if w[3] == ("theme", "AMBER"))
     tap(swatch[0][0] + 20, swatch[0][1] + 10)
     assert app.state["desk_theme"] == "AMBER"

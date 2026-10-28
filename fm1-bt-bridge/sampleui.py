@@ -3,8 +3,8 @@ Settings > Recordings > a take > Edit as sample).
 
 The take's waveform with the selection between two markers (outside it, dotted). Left/right steps through
 the fields, up/down changes the one named at the top (held, it speeds up), press plays the selection on the
-speaker as it will be saved, and press on Save writes it to the samples folder, where Sloop > Load sample
-takes it from there. Left from the first field goes back. The sums are sampler.py's, shared with the web
+speaker as it will be saved, and press on Save writes it to the samples folder, where the pads take it
+from there. Left from the first field goes back. The sums are sampler.py's, shared with the web
 page's editor.
 """
 import threading
@@ -162,9 +162,7 @@ class SampleEditor:
         length = ed["end"] - ed["start"]
         tag = f"{length:.1f}s"
         w = d.textlength(tag, font=self.f_small)
-        if length > library.SLOT_SECONDS:     # longer than a SLOOP slot holds: the tag inverted
-            d.rectangle((125 - w, 0, 127, 11), fill=1)
-        d.text((126 - w, 1), tag, font=self.f_small, fill=0 if length > library.SLOT_SECONDS else 1)
+        d.text((126 - w, 1), tag, font=self.f_small, fill=1)
         top = "Save to samples" if field == "save" else f"{label} {self.editor_value(field)}"
         d.text((0, 0), self.fit(d, top, self.f_body, int(120 - w)), font=self.f_body, fill=1)
         d.line((0, 13, 127, 13), fill=1)

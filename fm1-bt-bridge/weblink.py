@@ -23,7 +23,7 @@ class WebLink:
         midi, clock = self.midi, getattr(self.midi, "clock", None) if self.midi else None
         keys = self.keys_route()
         return {
-            "fm1": self.source and ((self.fw_label or self.source["label"]) + (" + B" if self.source_b else "")),
+            "fm1": self.source and (self.source["label"] + (" + B" if self.source_b else "")),
             "live": self.live(),
             "mixer": ([{"key": k, "label": self.channel_name(k, n), "level": self.mix_level(k),
                         "input": self.input_label(k, n)} for k, n in self.mix_channels()]

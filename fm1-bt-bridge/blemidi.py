@@ -1172,7 +1172,7 @@ class MidiBridge:
     usb_label(), peer, enabled, pairing_until, activity()."""
 
     def __init__(self, source_match, enabled=True, net=False, pads=None):
-        self.enabled, self.paused = enabled, False
+        self.enabled = enabled
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         if net:
@@ -1230,8 +1230,8 @@ class MidiBridge:
         if not messages:
             return
         dest = key.split(">")[1]
-        if dest in FM1S:                       # BLE MIDI off stops Bluetooth only; a flash pauses everything
-            if not self.paused and (self.enabled or not key.startswith("BT>")):
+        if dest in FM1S:                       # BLE MIDI off stops Bluetooth only
+            if self.enabled or not key.startswith("BT>"):
                 (self.usb if dest == "FM-1" else self.usb_b).send_messages(messages)
                 for m in messages:
                     self.note_watch(m, time.monotonic())
@@ -1617,8 +1617,6 @@ def run_child(conn, source_match, enabled, net=False, pads=None):
                 bridge.set_enabled(command[1])
             elif command[0] == "pair":
                 bridge.open_pairing()
-            elif command[0] == "pause":            # no Bluetooth notes into the FM-1 while it's flashed
-                bridge.paused = command[1]
             elif command[0] == "clock":            # ("clock", "follow" or "box", bpm)
                 bridge.clock_mode, bridge.bpm = command[1], float(command[2])
             elif command[0] == "transport":        # ("transport", "start" or "stop")
@@ -1800,9 +1798,6 @@ class MidiProcess:
     def open_pairing(self):
         self.pairing_until = time.monotonic() + PAIRING_SECONDS
         self.conn.send(("pair",))
-
-    def pause(self, on):
-        self.conn.send(("pause", on))
 
     def set_clock(self, mode, bpm):
         self.conn.send(("clock", mode, bpm))

@@ -90,10 +90,9 @@ if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): lis
     sudo install -D -m 644 "$DIR/config/fm1-midi-mcu.service" /etc/avahi/services/fm1-midi-mcu.service
 fi
 
-echo "== Letting the bridge shut down, switch Wi-Fi and copy backups to the SD card without a password"
-sudo install -m 755 "$DIR/config/fm1-sd-sync" /usr/local/sbin/fm1-sd-sync
+echo "== Letting the bridge shut down and switch Wi-Fi without a password"
 SUDOERS=/etc/sudoers.d/fm1-bridge
-printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/nmcli radio wifi on, /usr/bin/nmcli radio wifi off, /usr/local/sbin/fm1-sd-sync\n' \
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/nmcli radio wifi on, /usr/bin/nmcli radio wifi off\n' \
     "$USER" | sudo tee "$SUDOERS" >/dev/null
 sudo chmod 440 "$SUDOERS"
 sudo visudo -cf "$SUDOERS"
@@ -132,16 +131,13 @@ install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/f
 install -D -m 644 "$DIR/netmidi.py"                             ~/.local/share/fm1-bridge/netmidi.py
 install -D -m 644 "$DIR/sloopstyle.py"                          ~/.local/share/fm1-bridge/sloopstyle.py
 install -D -m 644 "$DIR/weblink.py"                             ~/.local/share/fm1-bridge/weblink.py
-install -D -m 644 "$DIR/samplefast.py"                          ~/.local/share/fm1-bridge/samplefast.py
 install -D -m 644 "$DIR/sampler.py"                             ~/.local/share/fm1-bridge/sampler.py
 install -D -m 644 "$DIR/sampleui.py"                            ~/.local/share/fm1-bridge/sampleui.py
 install -D -m 755 "$DIR/library.py"                             ~/.local/share/fm1-bridge/library.py
 install -D -m 644 "$DIR/decks.py"                               ~/.local/share/fm1-bridge/decks.py
 install -D -m 644 "$DIR/djlib.py"                               ~/.local/share/fm1-bridge/djlib.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
-mkdir -p ~/.local/share/fm1-bridge/vendor/sloop ~/fm1-library/backups ~/fm1-library/projects \
-    ~/fm1-library/samples ~/fm1-library/firmware
-install -m 644 "$DIR"/vendor/sloop/*                            ~/.local/share/fm1-bridge/vendor/sloop/
+mkdir -p ~/fm1-library/samples ~/fm1-library/recordings
 mkdir -p ~/.local/share/fm1-bridge/vendor/fonts
 install -m 644 "$DIR"/vendor/fonts/*                            ~/.local/share/fm1-bridge/vendor/fonts/
 mkdir -p ~/.local/share/fm1-bridge/icons
