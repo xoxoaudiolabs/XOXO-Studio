@@ -47,7 +47,7 @@ The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, ap
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
 - **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
-Next: **XO-4**, the Studio's own groovebox (drums, two FM synth tracks, a MIDI track).
+Being built: **XO-4**, the Studio's own groovebox (drums, two FM synth tracks, a MIDI track). So far its FM synth voice (`fm1-bt-bridge/xo4synth.py`): not in the app yet.
 
 Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 
@@ -59,6 +59,7 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - the battery's charge is read
 - the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
 - the tab bar with DECKS on it looks right on the Studio's screen
+- XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
 
 **Not yet tried on hardware:** sound out (a Bluetooth speaker, the jack), USB sound sources, the mixer and CUE, recording, the pads playing and their sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
