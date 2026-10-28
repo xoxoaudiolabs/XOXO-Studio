@@ -3,12 +3,10 @@
 
 Four tabs: Status (the box's live status, and the settings you change while playing: metronome, tempo,
 clock, arp, chord, volume, audio rate, Start/Stop, recording), MIDI (the routes as a grid, each route's
-settings, the four presets), Library (backups, projects, samples, firmware) and Recordings (listen in the
-browser, download, resample into a slot, delete).
+settings, the four presets), Library (samples), Editor (a recording or a sample made into a new sample) and
+Recordings (listen in the browser, download, edit as a sample, delete).
 
 Settings go to the box as commands (library.queue_command; the box applies them like the joystick).
-Anything that writes to the FM-1's data (restore, loads, firmware) is handed to the box and waits for a
-confirmation there (hold the joystick press), never just a click on the network.
 
 Phones can add it to the home screen as an app (manifest.webmanifest and icons/, the same as the demo on
 xoxoaudiolabs.com/app/).
@@ -18,7 +16,6 @@ Python's standard library only. Port: $FM1_WEB_PORT (default 80; install.sh lets
 import json
 import os
 import re
-import shutil
 import sys
 import urllib.parse
 import wave
@@ -29,12 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blemidi  # noqa: E402
 import library  # noqa: E402
 import sampler  # noqa: E402
-import sloop  # noqa: E402
 
 MAX_UPLOAD = 50 * 1024 * 1024
 EDITABLE = ("recordings", "samples")    # what the sample editor opens
-TARGETS = {"working": "the working project", "A": "project A", "B": "project B", "C": "project C",
-           "D": "project D"}
 ICONS = Path(__file__).resolve().parent / "icons"    # the home-screen icons, for installing the page as an app
 MANIFEST = {"name": "FM-1 Companion", "short_name": "FM-1", "start_url": "/", "scope": "/", "display": "standalone",
             "background_color": "#0f1115", "theme_color": "#0f1115",
@@ -107,20 +101,10 @@ def byte_range(header, size):
 def check_upload(folder, path):
     """the uploaded file is what it claims to be; -> an error message, or None"""
     try:
-        if folder == "firmware":
-            import fm1_install
-            fm1_install.load_package(str(path), False)
-        elif folder == "backups":
-            sloop.objects_of(sloop.load_json(path))
-        elif folder == "projects":
-            sloop.project_from(sloop.load_json(path))
-        elif folder == "samples":
-            import sampleio
-            rate, samples = sampleio.read_any_wav(path)
-            if not samples:
+        if folder == "samples":
+            rate, samples = sampler.load(path)
+            if not len(samples):
                 return "no audio in that WAV"
-    except SystemExit as e:                     # fm1_install reports a bad package this way
-        return str(e) or "not a firmware package"
     except Exception as e:
         return str(e)[:120] or "not a valid file"
     return None
@@ -170,43 +154,21 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/status":
             status = library.read_status()
             self.send(200, status if status else {"offline": True})
-        elif url.path == "/api/state":
-            state = library.read_state() or {}
-            if state.get("state") == "running" and not library.running():
-                state["state"] = "error"                       # it died without saying
-            state["waiting"] = library.REQUEST.exists()
-            self.send(200, state)
         elif url.path.startswith("/files/"):
             _, _, folder, name = url.path.split("/", 3)
             path = safe_path(folder, urllib.parse.unquote(name))
             if not path or not path.is_file():
                 return self.fail("no such file", 404)
-            ctype = {"samples": "audio/wav", "recordings": "audio/wav",
-                     "firmware": "application/octet-stream"}.get(folder, "application/json")
-            self.send_file(path, ctype, inline=query.get("inline") == "1")
+            self.send_file(path, "audio/wav", inline=query.get("inline") == "1")
         elif url.path == "/api/edit-info":            # what the sample editor opens a take or sample with
             folder = query.get("folder", "")
             path = safe_path(folder, query.get("file", "")) if folder in EDITABLE else None
             if not path or not path.is_file():
                 return self.fail("no such file", 404)
             try:
-                self.send(200, dict(sampler.info(path), level=library.sample_peak() / 32768))
+                self.send(200, dict(sampler.info(path), level=sampler.PEAK / 32768))
             except (OSError, ValueError, EOFError, wave.Error) as e:
                 self.fail(str(e))
-        elif url.path == "/api/project":
-            path = safe_path("backups", query.get("backup", ""))
-            source = query.get("source", "")
-            if not path or not path.is_file() or source not in TARGETS:
-                return self.fail("no such project", 404)
-            try:
-                backup = sloop.load_json(path)
-                data = sloop.project_from(backup, source)
-            except sloop.SloopError as e:
-                return self.fail(str(e))
-            name = f"{path.stem}_{source}"
-            body = json.dumps(sloop.project_file(data, name, backup.get("firmware"), f"{path.name}:{source}"))
-            self.send(200, body.encode(), "application/json",
-                      {"Content-Disposition": f'attachment; filename="{name}.json"'})
         else:
             self.fail("not found", 404)
 
@@ -228,13 +190,7 @@ class Handler(BaseHTTPRequestHandler):
                 except OSError as e:
                     return self.fail(str(e))
                 return self.send(200, {"ok": True, "message": f"{len(copied)} new file(s) from the SD card"})
-            jobs = {"backup": ["backup"], "fetch-sloop": ["fetch", "sloop"], "fetch-clipper": ["fetch", "clipper"]}
-            if command not in jobs:
-                return self.fail("unknown command")
-            error = library.spawn(jobs[command])
-            return self.send(200, {"ok": not error, "message": error or "started"})
-        if url.path == "/api/ask":
-            return self.ask(request)
+            return self.fail("unknown command")
         if url.path == "/api/save-sample":
             return self.save_sample(request)
         if url.path == "/api/command":
@@ -303,8 +259,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, {"ok": True, "message": f"uploaded {path.name}"})
 
     def save_sample(self, r):
-        """the sample editor's Save: a recording or a sample, edited, into the samples folder as a new file
-        (nothing on the FM-1 changes, so no confirmation on the box; Load sample does that)"""
+        """the sample editor's Save: a recording or a sample, edited, into the samples folder as a new file"""
         folder = r.get("folder", "recordings")
         path = safe_path(folder, r.get("file")) if folder in EDITABLE else None
         if not path or not path.is_file():
@@ -321,42 +276,6 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError, TypeError, ValueError, OSError, EOFError, wave.Error) as e:
             return self.fail(str(e)[:120] or "bad edit")
         self.send(200, {"ok": True, "message": f"Saved {out.name} to the samples", "name": out.name})
-
-    def ask(self, r):
-        """a write to the FM-1: handed to the box, which asks for a hold-press there"""
-        command = r.get("cmd")
-        if library.running():
-            return self.fail("a library job is running")
-        if command == "restore":
-            path = safe_path("backups", r.get("file"))
-            if not path or not path.is_file():
-                return self.fail("no such backup")
-            library.ask_box(["restore", str(path)], "Restore?", [path.name[:16], "replaces the FM-1's data"])
-        elif command == "load-project":
-            folder, target, source = r.get("folder"), r.get("target"), r.get("source") or "-"
-            path = safe_path(folder if folder in ("backups", "projects") else "", r.get("file"))
-            if not path or not path.is_file() or target not in TARGETS:
-                return self.fail("pick a project and where it goes")
-            library.ask_box(["load-project", str(path), source, target], "Load project?",
-                            [f"{path.stem[:14]} {source if source != '-' else ''}".strip(), f"into {TARGETS[target]}"])
-        elif command == "load-sample":
-            paths = [safe_path("samples", n) for n in r.get("files") or []]
-            slot, name = r.get("slot"), (r.get("name") or "")[:8]
-            if not paths or None in paths or not all(p.is_file() for p in paths) or slot not in (1, 2, 3, 4):
-                return self.fail("pick WAV files and a slot")
-            name = name or paths[0].stem[:8]
-            library.ask_box(["load-sample", str(slot), name, *map(str, paths)], "Load sample?",
-                            [f"{name} ({len(paths)} file{'s' if len(paths) > 1 else ''})", f"into USR{slot}"])
-        elif command == "flash":
-            path = safe_path("firmware", r.get("file"))
-            if not path or not path.is_file():
-                return self.fail("no such firmware")
-            warning = "Experimental: see its README" if sloop.family(path.name) == "clipper" else "Keep the FM-1 plugged in"
-            library.ask_box(["flash", str(path)], "Install?", [path.stem[:20], warning])
-        else:
-            return self.fail("unknown command")
-        self.send(200, {"ok": True, "message": "Confirm on the box: hold the joystick press for 2 seconds"})
-
 
 PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -467,26 +386,10 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
 
 <!-- ======================= LIBRARY ======================= -->
 <div class="tab" id="tab-library">
-<section><h2>Now</h2><div id="job" class="meta">Nothing running.</div><div class="bar" id="barwrap" hidden><div id="bar"></div></div>
-<div class="row" style="margin-top:10px"><button class="primary" onclick="run('backup')">Back up now</button>
-<button onclick="run('fetch-sloop')">Get SLOOP update</button><button onclick="run('fetch-clipper')" title="isod89's synthesizer firmware, experimental">Get Clipper (exp.)</button><button onclick="run('import-sd')">Import SD card</button></div></section>
-
-<section><h2>Backups</h2><div id="backups"></div>
-<div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".json" onchange="upload('backups',this)"><button onclick="this.previousElementSibling.click()">Upload a backup…</button></label></div></section>
-
-<section><h2>Projects</h2><p class="meta" style="margin:0 0 6px">Load a project into the FM-1, from a project file or from any backup.</p>
-<div id="projects"></div>
-<div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".json" onchange="upload('projects',this)"><button onclick="this.previousElementSibling.click()">Upload a project…</button></label></div></section>
-
-<section><h2>Samples</h2><p class="meta" style="margin:0 0 6px">Tick one or more WAVs (each becomes a key zone, root note from the name, e.g. <i>bass_C2.wav</i>), then load them into a slot. A slot holds about 7 seconds.</p>
+<section><h2>Samples</h2><p class="meta" style="margin:0 0 6px">WAVs for the pads (on the box: PADS → EDIT → a pad → SAMPLE). A note in the name, e.g. <i>bass_C2.wav</i>, is its root note.</p>
 <div id="samples"></div>
 <div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".wav" multiple onchange="upload('samples',this)"><button onclick="this.previousElementSibling.click()">Upload WAVs…</button></label>
-<input type="text" id="sname" placeholder="name (8 letters)" maxlength="8" size="12"><select id="sslot"><option value="1">USR1</option><option value="2">USR2</option><option value="3">USR3</option><option value="4">USR4</option></select>
-<button class="primary" onclick="loadSamples()">Load ticked into slot</button></div></section>
-
-<section><h2>Firmware</h2><p class="meta" style="margin:0 0 6px">SLOOP (groovebox) and Clipper (synthesizer, experimental) are both isod89's. Backups, projects and samples belong to the firmware they came from: a SLOOP backup can't be restored onto Clipper, and Clipper has wavetables instead of sample slots.</p><div id="firmware"></div>
-<div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".fwsc" onchange="upload('firmware',this)"><button onclick="this.previousElementSibling.click()">Upload a .fwsc…</button></label></div></section>
-<p class="meta">Anything that writes to the FM-1 asks for a confirmation on the box: hold the joystick press for 2 seconds. Restores, projects and firmware back the FM-1 up first; a sample only replaces its slot.</p>
+<button onclick="run('import-sd')">Import SD card</button></div></section>
 </div>
 
 <!-- ======================= RECORDINGS ======================= -->
@@ -511,11 +414,11 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
     <label>Root note<select id="sed-note"></select></label>
     <label>Name<input type="text" id="sed-name" maxlength="24"></label>
   </div>
-  <div class="row"><label class="row small"><input type="checkbox" id="sed-norm" checked style="width:20px;height:20px"> Normalize to the Sample level</label>
+  <div class="row"><label class="row small"><input type="checkbox" id="sed-norm" checked style="width:20px;height:20px"> Normalize (peak at −6 dB)</label>
     <label class="row small"><input type="checkbox" id="sed-rev" style="width:20px;height:20px"> Reverse</label></div>
   <p class="small" id="sed-len" style="margin:8px 0"></p>
   <div class="row"><button onclick="sedPlay()">▶ Play selection</button><button class="primary" onclick="sedSave()">Save to samples</button><button onclick="sedClose()">Close</button></div>
-  <p class="dim small" style="margin:8px 0 0">Drag on the waveform to move the nearer marker. Saved samples go to Library → Samples, ready to load into a slot (on the box: Sloop → Load sample).</p>
+  <p class="dim small" style="margin:8px 0 0">Drag on the waveform to move the nearer marker. Saved samples go to Library → Samples, ready for the pads.</p>
 </section>
 </div>
 </main>
@@ -534,9 +437,8 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const q = (s) => esc(JSON.stringify(s));            // a JS string literal inside an onclick attribute
 const when = (t) => new Date(t * 1000).toLocaleString([], {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"});
-const fw = (s) => esc((s || "?").split(" ").pop());
 const mins = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-let lib = {backups:[], projects:[], samples:[], firmware:[], recordings:[]};
+let lib = {samples:[], recordings:[]};
 let st = null;                                     // the box's status
 let tab = "status";
 
@@ -707,8 +609,7 @@ function preset(slot, action) {
 }
 
 // ---------------------------------------------------------------- library and recordings
-const run = (c) => post("/api/run", {cmd:c}).then(() => { refresh(); setTimeout(update, 300); });
-const ask = (body) => post("/api/ask", body).then(() => setTimeout(update, 300));
+const run = (c) => post("/api/run", {cmd:c}).then(() => refresh());
 async function del(folder, name) { if (confirm(`Delete ${name}?`)) { await post("/api/delete", {folder, name}); refresh(); } }
 async function upload(folder, input) {
   for (const f of input.files) {
@@ -719,28 +620,10 @@ async function upload(folder, input) {
   }
   input.value = ""; refresh();
 }
-function targetSelect(id) {
-  return `<select id="${id}">${["working","A","B","C","D"].map((t) => `<option value="${t}">${t === "working" ? "working project" : "project " + t}</option>`).join("")}</select>`;
-}
 function renderLibrary() {
-  $("backups").innerHTML = lib.backups.length ? lib.backups.map((b) => `<div class="item"><div><div class="name">${when(b.date)}</div>
-    <div class="meta">${fw(b.firmware)} · projects ${esc((b.projects || []).join(" ") || "none")} · samples ${esc((b.samples || []).join(" ") || "none")}${b.name.includes("_auto") ? " · auto" : ""}</div></div>
-    <div class="row"><a href="/files/backups/${encodeURIComponent(b.name)}" download><button>Download</button></a>
-    <button onclick="ask({cmd:'restore', file:${q(b.name)}})">Restore…</button><button class="danger" onclick="del('backups',${q(b.name)})">Delete</button></div></div>`).join("")
-    : `<p class="empty">No backups yet.</p>`;
-  const fromBackups = lib.backups.flatMap((b) => (b.projects || []).map((p) => ({folder:"backups", file:b.name, source:p, label:`Project ${p}`, meta:`${when(b.date)} backup · ${fw(b.firmware)}`})));
-  const files = lib.projects.map((p) => ({folder:"projects", file:p.name, source:"-", label:p.title || p.name, meta:`project file · ${fw(p.firmware)}`}));
-  const all = [...files, ...fromBackups];
-  $("projects").innerHTML = all.length ? all.map((p, i) => `<div class="item"><div><div class="name">${esc(p.label)}</div><div class="meta">${p.meta}</div></div>
-    <div class="row">${targetSelect("t" + i)}<button onclick="ask({cmd:'load-project', folder:${q(p.folder)}, file:${q(p.file)}, source:${q(p.source)}, target:$('t${i}').value})">Load…</button>
-    ${p.folder === "backups" ? `<a href="/api/project?backup=${encodeURIComponent(p.file)}&source=${p.source}" download><button>Download</button></a>` : `<a href="/files/projects/${encodeURIComponent(p.file)}" download><button>Download</button></a><button class="danger" onclick="del('projects',${q(p.file)})">Delete</button>`}</div></div>`).join("")
-    : `<p class="empty">No projects yet: make a backup, or upload a project file.</p>`;
-  $("samples").innerHTML = lib.samples.length ? lib.samples.map((s) => `<div class="item"><label class="row"><input type="checkbox" class="pick" value="${esc(s.name)}" style="width:22px;height:22px"><span class="name">${esc(s.name)}</span></label>
+  $("samples").innerHTML = lib.samples.length ? lib.samples.map((s) => `<div class="item"><span class="name">${esc(s.name)}</span>
     <div class="row"><span class="meta">${(s.bytes / 1024).toFixed(0)} KB</span><button onclick="sedOpen('samples', ${q(s.name)})">Edit…</button><button class="danger" onclick="del('samples',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No WAV files yet.</p>`;
-  $("firmware").innerHTML = lib.firmware.length ? lib.firmware.map((f) => `<div class="item"><div><div class="name">${esc(f.name)}</div><div class="meta">${when(f.date)}</div></div>
-    <div class="row"><button onclick="ask({cmd:'flash', file:${q(f.name)}})">Install…</button><button class="danger" onclick="del('firmware',${q(f.name)})">Delete</button></div></div>`).join("")
-    : `<p class="empty">No firmware yet: Get SLOOP update or Get Clipper, or upload a .fwsc.</p>`;
   $("recordings").innerHTML = lib.recordings.length ? lib.recordings.map((r, i) => `<div class="item" style="display:block"><div class="row" style="justify-content:space-between"><div><div class="name">${when(r.date)}</div>
     <div class="meta">${mins(r.seconds)} · ${(r.bytes / 1048576).toFixed(1)} MB${r.clips >= 5 ? ` · <span class="warn" title="The FM-1 clipped before the box got the sound: set its USB to master and turn it down, or lower its track levels">clipped ${r.clips}×</span>` : ""}</div></div>
     <a href="/files/recordings/${encodeURIComponent(r.name)}" download><button>Download</button></a></div>
@@ -759,12 +642,6 @@ function renderLibrary() {
     || `<option value="">No recordings or samples yet</option>`;
   if ([...pick.options].some((o) => o.value === was)) pick.value = was;
 }
-function loadSamples() {
-  const files = [...document.querySelectorAll(".pick:checked")].map((c) => c.value);
-  if (!files.length) return toast("Tick at least one WAV", false);
-  ask({cmd:"load-sample", files, slot:+$("sslot").value, name:$("sname").value});
-}
-
 // ---------------------------------------------------------------- sample editor
 // The take is decoded here, so the waveform, zoom and preview run on the phone; Save sends the settings and
 // the box makes the file with the same sums the preview uses (sampler.py).
@@ -822,8 +699,7 @@ function sedDraw() {
   g.strokeStyle = css.getPropertyValue("--accent"); g.lineWidth = 2 * dpr; g.beginPath();   // the fades
   g.moveTo(x(s), h); g.lineTo(x(s + fi), 4 * dpr); g.lineTo(x(e - fo), 4 * dpr); g.lineTo(x(e), h); g.stroke();
   for (const t of [s, e]) { g.fillRect(x(t) - dpr, 0, 2 * dpr, h); }
-  const len = e - s, slot = sed.info.slot_seconds;
-  $("sed-len").innerHTML = `${len.toFixed(2)} s selected` + (len > slot ? ` <span class="warn">· longer than a SLOOP slot holds (${slot} s): it won't fit until it's trimmed</span>` : "");
+  $("sed-len").textContent = `${(e - s).toFixed(2)} s selected`;
 }
 function sedTime(ev) { const r = $("sed-wave").getBoundingClientRect(), [from, to] = sedView(); return from + (ev.clientX - r.left) / r.width * (to - from); }
 function sedSet(which, t) {
@@ -863,18 +739,6 @@ async function sedSave() {
 }
 
 // ---------------------------------------------------------------- polling
-let last = "";
-async function update() {                          // the library job, as before
-  const s = await fetch("/api/state").then((r) => r.json()).catch(() => ({}));
-  const running = s.state === "running";
-  $("job").innerHTML = s.waiting ? "Waiting for the confirmation on the box…"
-    : running ? `${esc(s.job)}: ${esc(s.step)}${s.percent != null ? " " + Math.round(s.percent) + "%" : ""}`
-    : s.state ? `Last: ${esc(s.job)} <span style="color:var(${s.state === "done" ? "--on" : "--bad"})">${esc(s.state === "done" ? "done" : "failed")}</span>: ${esc(s.message)}` : "Nothing running.";
-  $("barwrap").hidden = !running || s.percent == null; $("bar").style.width = (s.percent || 0) + "%";
-  const key = `${s.state}${s.finished}`;
-  if (key !== last) { last = key; refresh(); }
-  return running || s.waiting;
-}
 let shownRoutes = "", shownPresets = "";
 async function status() {
   st = await fetch("/api/status").then((r) => r.json()).catch(() => ({offline:true}));
@@ -890,10 +754,9 @@ async function status() {
   if (p !== shownPresets && !String(document.activeElement && document.activeElement.id).startsWith("pn")) { shownPresets = p; renderPresets(); }
 }
 async function refresh() { lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib); renderLibrary(); }
-async function pollJobs() { setTimeout(pollJobs, (await update()) ? 700 : 3000); }
 async function pollStatus() { if (!document.hidden && (tab === "status" || tab === "midi" || tab === "recordings")) await status(); setTimeout(pollStatus, 1000); }
 show((location.hash || "#status").slice(1).replace(/[^a-z]/g, "") || "status");
-pollJobs(); pollStatus();
+pollStatus();
 </script></body></html>
 """
 

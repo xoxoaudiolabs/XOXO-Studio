@@ -1,6 +1,6 @@
-"""The Studio's own pages for everything that isn't a tab: settings sections, lists (recordings, samples,
-backups, firmware), a route's details and its channel table, route presets, the speaker scan, confirmations,
-jobs and a take playing. Mixed into deskui.DeskUI.
+"""The Studio's own pages for everything that isn't a tab: settings sections, lists (recordings, samples), a
+route's details and its channel table, route presets, the speaker scan, confirmations and a take playing. Mixed
+into deskui.DeskUI.
 
 They show the same state the Pocket's screens show and act through the same App methods (a row tapped is that row
 chosen and pressed; - / + on a row being edited are up / down), so both boxes behave alike; only the drawing is
@@ -8,17 +8,15 @@ the Studio's, for touch: rows a fingertip wide, - / + buttons, a hold-to-confirm
 """
 
 import sloopstyle as st
-from libui import job_running
 
 W, H, HDR_H = 480, 320, 34
 ROW_H, ROWS = 46, 5                          # list rows: 5 to a page, 46 pixels each
 HOLD = 2.0                                   # seconds to hold a confirm button, as the Pocket's 2 s press
-SECTIONS = {None: "SETTINGS", "play": "PLAYING", "audio": "AUDIO", "midi": "MIDI SETTINGS", "sloop": "SLOOP",
-            "fm1": "FM-1"}
+SECTIONS = {None: "SETTINGS", "play": "PLAYING", "audio": "AUDIO", "midi": "MIDI SETTINGS"}
 
 
 class DeskPages:
-    PAGES = ("settings", "pick", "confirm", "job", "player", "route", "chanmap", "presets", "scan")
+    PAGES = ("settings", "pick", "confirm", "player", "route", "chanmap", "presets", "scan")
 
     def page_init(self):
         self.page_top = {}                   # page -> its first row shown (scrolling)
@@ -84,8 +82,6 @@ class DeskPages:
         a = self.app
         if a.screen == "confirm":
             return self.draw_confirm(img, d, now)
-        if a.screen == "job":
-            return self.draw_job(img, d, now)
         if a.screen == "player":
             return self.draw_player(img, d, now)
         page = self.page_rows()
@@ -169,38 +165,6 @@ class DeskPages:
         self.widget(box, "hold", lambda: a.on_key("press", True), "confirm")
         self.button(img, d, (8, H - 44, W - 8, H - 6), "CANCEL", lambda: a.on_key("left"), key="cancel")
 
-    def draw_job(self, img, d, now):
-        a, t = self.app, self.theme
-        s = a.library_state() or {}
-        st.text(img, (12, 9), str(a.job_title).upper()[:40], t.hi)
-        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        state = s.get("state")
-        if state in ("running", None):
-            st.text(img, (16, HDR_H + 20), str(s.get("step") or "STARTING").upper()[:40], t.c[4], 2)
-            if s.get("percent") is not None:
-                box = (16, HDR_H + 90, W - 16, HDR_H + 122)
-                d.rectangle(box, outline=t.c[2], width=2)
-                d.rectangle((box[0] + 4, box[1] + 4, box[0] + 4 + int((box[2] - box[0] - 8) *
-                             min(100, s["percent"]) / 100), box[3] - 4), fill=t.track[1])
-                pct = f"{int(s['percent'])}%"
-                st.text(img, ((W - st.text_size(pct, 2)[0]) // 2, HDR_H + 132), pct, t.hi, 2)
-            if s.get("job") == "flash":
-                self.centre(img, (0, H - 60, W, H - 20), "DON'T UNPLUG THE FM-1", t.track[3])
-            return
-        ok = state == "done"
-        st.text(img, (16, HDR_H + 20), "DONE" if ok else "FAILED", t.track[1] if ok else t.track[3], 2)
-        words, lines, line = str(s.get("message") or "").upper().split(), [], ""
-        for word in words:
-            if len(line) + len(word) + 1 > 50:
-                lines.append(line)
-                line = word
-            else:
-                line = (line + " " + word).strip()
-        for i, text in enumerate((lines + [line])[:5]):
-            st.text(img, (16, HDR_H + 70 + i * 22), text, t.c[4])
-        if not job_running(s):
-            self.button(img, d, (8, H - 50, W - 8, H - 8), "OK", lambda: a.on_key("press"), key="job-ok")
-
     def draw_player(self, img, d, now):
         from libui import short_date
         from meters import clock
@@ -223,10 +187,6 @@ class DeskPages:
         a = self.app
         held = self.held[3] if self.held else None
         hold = int((now - self.held[5]) * 8) if self.held and self.held[1] == "hold" else None
-        if a.screen == "job":
-            s = a.library_state(now) or {}
-            return ("job", s.get("state"), s.get("step"), s.get("percent") and int(s["percent"]), s.get("message"),
-                    held)
         if a.screen == "player":
             return ("player", a.player_name, int(a.player.seconds(now) * 2), held)
         if a.screen == "confirm":

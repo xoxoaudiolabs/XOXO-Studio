@@ -1,4 +1,4 @@
-"""Tests for the box's Library screens: key flows end in the right library.py job; every screen renders.
+"""Tests for the box's Library screens: key flows reach the right screens; every screen renders.
 
   python tests/test_libui.py [PNG_DIR]     (needs Pillow and mido; PNG_DIR gets a picture of each screen)
 """
@@ -16,9 +16,7 @@ os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "r
 
 import bridge  # noqa: E402
 import midiui  # noqa: E402
-import fake_fm1  # noqa: E402
 import library  # noqa: E402
-import sloop  # noqa: E402
 from test_library import write_wav  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else None
@@ -47,8 +45,6 @@ class Loop:
 def make_app():
     app = bridge.App(Capture(), dict(bridge.DEFAULTS, last_name="JBL Go 3", last_mac="x"))
     app.loop, app.wifi = Loop(), True
-    app.started = []
-    app.start_job = lambda args, title, show=True: app.started.append(args)
     app.save_settings = lambda: None          # never this computer's real settings file
     return app
 
@@ -67,34 +63,12 @@ def keys(app, *names):
 
 
 def setup_library():
-    fake = fake_fm1.FakeFM1()
-    library.write_backup(sloop.Sloop(sloop.Link(mido=fake, time_scale=0.02)).backup(), "manual")
     write_wav(library.folder("samples") / "bass_C2.wav", 0.1)
-    (library.folder("firmware") / "sloop-2.8.fwsc").write_bytes(b"x")
-    backup = next(library.folder("backups").glob("*.json"))
-    library.job_save_project(str(backup), "A", "Night Drive")
-    return backup
-
-
 
 
 def test_quality_of_life():
-    """The firmware name from last time until the FM-1 is asked; the big volume bar; faster repeat when held."""
-    class Midi:                                            # the FM-1's MIDI is there
-        enabled, error, peer, pairing_until = True, None, None, 0.0
-
-        def usb_label(self):
-            return "Felucca"
-
-        def activity(self):
-            return 0.0
-
-    library.forget_firmware()
+    """The big volume bar; faster repeat when held."""
     app = make_app()
-    app.state["fw_label"] = "SLOOP 2.8"
-    app.midi, app.job_busy = Midi(), lambda: None
-    app.identify_fm1()
-    assert app.fw_label == "SLOOP 2.8" and not app.fw_asked        # shown at once, asked after 5 s
     # volume: snapped, shown big on the home screen for a moment
     bridge.set_volume = lambda node, percent: None
     app.screen, app.sink, app.volume = "status", {"id": 2, "name": "bluez_output.jbl", "label": "JBL Go 3"}, 37
@@ -108,7 +82,6 @@ def test_quality_of_life():
     for k in range(1, 61):                                 # 3 s in 50 ms ticks
         timer.tick(k * 0.05)
     assert len(posted) >= 20, len(posted)                  # 15 at an even 5 a second
-
 
 
 def test_battery():
@@ -151,12 +124,11 @@ def at_row(app, menu, key):
 
 
 def test_flows():
-    backup = setup_library()
+    setup_library()
     app = make_app()
     keys(app, "right")
     top = [r[0] for r in app.settings_rows()]
-    assert app.screen == "settings" and top == ["g_play", "g_audio", "g_midi", "recording", "editor", "wifi",
-                                                "g_sloop", "g_fm1"]
+    assert app.screen == "settings" and top == ["g_play", "g_audio", "g_midi", "recording", "editor", "sd", "wifi"]
     keys(app, "press")                                     # Playing ›
     assert app.settings_menu == "play" and [r[0] for r in app.settings_rows()] == [
         "metronome", "tempo", "clock", "arp_on", "chord_on", "click"]
@@ -168,146 +140,16 @@ def test_flows():
     keys(app, "left", "up", "up")                          # back on Playing, the top
     assert app.settings_menu is None and app.setting == 0
     snap(app, "settings")
-    keys(app, "up", "up", "press")                         # Sloop › (up from the top wraps to the end)
-    assert app.settings_menu == "sloop" and [r[0] for r in app.settings_rows()] == [
-        "backup", "restore", "project", "sample", "sample_level", "auto", "sd"]
-    snap(app, "settings-sloop")
-    keys(app, "left")                                      # back to the top list, on Sloop
-    assert app.settings_menu is None and app.setting == top.index("g_sloop") and app.screen == "settings"
-    keys(app, "down", "press")                             # FM-1 ›
-    assert app.settings_menu == "fm1" and [r[0] for r in app.settings_rows()] == ["fw_info", "firmware"]
-    snap(app, "settings-fm1")
-    keys(app, "left", "up", "press")                       # Sloop › again
-    assert app.settings_menu == "sloop" and app.setting == 0
-    keys(app, "press")                                     # Back up now
-    assert app.started[-1] == ["backup"]
-    keys(app, "down", "press")                             # Restore ›
-    assert app.screen == "pick" and app.pick["title"] == "Restore"
-    snap(app, "restore-pick")
+    # the sample editor: from a sample
+    at_row(app, None, "editor")
     keys(app, "press")
-    assert app.screen == "confirm"
-    snap(app, "restore-confirm")
-    keys(app, "press")                                     # a short press doesn't confirm
-    assert app.started[-1] == ["backup"]
-    keys(app, "press!")
-    assert app.started[-1] == ["restore", str(backup)]
-    # load project: from the backup's project A into C
-    at_row(app, "sloop", "project")
-    keys(app, "press")
-    assert app.screen == "pick" and app.pick["items"][0][0] == "Night Drive"
-    snap(app, "project-source")
-    keys(app, "down", "press")                             # the backup
-    assert app.pick["title"] == "Which project"
-    keys(app, "press")                                     # its first project
-    assert app.pick["title"] == "Load into"
-    snap(app, "project-target")
-    keys(app, "down", "down", "down", "press", "press!")   # C
-    assert app.started[-1][:2] == ["load-project", str(backup)] and app.started[-1][3] == "C", app.started[-1]
-    # sample into USR2
-    at_row(app, "sloop", "sample")
-    keys(app, "press", "press", "down", "press")
-    snap(app, "sample-confirm")
-    keys(app, "press!")
-    assert app.started[-1][:3] == ["load-sample", "2", "bass_C2"], app.started[-1]
-    # firmware: the download row first (Wi-Fi on), then the file
-    at_row(app, "fm1", "firmware")
-    keys(app, "press")
-    assert app.pick["items"][0][0] == "Get SLOOP update"
-    snap(app, "firmware-pick")
-    keys(app, "press")
-    assert app.started[-1] == ["fetch", "sloop"]
-    app.screen, app.pick["cursor"] = "pick", 0
-    keys(app, "down", "press")
-    assert app.started[-1] == ["fetch", "clipper"]
-    app.screen, app.pick["cursor"] = "pick", 0
-    keys(app, "down", "down", "press")
-    snap(app, "firmware-confirm")
-    keys(app, "press!")
-    assert app.started[-1][0] == "flash" and app.started[-1][1].endswith("sloop-2.8.fwsc")
+    assert app.screen == "pick" and app.pick["title"] == "Sample editor"
+    keys(app, "down", "press")                             # From a sample ›
+    assert app.pick["title"] == "Edit which" and app.pick["items"][0][0] == "bass_C2"
+    snap(app, "editor-pick")
     # left goes back up
-    app.screen = "confirm"
-    keys(app, "left")
-    assert app.screen == "pick"
-    keys(app, "left")
-    assert app.screen == "settings" and app.settings_menu == "fm1"
     keys(app, "left")
     assert app.screen == "settings" and app.settings_menu is None
-
-
-def test_auto_backup_schedule():
-    app = make_app()
-
-    class Midi:                                            # the FM-1's MIDI is there
-        enabled, error, peer, pairing_until = True, None, None, 0.0
-
-        def usb_label(self):
-            return "Felucca"
-
-        def activity(self):
-            return 0.0
-
-    app.midi, app.job_busy = Midi(), lambda: None
-    app.autobackup_flag.unlink(missing_ok=True)
-    # the menu row cycles off -> at start -> 2 -> 5 -> 10 -> 30 -> off ...
-    at_row(app, "sloop", "auto")
-    assert app.settings_rows()[app.setting][2] == "at start"
-    seen = []
-    for _ in range(6):
-        keys(app, "press")
-        seen.append(app.settings_rows()[app.setting][2])
-    assert seen == ["2 min", "5 min", "10 min", "30 min", "off", "at start"], seen
-    snap(app, "library-auto")
-    # at start: one backup, then none
-    app.started.clear()
-    app.auto_backup()
-    app.auto_backup()
-    assert app.started == [["backup", "--auto"]]
-    # every 2 minutes
-    app.state["auto_backup"] = 2
-    app.last_auto -= 60
-    app.auto_backup()
-    assert len(app.started) == 1                           # only 1 minute so far
-    app.last_auto -= 61
-    app.auto_backup()
-    assert len(app.started) == 2
-    # off: nothing, not even at start-up
-    app.state["auto_backup"] = "off"
-    app.autobackup_flag.unlink()
-    app.last_auto -= 1000
-    app.auto_backup()
-    assert len(app.started) == 2
-    # no FM-1: nothing
-    app.state["auto_backup"], app.midi = 5, None
-    app.auto_backup()
-    assert len(app.started) == 2
-
-
-def test_job_screen_and_status():
-    app = make_app()
-    app.screen, app.job_title = "job", "Firmware"
-    state = {"job": "flash", "state": "running", "step": "Writing", "percent": 42, "message": "", "pid": os.getpid()}
-    library.STATE.parent.mkdir(parents=True, exist_ok=True)
-    library.STATE.write_text(__import__("json").dumps(state))
-    app.job_read = 0
-    snap(app, "job-running")
-    assert app.flash_running()
-    keys(app, "left")
-    assert app.screen == "job"                             # can't leave a running job's screen
-    app.on_key("key3", True)
-    assert app.message and "flashed" in app.message        # no shutdown mid-flash
-    state.update(state="done", message="Installed FM-1_908 (SLOOP 2.8)")
-    library.STATE.write_text(__import__("json").dumps(state))
-    app.job_read = 0
-    app.message = None
-    snap(app, "job-done")
-    keys(app, "press")
-    assert app.screen != "job"
-    # the status screen shows a running job in its corner
-    state.update(job="backup", state="running", percent=63)
-    library.STATE.write_text(__import__("json").dumps(state))
-    app.screen, app.job_read = "status", 0
-    snap(app, "status-backup")
-
 
 def test_audio_rate():
     app = make_app()
@@ -657,39 +499,6 @@ def test_sample_editor():
 def FIELD(app):
     import sampleui
     return sampleui.FIELDS[app.ed["field"]][0]
-
-
-def test_two_fm1s():
-    app = make_app()
-    app.midi = FakeMidi()
-    at_row(app, "midi", "routes")
-    app.on_key("press")
-    assert len(app.matrix_lists()[0]) == 4                       # one FM-1: no B row
-    app.midi.usb_b = "Felucca:Felucca MIDI 1 28:0"
-    no_net = lambda names: [n for n in names if n not in ("NET", "SMP")]   # noqa: E731  (no network MIDI, no pads)
-    assert app.matrix_lists() == (no_net(midiui.blemidi.SOURCES), no_net(midiui.blemidi.DESTINATIONS))
-    app.midi.net = ["Pat's Mac"]
-    assert "NET" in app.matrix_lists()[0] and "NET" in app.matrix_lists()[1]
-    app.midi.net = []
-    app.midi.pads = True                                               # the Studio's sampler: a destination only
-    assert "SMP" in app.matrix_lists()[1] and "SMP" not in app.matrix_lists()[0]
-    app.midi.pads = False
-    app.mx = [3, 0]
-    assert app.cell() == "FM-1 B>FM-1"
-    snap(app, "matrix-two")
-    app.on_key("press")
-    assert app.screen == "route" and app.route_title() == "FM-1 B > FM-1 A"
-    app.midi.usb_b = None                                         # B unplugged: the cursor stays on the grid
-    app.screen = "matrix"
-    app.mx = [4, 3]
-    assert app.cell() == "Box>USB"
-    # the library's FM-1: a Sloop row only with two
-    app.screen, app.settings_menu, app.setting = "settings", "sloop", 0
-    assert app.settings_rows()[0][0] == "backup"
-    app.midi.usb_b = "Felucca:Felucca MIDI 1 28:0"
-    assert app.settings_rows()[0] == ("library_fm1", "FM-1", "A")
-    app.on_key("press")
-    assert app.state["library_fm1"] == "B"
 
 
 def node(i, name, card, cls="Audio/Source", **props):

@@ -29,7 +29,6 @@ from PIL import Image, ImageDraw, ImageFont
 import battery
 import device
 import iocard
-import library
 import sloop
 from libui import LIBRARY_KEYS, LibraryScreens
 import meters
@@ -40,7 +39,6 @@ from weblink import WebLink
 
 STATE_FILE = Path.home() / ".config" / "fm1-bridge" / "fm1-bridge.json"
 DEFAULTS = {
-    "fw_label": None,       # what the FM-1 last said it runs ("SLOOP 2.8"): shown until it's asked again
     "rotate": 0,            # 180 if the screen is upside down
     "contrast": 128,
     "last_mac": None,
@@ -48,7 +46,6 @@ DEFAULTS = {
     "flip_joystick": None,  # None: match the screen; true/false to force
     "midi_enabled": True,
     "ble_keys": [],         # Bluetooth MIDI keyboards the box connects to whenever they're on: [[address, name]]
-    "auto_backup": "boot",  # "off", "boot" (once at start-up), or minutes between backups: 2, 5, 10, 30
     "audio_rate": 48000,    # PipeWire's rate (Hz), 48000 or 44100: the FM-1 is opened at this rate
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
@@ -56,14 +53,12 @@ DEFAULTS = {
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
     "metronome": False,     # a click on the speaker in time with the clock
     "click": "mid",         # its level: "low", "mid", "high"
-    "sample_level": "-6 dB",  # how loud samples go into the FM-1: "-6 dB", "-3 dB", "full" (SLOOP's own)
-    "library_fm1": "A",     # with two FM-1s on a hub, the one backups, restores and loads go to (library.py reads it)
     "mix": {"a": 100, "b": 100, "usb": 100},   # the mixer's levels (%, to 200): FM-1 A, FM-1 B, USB keyboards' sound
     "rec_parts": False,     # while mixing, recordings also keep each source on its own ("..._fm1-a.wav" etc.)
     "inputs": {},           # a multichannel USB source's first channel taken (0: 1-2, 2: 3-4 ...), by mixer key
     "build": "auto",        # "pocket" (Zero + OLED HAT), "desk" (Pi 3/4 + 3.5" touchscreen) or "auto" (device.py)
     "touch_cal": [3900, 200, 3900, 200, True],   # the desk touchscreen: raw x left/right, y top/bottom, swap
-    "desk_theme": "follow",  # the desk box's colours: "follow" (FM-1 A's, as SLOOP shows them) or a SLOOP palette
+    "desk_theme": "GREEN",  # the desk box's colours: one of sloopstyle.ALL (MORE > THEME)
     "output": "both",       # the Studio's sound: "speaker" (Bluetooth), "phones" (the 3.5 mm jack) or "both"
     "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)
@@ -87,11 +82,9 @@ RECONNECT_EVERY = 20
 OWN_CONNECT = 30            # s: a speaker that turns up this soon after the box asked BlueZ to connect it is the box's
 REFRESH_AFTER = 3           # s: a speaker that connected by itself, left to settle before it's reconnected
 REFRESH_GAP = 2             # s: between its disconnect and its connect
-GROUPS = {"g_play": ("play", "Playing"),   # Settings' sections: (row key) -> (settings_menu, title). The first
-          "g_audio": ("audio", "Audio"),    # three work whatever you plug in; Sloop is what needs SLOOP's
-          "g_midi": ("midi", "MIDI"),       # editor protocol, FM-1 what needs the FM-1 itself (its firmware)
-          "g_sloop": ("sloop", "Sloop"),
-          "g_fm1": ("fm1", "FM-1")}
+GROUPS = {"g_play": ("play", "Playing"),   # Settings' sections: (row key) -> (settings_menu, title)
+          "g_audio": ("audio", "Audio"),
+          "g_midi": ("midi", "MIDI")}
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|[\x01\x02]")
 UNNAMED = re.compile(r"[0-9A-F]{2}(-[0-9A-F]{2}){5}")
 
@@ -402,15 +395,6 @@ def volume_snap(volume, step):
     size = abs(step)
     target = (volume // size + 1) * size if step > 0 else (volume - 1) // size * size
     return max(0, min(100, target))
-
-
-def alsa_has_card(source_match):
-    """the FM-1's USB sound card is in /proc/asound/cards (whatever PipeWire thinks)"""
-    try:
-        text = Path("/proc/asound/cards").read_text().lower()
-    except OSError:
-        return False
-    return any("usb-audio" in line and any(m in line for m in source_match) for line in text.splitlines())
 
 
 def wifi_enabled():
@@ -851,8 +835,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.battery_warned, self.battery_empty = False, 0
         self.setting = 0                      # cursor on the settings page
         self.settings_menu = None             # None: the top list of sections; else a section (GROUPS)
-        self.flash_paused = False
-        self.no_source_since, self.healed_at = None, -1e9
         self.busy = None                      # text shown while a user action runs
         self.editing = None                   # "tempo" while up/down change the tempo in Settings
         self.taps, self.playing = [], False   # tap tempo times; Start/Stop sent by the box
@@ -898,21 +880,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             if now >= self.next_battery:
                 self.battery, self.next_battery = battery.read(), now + 10
                 self.battery_check()
-            self.auto_backup()
-            self.identify_fm1()
             self.web_publish()
             metro = (self.state["metronome"], self.cue_target(), self.state["click"],
                      self.state["audio_rate"])
             if self.midi and metro != self.metro_sent:      # the metronome runs in the MIDI process
                 self.midi.set_metronome(*metro)
                 self.metro_sent = metro
-            request = library.take_request()
-            if request:
-                self.post("request", request)                 # the web page wants a confirm here
-            flashing = self.flash_running()
-            if self.midi and flashing != self.flash_paused:     # no Bluetooth notes into the FM-1 mid-flash
-                self.midi.pause(flashing)
-                self.flash_paused = flashing
             time.sleep(1)
 
     def scan_devices(self):
@@ -987,7 +960,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.mix_lost = 0
             only = channels[0][1] if channels else None
             self.loop.ensure(only and only["name"], main)
-        self.heal_pipewire(source)
 
     def outputs(self):
         """(the node name the sound goes to, a second one that gets a copy of it, or None): the Bluetooth
@@ -1146,19 +1118,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return "monitor:" + main
         channels = self.mix_channels()
         return channels[0][1]["name"] if channels else None
-
-    def heal_pipewire(self, source):
-        """WirePlumber can lose the FM-1 when it reconnects quickly under another identity (as after a
-        firmware update: app, update loader, app again). If Linux has the FM-1's sound card but PipeWire has
-        had no FM-1 input for 20 s, restart WirePlumber (at most every 3 minutes, never mid-job)."""
-        now = time.monotonic()
-        if source or not alsa_has_card(self.state["source_match"]) or self.job_busy():
-            self.no_source_since = None
-            return
-        self.no_source_since = self.no_source_since or now
-        if now - self.no_source_since > 20 and now - self.healed_at > 180:
-            self.healed_at, self.no_source_since = now, None
-            run(["systemctl", "--user", "restart", "wireplumber"], timeout=30)
 
     def speaker_appeared(self, sink):
         """the speaker is back. One that connected by itself (switched on, it calls the box it knows) can come up
@@ -1357,15 +1316,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         rate = f"{self.state['audio_rate'] / 1000:g} kHz"
         tempo = f"{self.state['bpm']} BPM"
         onoff = lambda on: "on" if on else "off"      # noqa: E731
-        if self.settings_menu == "sloop":     # SLOOP 2.3+'s editor protocol
-            which = ([("library_fm1", "FM-1", self.state["library_fm1"])]       # only with two FM-1s plugged in
-                     if self.midi and getattr(self.midi, "usb_b", None) else [])
-            return which + [("backup", "Back up now", ""), ("restore", "Restore", "›"),
-                            ("project", "Load project", "›"), ("sample", "Load sample", "›"),
-                            ("sample_level", "Sample level", self.state["sample_level"]),
-                            ("auto", "Auto backup", self.auto_label(self.auto_mode())), ("sd", "Import SD card", "")]
-        if self.settings_menu == "fm1":       # the FM-1 itself, whatever it runs
-            return [("fw_info", "Runs", self.fw_label or "?"), ("firmware", "Install firmware", "›")]
         if self.settings_menu == "play":      # what changes while playing
             keys = self.keys_route()
             return [("metronome", "Metronome", onoff(self.state["metronome"])),
@@ -1393,9 +1343,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     ("usbkeys", "USB keys", str(len(keys)) if keys else "none"),
                     ("routes", "MIDI routes", "›"), ("presets", "Route presets", "›")]
         return [("g_play", "Playing", "›"), ("g_audio", "Audio", "›"), ("g_midi", "MIDI", "›"),
-                ("recording", "Recordings", "›"), ("editor", "Sample editor", "›"), ("wifi", "Wi-Fi", wifi),
-                ("g_sloop", "Sloop", "›"),
-                ("g_fm1", "FM-1", "›")]
+                ("recording", "Recordings", "›"), ("editor", "Sample editor", "›"), ("sd", "Import SD card", ""),
+                ("wifi", "Wi-Fi", wifi)]
 
     def change_setting(self):
         key = self.settings_rows()[self.setting][0]
@@ -1448,17 +1397,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.state["rec_parts"] = not self.state["rec_parts"]
             self.save_settings()
             self.say("Recordings keep each source too" if self.state["rec_parts"] else "Recordings: the mix only", 2)
-        elif key == "library_fm1":
-            self.state["library_fm1"] = "B" if self.state["library_fm1"] == "A" else "A"
-            self.save_settings()
-            library.forget_firmware()          # IN shows what the chosen FM-1 runs: ask it
-            self.fw_asked, self.fw_seen = False, time.monotonic() - 5
-            self.say(f"Sloop jobs go to FM-1 {self.state['library_fm1']}", 2)
-        elif key == "sample_level":
-            levels = ("-6 dB", "-3 dB", "full")
-            now = self.state["sample_level"] if self.state["sample_level"] in levels else "-6 dB"
-            self.state["sample_level"] = levels[(levels.index(now) + 1) % 3]
-            self.save_settings()
         elif key == "click":
             levels = ("low", "mid", "high")
             self.state["click"] = levels[(levels.index(self.state["click"]) + 1) % 3]
@@ -1578,9 +1516,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if key == "press" and held and self.screen not in ("confirm", "status"):
             return                            # holding press only confirms (the press itself already acted)
         if key == "key3":
-            if self.flash_running():
-                self.say("Wait: the FM-1 is being flashed")
-            elif held:
+            if held:
                 self.shutdown()
             else:
                 self.say("Hold KEY3 to power off")
@@ -1664,7 +1600,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     self.recorder.recording())
         return (self.screen, self.busy and (self.busy, int(now * 2) % 4),
                 self.message if now < self.message_until else None, self.live(),
-                self.source and self.source["label"], self.fw_label, self.sink and self.sink["label"], self.connecting,
+                self.source and self.source["label"], self.sink and self.sink["label"], self.connecting,
                 self.state["last_name"], self.auto, self.volume, now < self.volume_shown,
                 self.battery and (self.battery["percent"], self.battery["plugged"]),
                 self.midi_text(), bool(self.midi and now - self.midi.activity() < 0.4), self.clock_text(),
@@ -1688,7 +1624,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.draw_saver(d, now)
         else:
             {"scan": self.draw_scan, "settings": self.draw_settings,
-             "pick": self.draw_pick, "confirm": self.draw_confirm, "job": self.draw_job,
+             "pick": self.draw_pick, "confirm": self.draw_confirm,
              "meter": lambda d: None, "matrix": self.draw_matrix, "route": self.draw_route,
              "player": self.draw_player, "editor": self.draw_editor,
              "chanmap": self.draw_chanmap, "presets": self.draw_presets}.get(
@@ -1726,7 +1662,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             out = self.state["last_name"] + (" (off)" if self.auto else " (paused)")
         else:
             out = "none: press KEY1"
-        fm1 = (self.fw_label or short_label(self.source["label"])) if self.source else "FM-1 not found"
+        fm1 = short_label(self.source["label"]) if self.source else "FM-1 not found"
         rows = (("IN", fm1 + (" + B" if self.source and self.source_b else "")),
                 ("OUT", out),
                 ("MIDI", self.midi_text()))
@@ -1738,12 +1674,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             d.ellipse((123, 44, 127, 48), fill=1)                     # MIDI traffic
         vol = f"VOL {self.volume}%" if self.volume is not None else "VOL --"
         d.text((0, 53), vol, font=self.f_small, fill=1)
-        running = self.job_busy()
-        if running:                           # a library job (the boot backup, say) and how far it is
-            percent = running.get("percent")
-            hint = running.get("job", "job") + (f" {int(percent)}%" if percent is not None else "…")
-        else:
-            hint = self.clock_text() or "settings >"
+        hint = self.clock_text() or "settings >"
         d.text((128 - d.textlength(hint, font=self.f_small), 53), hint, font=self.f_small, fill=1)
 
     def draw_battery(self, d, right):
@@ -1898,8 +1829,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             elif event and event[0] == "status" and event[1]:
                 self.last_activity = time.monotonic()     # connects and disconnects wake the screen
                 self.wake()
-            elif event and event[0] == "request":
-                self.web_request(event[1])
             elif event and event[0] == "ble_note":        # a Bluetooth MIDI keyboard connected, left, failed
                 self.last_activity = time.monotonic()
                 self.wake()

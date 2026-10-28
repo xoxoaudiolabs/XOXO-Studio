@@ -17,9 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 TMP = Path(tempfile.mkdtemp(prefix="fm1-web-"))
 os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
 
-import fake_fm1  # noqa: E402
 import library  # noqa: E402
-import sloop  # noqa: E402
 import web  # noqa: E402
 from test_library import write_wav  # noqa: E402
 
@@ -43,8 +41,6 @@ def jcall(path, body=None, raw=None):
 
 
 def setup():
-    fake = fake_fm1.FakeFM1()
-    library.write_backup(sloop.Sloop(sloop.Link(mido=fake, time_scale=0.02)).backup(), "auto")
     global BASE
     server = web.ThreadingHTTPServer(("127.0.0.1", PORT), web.Handler)
     BASE = f"http://127.0.0.1:{server.server_address[1]}"
@@ -56,7 +52,7 @@ def test_page_and_listing():
     status, page, headers = call("/")
     assert status == 200 and b"FM-1 Companion" in page and headers["Content-Type"].startswith("text/html")
     status, lib = jcall("/api/library")
-    assert status == 200 and len(lib["backups"]) == 1 and lib["backups"][0]["projects"] == ["A", "D"]
+    assert status == 200 and set(lib) == {"samples", "recordings"}, lib
 
 
 def test_installable():
@@ -85,19 +81,15 @@ def test_uploads():
                          ("firmware", "a.wav"), ("samples", ".hidden.wav")):
         status, reply = jcall(f"/api/upload?folder={folder}&name={name}", raw=wav)
         assert status == 400, (folder, name)
-    status, reply = jcall("/api/upload?folder=firmware&name=bad.fwsc", raw=b"not a package")
-    assert status == 400 and "bad.fwsc" in reply["message"]
 
 
 def test_downloads():
-    name = library.listing()["backups"][0]["name"]
-    status, data, headers = call(f"/files/backups/{name}")
-    assert status == 200 and json.loads(data)["format"] == "sloop-backup" and "attachment" in headers["Content-Disposition"]
-    assert call("/files/backups/..%2F..%2Fx.json")[0] == 404
-    status, data, _ = call(f"/api/project?backup={name}&source=D")
-    project = json.loads(data)
-    assert status == 200 and project["format"] == "sloop-project" and sloop.project_from(project)
-    assert call(f"/api/project?backup={name}&source=C")[0] == 400       # empty
+    wav = write_wav(library.folder("samples") / "kick_C2.wav", 0.1).read_bytes()
+    status, data, headers = call("/files/samples/kick_C2.wav")
+    assert status == 200 and data == wav and "attachment" in headers["Content-Disposition"]
+    assert call("/files/samples/..%2F..%2Fx.wav")[0] == 404
+    assert call("/files/backups/x.json")[0] == 404                      # no FM-1 backups here
+    assert call("/api/project?backup=x.json&source=A")[0] == 404
 
 
 def test_recordings():
@@ -127,7 +119,7 @@ def test_recordings():
                 {"start": "soon"}):
         assert jcall("/api/save-sample", dict(edit, **bad))[0] == 400, bad
     assert jcall("/api/edit-info?folder=backups&file=x.json")[0] == 404
-    assert jcall("/api/ask", {"cmd": "load-recording", "file": rec["name"], "slot": 3})[0] == 400   # gone
+    assert jcall("/api/ask", {"cmd": "load-sample", "files": [rec["name"]], "slot": 3})[0] == 404   # no FM-1 slots
     assert jcall("/api/delete", {"folder": "recordings", "name": rec["name"]})[1]["ok"]
 
 
@@ -173,22 +165,6 @@ def test_audio_ranges():
     assert web.byte_range("bytes=200-300", 100) is None and web.byte_range("bytes=1-2,5-6", 100) is None
 
 
-def test_writes_wait_for_the_box():
-    name = library.listing()["backups"][0]["name"]
-    status, reply = jcall("/api/ask", {"cmd": "restore", "file": name})
-    assert status == 200 and "box" in reply["message"]
-    request = library.take_request()
-    assert request["args"] == ["restore", str(library.folder("backups") / name)] and request["title"] == "Restore?"
-    assert library.take_request() is None                               # taken once
-    jcall("/api/ask", {"cmd": "load-project", "folder": "backups", "file": name, "source": "A", "target": "C"})
-    assert library.take_request()["args"][2:] == ["A", "C"]
-    jcall("/api/ask", {"cmd": "load-sample", "files": ["bass_C2.wav"], "slot": 2, "name": "bass"})
-    assert library.take_request()["args"][:3] == ["load-sample", "2", "bass"]
-    assert jcall("/api/ask", {"cmd": "load-sample", "files": ["../x.wav"], "slot": 2})[0] == 400
-    assert jcall("/api/ask", {"cmd": "flash", "file": "nope.fwsc"})[0] == 400
-    assert jcall("/api/ask", {"cmd": "rm -rf"})[0] == 400
-
-
 def test_run_and_delete():
     (TMP / "sd" / "samples").mkdir(parents=True, exist_ok=True)
     write_wav(TMP / "sd" / "samples" / "pad_C3.wav", 0.1)
@@ -198,8 +174,7 @@ def test_run_and_delete():
     assert jcall("/api/delete", {"folder": "samples", "name": "pad_C3.wav"})[1]["ok"]
     assert not (library.folder("samples") / "pad_C3.wav").exists()
     assert jcall("/api/delete", {"folder": "samples", "name": "../../x.wav"})[0] == 404
-    status, state = jcall("/api/state")
-    assert status == 200 and "waiting" in state
+    assert jcall("/api/run", {"cmd": "backup"})[0] == 400                # no FM-1 jobs here
 
 
 if __name__ == "__main__":

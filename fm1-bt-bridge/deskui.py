@@ -1,4 +1,4 @@
-"""The desk box's touch screens (480x320), in SLOOP's style and FM-1 A's colours (sloopstyle.py).
+"""The desk box's touch screens (480x320), in SLOOP's style and the theme picked in MORE > THEME (sloopstyle.py).
 
 A tab bar along the bottom: HOME (the sources, tempo, record / start / tap), MIXER (tab "MIX": a slider a
 source, and the speaker; METERS opens the meters, larger), SAMPLER (tab "PADS": the MPC-style sampler, its
@@ -22,7 +22,6 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 import blemidi
-import library
 import sloopstyle as st
 from deskdecks import DeskDecks
 from deskpads import DeskPads
@@ -36,12 +35,10 @@ METER_TABS = ("METER", "REC")                   # tabs with live audio levels (t
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
             ("LOOP", "loop")]
-MORE = [("SLOOP", ("menu", "sloop")), ("FM-1", ("menu", "fm1")),
-        ("PLAYING", ("menu", "play")),
+MORE = [("PLAYING", ("menu", "play")),
         ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")), ("WI-FI", ("wifi", None)),
         ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)), ("DJ DECKS", ("decks", None)),
         ("SHUT DOWN", ("off", None))]
-THEMES = ["FOLLOW FM-1 A"] + st.ALL
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
@@ -61,28 +58,19 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         import deskmeters
         self.meters = deskmeters.DeskMeters()     # the meters' own pictures and smoothing
 
-    # ---- theme: FM-1 A's (library.read_theme saves it), or one picked in MORE > THEME
+    # ---- theme: the one picked in MORE > THEME
+
+    def theme_pick(self):
+        pick = self.app.state.get("desk_theme")
+        return pick if pick in st.ALL else st.Theme().name
 
     def current_theme(self, now):
         if now >= self.theme_check:
             self.theme_check = now + 2
-            pick = self.app.state.get("desk_theme", "follow")
-            if pick != "follow":
-                key = pick
-            else:
-                try:
-                    key = library.THEME.read_text()
-                except OSError:
-                    key = None
-            if key != self.theme_seen:
-                self.theme_seen = key
-                if pick != "follow":
-                    self.theme = st.Theme(pick)
-                else:
-                    try:
-                        self.theme = st.theme_load(json.loads(key)) if key else st.Theme()
-                    except ValueError:
-                        self.theme = st.Theme()
+            pick = self.theme_pick()
+            if pick != self.theme_seen:
+                self.theme_seen = pick
+                self.theme = st.Theme(pick)
                 self.display.theme = self.theme
                 self.remember_theme()
         return self.theme
@@ -105,7 +93,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         out = []
         for i, (key, node) in enumerate(a.mix_channels()):
             if key in ("a", "b"):
-                out.append((key, a.channel_name(key), a.fw_label or "FM-1", 0 if key == "a" else 1))
+                out.append((key, a.channel_name(key), "FM-1", 0 if key == "a" else 1))
             else:
                 out.append((key, a.channel_name(key, node), a.input_label(key, node) or "USB", 2 + i % 2))
         return out
@@ -241,11 +229,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         length = ed["end"] - ed["start"]
         st.text(img, (180, 9), Path(ed["name"]).stem[:22], t.c[3])
         tag = f"{length:.2f}S"
-        long = length > library.SLOT_SECONDS          # longer than a SLOOP slot holds
         tw = st.text_size(tag)[0]
-        if long:
-            d.rectangle((W - tw - 16, 4, W - 4, HDR_H - 6), fill=t.track[3])
-        st.text(img, (W - tw - 10, 9), tag, t.bg if long else t.hi)
+        st.text(img, (W - tw - 10, 9), tag, t.hi)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         # the waveform, in the view (zoomed in or the whole take)
         v0, v1 = self.ed_view or (0.0, ed["seconds"])
@@ -813,13 +798,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
 
     # ---- MORE > THEME: a swatch of each theme, tapped to use it
 
-    def fm1_theme(self):
-        """the theme FM-1 A shows (library.read_theme saves it), for FOLLOW FM-1 A's swatch"""
-        try:
-            return st.theme_load(json.loads(library.THEME.read_text()))
-        except (OSError, ValueError):
-            return st.Theme()
-
     def pick_theme(self, name):
         self.app.state["desk_theme"] = name
         self.app.save_settings()
@@ -830,8 +808,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         self.button(img, d, (4, 3, 84, HDR_H - 5), "< MORE", lambda: self.open_tab("MORE"), key="theme-back")
         st.text(img, (96, 9), "THEME", t.hi)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        pick = self.app.state.get("desk_theme", "follow")
-        items = [("follow", "FM-1 A", self.fm1_theme())] + [(n, n, st.Theme(n)) for n in st.ALL]
+        pick = self.theme_pick()
+        items = [(n, n, st.Theme(n)) for n in st.ALL]
         cols = 4                                   # every theme on one screen
         rows = (len(items) + cols - 1) // cols
         top, bottom = HDR_H + 4, H - TAB_H - 4
@@ -857,8 +835,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         self.more_top = max(0, min(len(MORE) - 5, self.more_top + step * 3))
 
     def theme_label(self):
-        pick = self.app.state.get("desk_theme", "follow")
-        return "FM-1 A" if pick == "follow" else pick
+        return self.theme_pick()
 
     def open_more(self, what):
         a = self.app
