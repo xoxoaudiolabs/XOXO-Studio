@@ -42,12 +42,12 @@ The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, ap
 ## What's inside
 
 - **HOME, MIXER, RECORDER:** every USB sound source and the pads, a level each, recorded as one mix (or a part each), with meters
-- **SAMPLER (PADS):** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; an 808 kit comes with it
+- **SAMPLER (PADS):** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; the 808 KIT is loaded on the first start
 - **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
 - **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
-Being built: **XO-4**, the Studio's own groovebox (drums, two FM synth tracks, a MIDI track). So far its FM synth voice (`fm1-bt-bridge/xo4synth.py`): not in the app yet.
+Being built: **XO-4**, the Studio's own groovebox. Its engine runs in the app (`fm1-bt-bridge/xo4.py`, `xo4synth.py`): four tracks on the box's beat grid (DRUMS plays the pads' kit; SYNTH 1 and SYNTH 2, two-operator FM with chords of up to four notes; MIDI, out through the routes as the source XO4), patterns A–H changing on the bar, each track its own length, swing. Its sound is a source of its own, XO-4, in the mixer, the meters and recordings. It has no screen yet, so there's no way to make patterns on the Studio itself.
 
 Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 
@@ -60,8 +60,9 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
 - the tab bar with DECKS on it looks right on the Studio's screen
 - XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
+- XO-4's engine, with a demo pattern put in by hand and the box clock started from the web page: the XO-4 source and the pads (the 808 KIT, played by XO-4's drum track) both carry sound, measured by recording each source on the Pi (peaks 0.66 and 0.81); XO-4 takes about 30% of one core while it plays, the pads about 20%
 
-**Not yet tried on hardware:** sound out (a Bluetooth speaker, the jack), USB sound sources, the mixer and CUE, recording, the pads playing and their sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
+**Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, recording, the pads' own sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
 **On a PC:** the test suite passes (each `tests/test_*.py` with its own runner; `tests/test_desk.py` through pytest).
 

@@ -603,9 +603,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
                     on=bool(getattr(a.midi, "mcu", None)), key="daw")
         sources, dests = a.matrix_lists()
         routes = a.routes()
-        short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET"}
+        short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET", "XO4": "XO-4"}
         dshort = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
-        colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1}
+        colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1, "XO4": 3}
         name = lambda e: e[len(blemidi.DEVICE):].upper() if e.startswith(blemidi.DEVICE) else e   # noqa: E731
         short = {**{s: name(s)[:10] for s in sources}, **short}         # a USB device: its own name
         dshort = {**{x: name(x) for x in dests}, **dshort}

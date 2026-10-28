@@ -33,7 +33,7 @@ class WebLink:
             "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled),
                      "error": midi and midi.error, "controllers": list(getattr(midi, "controllers", None) or []),
                      "net": list(getattr(midi, "net", None) or []),
-                     "pads": bool(getattr(midi, "pads", False))},
+                     "pads": bool(getattr(midi, "pads", False)), "xo4": bool(getattr(midi, "xo4", False))},
             "matrix": dict(zip(("sources", "dests"), self.matrix_lists())),
             "clock": clock, "clock_text": self.clock_text(),
             "recording": int(self.recorder.seconds()) if self.recorder.recording() else None,

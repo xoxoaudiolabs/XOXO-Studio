@@ -693,7 +693,7 @@ def test_each_usb_midi_device_its_own_route():
     import deskui
     assert blemidi.route_default("U:EP-136>SMP")["on"] and not blemidi.route_default("Box>U:EP-136")["on"]
     assert not blemidi.route_default("U:Clipper>U:EP-136")["on"]               # device to device: off at first
-    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "Box")
+    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "XO4", "Box")
     assert blemidi.matrix()[0] == blemidi.SOURCES                               # the Pocket: USB, as one
     cleaned = blemidi.clean_routes({"U:EP-136>SMP": {"on": False}})
     assert cleaned["U:EP-136>SMP"]["on"] is False and "BT>SMP" in cleaned

@@ -290,7 +290,7 @@ class Sequencer:
 
     def steps_due(self, seq, t0, t1):
         if not self.playing():
-            if self.next is not None:           # stopped: what's held ends
+            if self.next is not None or self.pending:   # stopped: what's held ends (XO-4's hits too)
                 self.next, self.step, self.skip = None, None, set()
                 offs = [(t0, "off", p[2], 0) for p in self.pending if p[1] == "off"]
                 self.pending = []
@@ -308,6 +308,12 @@ class Sequencer:
         due = sorted(p for p in self.pending if p[0] < t1)
         self.pending = [p for p in self.pending if p[0] >= t1]
         return due
+
+    def queue(self, hits):
+        """XO-4's drum track: [(time, "on" / "off", pad, velocity)], each played at its time (while playing)"""
+        if self.playing():
+            self.pending += [(float(t), str(kind), int(pad), int(vel)) for t, kind, pad, vel in hits
+                             if 0 <= int(pad) < PADS]
 
     def fire(self, seq, a):
         idx = a % seq["len"]
@@ -534,7 +540,7 @@ def to_pcm(block):
 
 # ---------------------------------------------------------------- the process
 
-def run(app_conn, midi_conn, rate):
+def run(app_conn, midi_conn, rate, xo4_conn=None):
     """the pad process: render, stream into the virtual speaker SINK (pw-loopback makes it, and the SOURCE the
     box hears), take the app's and the MIDI process's messages between blocks, tell the app which pads sound"""
     import fcntl
@@ -563,13 +569,18 @@ def run(app_conn, midi_conn, rate):
     base, frames = None, 0                      # heard-time of frame 0; frames written since
     try:
         while True:
-            for conn in (app_conn, midi_conn):
+            for conn in (app_conn, midi_conn, xo4_conn):
                 while conn is not None and conn.poll():
                     try:
                         msg = conn.recv()
                     except (EOFError, OSError):
+                        if conn is xo4_conn:                # (XO-4 gone: the pads carry on)
+                            xo4_conn = None
+                            break
                         os._exit(0)
-                    if msg[0] == "kit":
+                    if msg[0] == "hits":                # ("hits", [...]): XO-4's drum track (xo4.py)
+                        engine.seq.queue(msg[1])
+                    elif msg[0] == "kit":
                         engine.set_kit(msg[1])
                     elif msg[0] == "tap":
                         if engine.hit(msg[1], msg[2]):
@@ -622,7 +633,9 @@ class PadProcess:
         ctx = multiprocessing.get_context("fork")
         self.conn, child = ctx.Pipe()
         self.midi_in, self.midi_conn = ctx.Pipe(duplex=False)     # (the MIDI process writes midi_conn)
-        self.proc = ctx.Process(target=run, args=(child, self.midi_in, rate), daemon=True, name="fm1-pads")
+        self.xo4_in, self.xo4_conn = ctx.Pipe(duplex=False)       # (XO-4 writes xo4_conn: its drums' hits)
+        self.proc = ctx.Process(target=run, args=(child, self.midi_in, rate, self.xo4_in), daemon=True,
+                                name="fm1-pads")
         self.sounding = []
         self.step = None                        # the sequencer's playhead
         self.on_seq = None                      # called with the pattern live REC changed (from this thread)

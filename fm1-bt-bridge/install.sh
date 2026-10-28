@@ -123,6 +123,8 @@ install -D -m 644 "$DIR/deskui.py"                              ~/.local/share/f
 install -D -m 644 "$DIR/deskmeters.py"                          ~/.local/share/fm1-bridge/deskmeters.py
 install -D -m 644 "$DIR/deskpages.py"                           ~/.local/share/fm1-bridge/deskpages.py
 install -D -m 644 "$DIR/pads.py"                                ~/.local/share/fm1-bridge/pads.py
+install -D -m 644 "$DIR/xo4.py"                                 ~/.local/share/fm1-bridge/xo4.py
+install -D -m 644 "$DIR/xo4synth.py"                            ~/.local/share/fm1-bridge/xo4synth.py
 install -D -m 644 "$DIR/deskpads.py"                            ~/.local/share/fm1-bridge/deskpads.py
 install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/fm1-bridge/deskdecks.py
 install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
