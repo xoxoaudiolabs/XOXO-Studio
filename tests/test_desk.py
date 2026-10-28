@@ -548,7 +548,7 @@ def test_touch_screens():
 
 
 def test_tab_bar():
-    """seven tabs (MIXER, SAMPLER, DECKS, RECORDER with the reel-to-reel meter ...); the meters open from MIXER and the
+    """eight tabs (MIXER, SAMPLER, XO-4, DECKS, RECORD with the reel-to-reel meter ...); the meters open from MIXER and the
     DAW from MIDI, each with a back button, their tab lit under them"""
     import bridge
     import deskui
@@ -557,7 +557,7 @@ def test_tab_bar():
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.render(0.0, force=True)
-    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "PADS", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["PADS"] == "SAMPLER"
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "PADS", "XO4", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["PADS"] == "SAMPLER"
 
     def press(key):
         box = next(w[0] for w in ui.widgets if w[3] == key)
@@ -575,7 +575,7 @@ def test_tab_bar():
     toggled = []
     app.toggle_recording = lambda: toggled.append(True)
     press(("tab", "REC"))                                            # RECORD: its own tab, the reels' levels on
-    assert ui.tab == "REC" and app.screen == "meter" and deskui.TAB_LABEL["REC"] == "RECORDER" and deskui.TAB_LABEL["MIX"] == "MIXER"
+    assert ui.tab == "REC" and app.screen == "meter" and deskui.TAB_LABEL["REC"] == "RECORD" and deskui.TAB_LABEL["MIX"] == "MIXER"
     press("rec-go")
     assert toggled
     press("rec-takes")
@@ -1022,3 +1022,105 @@ def test_daw_surface():
     ui.touch("up", pan[0] + 2, pan[1] + 2, 0.0)
     assert app.midi.sent[-1] == bytes([0xB0, 0x10, 2])                          # BASS panned right
 
+
+def test_xo4_tab():
+    """XO-4's tab, full screen: patterns, tracks, steps with chords from the note keys, a step's VEL and LEN, the
+    drums' pads, octave, key and scale, a track cleared; what's tapped sounds while stopped; the song is kept"""
+    import bridge
+    import deskui
+    import sloopstyle
+    import xo4
+
+    class XO4:
+        step = pattern = queued = None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+
+    class Pads:
+        sounding, step = [], None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.xo4, app.pads = XO4(), Pads()
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if hold:
+            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)       # held past 0.6 s: its long press
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
+        ui.render(0.0, force=True)
+
+    def song():
+        return app.song()
+
+    press(("tab", "XO4"))
+    assert ui.tab == "XO4" and not any(isinstance(w[3], tuple) and w[3][0] == "tab" for w in ui.widgets)   # full
+    assert {("xo4-pat", p) for p in xo4.PATTERNS} <= {w[3] for w in ui.widgets}
+    press(("xo4-pat", "B"))                                         # stopped: B plays and is edited at once
+    assert song()["pattern"] == "B" and ("pick", "B") in app.xo4.sent
+    press(("xo4-track", 1))                                         # SYN 1
+    press(("xo4-step", 0))                                          # an empty step: the last notes, selected
+    step = song()["patterns"]["B"][1]["steps"][0]
+    assert step["notes"] == [60] and ui.xo4_step == 0 and ("audition", 1, [60], 100) in app.xo4.sent
+    press(("xo4-key", 64))                                          # E4 and G4 added: a chord
+    press(("xo4-key", 67))
+    assert song()["patterns"]["B"][1]["steps"][0]["notes"] == [60, 64, 67]
+    press(("xo4-vel", "+"))
+    press(("xo4-len", "+"))
+    step = song()["patterns"]["B"][1]["steps"][0]
+    assert step["vel"] == 108 and step["len"] == 1.5
+    press(("xo4-step", 4))                                          # a new step gets the chord
+    assert song()["patterns"]["B"][1]["steps"][4]["notes"] == [60, 64, 67] and ui.xo4_step == 4
+    press(("xo4-step", 4))                                          # tapped again: emptied
+    assert song()["patterns"]["B"][1]["steps"][4] is None and ui.xo4_step is None
+    press(("xo4-step", 0), hold=True)                               # held: emptied
+    assert song()["patterns"]["B"][1]["steps"][0] is None
+    press("xo4-len+")
+    assert song()["patterns"]["B"][1]["len"] == 17
+    press(("xo4-page", 1))                                          # 17 steps: a second page
+    assert ui.xo4_page == 1 and ("xo4-step", 16) in {w[3] for w in ui.widgets}
+    press("xo4-root")
+    press("xo4-scale")
+    assert song()["root"] == 1 and song()["scale"] == "MINOR"
+    press("xo4-oct-")
+    assert ui.xo4_oct[1] == 3
+    keys = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "xo4-key"]
+    assert len(keys) == 14
+    assert keys == xo4.scale_notes(song(), 4 * 12 + 1, 14)         # C#3 minor, from the octave's root up
+    press(("xo4-track", 0))                                         # DRUMS: a pad picked (heard), steps toggle it
+    press(("xo4-pad", 3))
+    assert ui.xo4_pad == 3 and app.pads.sent[-1] == ("tap", 3, 100)
+    press(("xo4-step", 2))
+    press(("xo4-pad", 5))
+    press(("xo4-step", 2))
+    assert song()["patterns"]["B"][0]["steps"][2]["notes"] == [3, 5]
+    press(("xo4-step", 2))
+    assert song()["patterns"]["B"][0]["steps"][2]["notes"] == [3]
+    box = next(w[0] for w in ui.widgets if w[3] == "xo4-clear")     # HOLD CLR: held to confirm, as everywhere
+    ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+    ui.render(deskui.HOLD + 0.1)
+    ui.touch("up", box[0] + 4, box[1] + 4, deskui.HOLD + 0.1)
+    assert song()["patterns"]["B"][0]["steps"][2] is None
+    app.xo4.step, app.xo4.pattern = 18, "B"                         # the playhead lit while playing
+    app.playing = True
+    app.state["clock_mode"] = "box"
+    ui.render(0.0, force=True)
+    assert ui.app.display.image.size == (480, 320)
+    assert sloopstyle.ALL                                           # (drawn in the theme's colours)
+    press("xo4-home")
+    assert ui.tab == "HOME"

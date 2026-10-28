@@ -31,6 +31,11 @@ GATE = 0.9                                  # a step's note ends at this share o
 LOOKAHEAD = 0.12                            # s: the drums' and MIDI's notes sent this far ahead of when they sound
 BLOCK = 512
 SOURCE, SINK = "fm1-xo4", "fm1-xo4-in"
+SCALES = {"MAJOR": (0, 2, 4, 5, 7, 9, 11), "MINOR": (0, 2, 3, 5, 7, 8, 10), "DORIAN": (0, 2, 3, 5, 7, 9, 10),
+          "MIXOLYD": (0, 2, 4, 5, 7, 9, 10), "PENTA": (0, 2, 4, 7, 9), "MIN PENTA": (0, 3, 5, 7, 10),
+          "CHROMATIC": tuple(range(12))}         # the note keys on XO-4's screen offer these, from the root up
+NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+AUDITION = 0.4                              # s: a note tapped on the screen sounds this long
 SYNTH_PATCHES = ({"ratio": 1.0, "index": 2.0, "mod_decay": 0.6, "attack": 0.005, "release": 0.3},   # keys
                  {"ratio": 0.5, "index": 4.0, "mod_decay": 0.15, "mod_sustain": 0.1, "sustain": 0.4,
                   "release": 0.08, "level": 0.3})                                                     # bass
@@ -47,10 +52,24 @@ def empty_track():
 
 def empty_song():
     """the song: patterns A-H (four tracks each), which plays, the synths' patches, the MIDI track's channel,
-    swing, and each track's level"""
+    swing, each track's level, and the key and scale the screen's note keys offer"""
     return {"patterns": {p: [empty_track() for _ in TRACKS] for p in PATTERNS}, "pattern": "A",
             "patches": [xo4synth.clean_patch(p) for p in SYNTH_PATCHES], "midi_channel": 0, "swing": 0,
-            "levels": [1.0, 1.0, 1.0, 1.0]}
+            "levels": [1.0, 1.0, 1.0, 1.0], "root": 0, "scale": "MAJOR"}
+
+
+def scale_notes(song, low, count):
+    """count notes of the song's scale from MIDI note low up (low itself if it's in the scale)"""
+    steps, out, n = SCALES[song["scale"]], [], low
+    while len(out) < count and n <= 127:
+        if (n - song["root"]) % 12 in steps:
+            out.append(n)
+        n += 1
+    return out
+
+
+def note_name(note):
+    return f"{NOTE_NAMES[note % 12]}{note // 12 - 1}"
 
 
 def clean_step(step, track):
@@ -102,7 +121,9 @@ def clean_song(song):
         if isinstance(patch, dict):
             out["patches"][k] = xo4synth.clean_patch(dict(SYNTH_PATCHES[k], **patch))
     out["patches"] = [xo4synth.clean_patch(p) for p in out["patches"]]
-    for key, lo, hi in (("midi_channel", 0, 15), ("swing", 0, 100)):
+    if song.get("scale") in SCALES:
+        out["scale"] = song["scale"]
+    for key, lo, hi in (("midi_channel", 0, 15), ("swing", 0, 100), ("root", 0, 11)):
         try:
             out[key] = max(lo, min(hi, int(song.get(key, out[key]))))
         except (TypeError, ValueError):
@@ -312,6 +333,7 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
     except OSError:
         pass
     engine, step_shown, pattern_shown = Engine(rate), None, None
+    auditions = []                              # (when it ends, synth, note): notes tapped on the screen
     ahead = 1024 / rate + 0.010                 # as the pads: a block written now is heard after the pipe and pw-cat
     base, frames = None, 0
     try:
@@ -330,6 +352,16 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
                         engine.seq.grid = tuple(msg[1:4])
                     elif msg[0] == "master":
                         engine.master = float(msg[1])
+                    elif msg[0] == "audition":          # ("audition", track, [notes], velocity): heard now
+                        if msg[1] in (SYNTH1, SYNTH2):
+                            synth = engine.synths[msg[1] - SYNTH1]
+                            for note in msg[2]:
+                                synth.note_on(note, msg[3])
+                                auditions.append((time.monotonic() + AUDITION, synth, note))
+            now = time.monotonic()
+            for end in [a for a in auditions if a[0] <= now]:
+                auditions.remove(end)
+                end[1].note_off(end[2])
             heard = time.monotonic() + ahead
             if base is None or abs(base + frames / rate - heard) > 0.015:
                 base, frames = heard, 0
