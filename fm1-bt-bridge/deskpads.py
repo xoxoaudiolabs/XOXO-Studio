@@ -88,7 +88,7 @@ class DeskPads:
             self.button(img, d, (x1 - 60, 3, x1, HDR_H - 5), label, action, on=on, key=key)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         sounding = set(a.pads.sounding) if a.pads else set()
-        gw, gh = (W - 10) // 4, (H - TAB_H - HDR_H - 8) // 4
+        gw, gh = (W - 10) // 4, (H - HDR_H - 8) // 4      # the whole height: no tab bar under the pads
         for i in range(pads.PADS):
             row, col = 3 - i // 4, i % 4                   # pad 1 bottom left, as on an MPC
             x0, y0 = 5 + col * gw, HDR_H + 4 + row * gh
