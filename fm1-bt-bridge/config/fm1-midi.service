@@ -3,7 +3,7 @@
 <!-- The desk box's network MIDI (netmidi.py) in a computer's network MIDI list (macOS Audio MIDI Setup, rtpMIDI
      on Windows): music, the MIDI routes' NET -->
 <service-group>
-  <name replace-wildcards="yes">FM-1 Companion on %h</name>
+  <name replace-wildcards="yes">XOXO Studio on %h</name>
   <service>
     <type>_apple-midi._udp</type>
     <port>5004</port>

@@ -419,7 +419,7 @@ class DeskMeters:
             d.rectangle((tx - 14, ty - 6, tx + w + 14, ty + h + 6), fill=t.hi)
         st.text(img, (tx, ty), text, t.bg if flash else t.hi, 5)
         st.text(img, (tx + w + 22, ty + h - 20), "BPM", t.c[2])
-        source = {"box": "BOX", "FM-1": "FM-1", "BT": "BT", "USB": "USB"}.get(clock.get("source"), "")
+        source = {"box": "BOX", "BT": "BT", "USB": "USB", "NET": "NET"}.get(clock.get("source"), "")
         st.text(img, (x0 + 16, ty + h - 20), ("PLAY  " if clock.get("playing") else "") + source, t.c[3])
         bw = (x1 - x0 - 50) // 4
         for i in range(4):

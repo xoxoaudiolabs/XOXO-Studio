@@ -77,7 +77,7 @@ def make_app(block):
     app = bridge.App(display, dict(bridge.DEFAULTS, last_name="JBL Go 3", last_mac="x"))
     app.loop = Loop()
     app.save_settings = lambda: None          # never this computer's real settings file
-    app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"}]     # one USB sound source
     app.levels = FakeLevels(block)
     return app, display
 
@@ -85,7 +85,7 @@ def make_app(block):
 
 
 def test_clipping():
-    """A take the FM-1 clipped (flat tops) is flagged; a clean one, or one track brushing the ceiling, isn't. A deep
+    """A take a source clipped (flat tops) is flagged; a clean one, or one track brushing the ceiling, isn't. A deep
     sub (an 808 at 33-40 Hz) stays on one value for a few samples at each peak without clipping: not flagged; the
     same sub clipped is."""
     import wave
@@ -175,12 +175,12 @@ def test_reader_follows_the_screen():
     now = 100.0
     assert app.meter_view(now) == (None, None) and not app.levels.proc  # status screen: no level stream
     app.open_meters()
-    assert app.meter_view(now) == ((0, 1), None) and app.levels.target == app.source["name"]
+    assert app.meter_view(now) == ((0, 1), None) and app.levels.target == app.others[0]["name"]
     app.mode = "saver"
     app.meter_view(now)
     assert not app.levels.proc                                        # screen saver: stopped
-    app.mode, app.source = "on", None
-    assert app.meter_view(now) == ("ready", None) and not app.levels.proc   # no FM-1: no level stream
+    app.mode, app.others = "on", []
+    assert app.meter_view(now) == ("ready", None) and not app.levels.proc   # no source: no level stream
 
 
 def test_every_meter_renders():
@@ -197,9 +197,9 @@ def test_every_meter_renders():
             OUT.mkdir(parents=True, exist_ok=True)
             display.image.convert("L").resize((512, 256)).save(OUT / f"meter-{name.lower()}.png")
     app, display = make_app(block)
-    app.source = None
+    app.others = []
     app.open_meters()
-    app.render(force=True)                     # no FM-1: a message, no crash
+    app.render(force=True)                     # no source: a message, no crash
 
 
 class FakePwRecord:
@@ -219,7 +219,7 @@ def test_recording():
         app, display = make_app(tone([440]))
         app.open_meters()
         app.on_key("press")
-        assert app.recorder.recording() and fake.cmd[0] == "pw-record" and "alsa_input.usb-Felucca" in fake.cmd
+        assert app.recorder.recording() and fake.cmd[0] == "pw-record" and "alsa_input.usb-EP-136" in fake.cmd
         path = app.recorder.path
         assert path.parent.name == "recordings" and path.suffix == ".wav"
         for _ in range(100):                               # the stand-in takes a moment to start
@@ -236,7 +236,7 @@ def test_recording():
         app.on_key("left")
         app.on_key("press")                                # stop
         assert not app.recorder.recording() and "Saved" in app.message and path.exists()
-        # the FM-1 goes away: pw-record ends, and the box says so
+        # the source goes away: pw-record ends, and the box says so
         app.on_key("press")
         app.recorder.proc.kill()
         app.recorder.proc.wait()
@@ -281,9 +281,6 @@ def test_pitch_and_chords():
 class FakeMidi:
     enabled, error, pairing_until, peer = True, None, 0.0, "SMK-37"
     clock, notes, chans = None, [60, 64, 67, 72], (1 << 0) | (1 << 9)
-
-    def usb_label(self):
-        return "Felucca"
 
     def activity(self):
         return 0.0

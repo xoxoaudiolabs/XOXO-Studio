@@ -4,8 +4,8 @@ A tab bar along the bottom: HOME (the sources, tempo, record / start / tap), MIX
 source, and the speaker; METERS opens the meters, larger), SAMPLER (tab "PADS": the MPC-style sampler, its
 sequencer, punch-in FX and sample editor: deskpads.py, pads.py, padfx.py), RECORDER (tab "REC": the reel-to-reel
 meter, REC / STOP, Record parts, the takes), MIDI (the routes: tap to switch one; DAW opens a Mackie Control
-surface for a DAW on a computer, such as Kraken, over network MIDI: netmidi.py) and MORE (Sloop, FM-1, settings,
-the theme, shut down). Nothing of the Pocket's screens shows here: settings, lists, confirmations, jobs and the
+surface for a DAW on a computer, such as Kraken, over network MIDI: netmidi.py) and MORE (settings, the theme,
+the DJ decks, shut down). Nothing of the Pocket's screens shows here: settings, lists, confirmations, jobs and the
 rest are the Studio's own pages (deskpages.py), and the sample editor has a touch screen of its own
 (draw_editor: drag the markers), opened from PADS > BROWSE or a pad's TRIM.
 
@@ -87,16 +87,11 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
     # ---- what shows
 
     def sources(self):
-        """[(mix key, label, detail, track colour index)] of the sound sources there are: the FM-1s, then any USB
-        audio by its own name (detail: the input pair it takes, for an interface with more than two channels)"""
+        """[(mix key, label, detail, track colour index)] of the sound sources there are, each by its own name
+        (detail: the input pair it takes, for an interface with more than two channels)"""
         a = self.app
-        out = []
-        for i, (key, node) in enumerate(a.mix_channels()):
-            if key in ("a", "b"):
-                out.append((key, a.channel_name(key), "FM-1", 0 if key == "a" else 1))
-            else:
-                out.append((key, a.channel_name(key, node), a.input_label(key, node) or "USB", 2 + i % 2))
-        return out
+        return [(key, a.channel_name(key, node), a.input_label(key, node) or "USB", i % 4)
+                for i, (key, node) in enumerate(a.mix_channels())]
 
     def view(self, now):
         a = self.app
@@ -481,7 +476,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         for key, label, detail, k, level in rows[:4]:
             tile = (8, y, 48, y + 38)
             d.rectangle(tile, fill=t.dim[k])
-            letter = {"a": "A", "b": "B", "spk": ">"}.get(key, label[:1])
+            letter = {"spk": ">"}.get(key, label[:1])
             st.text(img, (tile[0] + 12, y + 3), letter, t.track[k], 2)
             st.text(img, (58, y + 2), label, t.hi)
             st.text(img, (58 + st.text_size(label)[0] + 10, y + 2), detail.upper(), t.track[k])
@@ -505,7 +500,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         rec = a.recorder.recording()
         secs = a.recorder.seconds() if rec else None
         st.text(img, (10, 9), "RECORDER", t.hi)
-        state = f"REC {int(secs) // 60}:{int(secs) % 60:02}" if rec else "READY" if a.source else "NO SOURCE"
+        state = f"REC {int(secs) // 60}:{int(secs) % 60:02}" if rec else "READY" if a.capture_target() else "NO SOURCE"
         st.text(img, (96, 9), state, (255, 112, 92) if rec else t.c[3])
         if len(self.sources()) > 1:          # Record parts: each source on its own too
             parts = a.state.get("rec_parts")
@@ -605,11 +600,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
                     on=bool(getattr(a.midi, "mcu", None)), key="daw")
         sources, dests = a.matrix_lists()
         routes = a.routes()
-        short = {"BT": "BT", "USB": "USB", "FM-1": "FM-1 A" if a.two_fm1s() else "FM-1", "FM-1 B": "FM-1 B",
-                 "Box": "CLOCK", "NET": "NET"}
-        dshort = {"FM-1": "A" if a.two_fm1s() else "FM-1", "FM-1 B": "B", "BT": "BT", "USB": "USB", "NET": "NET",
-                  "SMP": "SMP"}
-        colour = {"BT": 0, "USB": 2, "FM-1": 1, "FM-1 B": 1, "Box": 3, "NET": 2}
+        short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET"}
+        dshort = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
+        colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1}
         name = lambda e: e[len(blemidi.DEVICE):].upper() if e.startswith(blemidi.DEVICE) else e   # noqa: E731
         short = {**{s: name(s)[:10] for s in sources}, **short}         # a USB device: its own name
         dshort = {**{x: name(x) for x in dests}, **dshort}
@@ -690,9 +683,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         if not mcu:
             lines = ["PLAY KRAKEN FROM HERE:", "",
                      "1. ON THE COMPUTER, OPEN NETWORK MIDI", "   (MAC: AUDIO MIDI SETUP; WINDOWS: RTPMIDI)",
-                     "2. CONNECT A SESSION TO", "   FM-1 COMPANION MCU",
+                     "2. CONNECT A SESSION TO", "   XOXO STUDIO MCU",
                      "3. IN KRAKEN, SET THAT PORT TO MACKIE", "",
-                     "FM-1 COMPANION (NO MCU) IS FOR MUSIC:", "IT IS NET IN THE MIDI ROUTES."]
+                     "XOXO STUDIO (NO MCU) IS FOR MUSIC:", "IT IS NET IN THE MIDI ROUTES."]
             for i, line in enumerate(lines):
                 st.text(img, (14, HDR_H + 8 + i * 20), line, t.hi if i == 0 else t.c[3])
             return

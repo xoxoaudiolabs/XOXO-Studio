@@ -12,10 +12,10 @@ import time
 
 import blemidi
 
-SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "FM-1": "FM-1", "FM-1 B": "FM-1 B",
-                "Box": "Box clock"}
-SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "FM-1": "FM-1 A", "FM-1 B": "FM-1 B", "Box": "Clock"}
-SHORT_DESTS = {"FM-1": "A", "FM-1 B": "B", "BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
+SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "Box": "Box clock"}
+SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "Box": "Clock"}
+SHORT_DESTS = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
+KEYBOARDS = ("BT", "USB")                               # where a keyboard plays from (and each USB device: U:...)
 VELOCITY = ["normal", "soft", "hard"] + [f"fixed {v}" for v in (40, 64, 80, 100, 127)]
 CHANNELS = ["same"] + list(range(16)) + ["custom"]      # all to one channel (0-15), or a table
 CYCLES = {"chord": list(blemidi.CHORDS), "arp": list(blemidi.ARPS), "arp_rate": list(blemidi.ARP_RATES),
@@ -63,13 +63,10 @@ class MidiScreens:
         if self.midi:
             self.midi.set_routes(routes)
 
-    def two_fm1s(self):
-        return bool(getattr(self.midi, "usb_b", None))
-
     def matrix_lists(self):
-        """(sources, destinations) on the matrix: FM-1 B's row and column only while a second FM-1 is in, NET's
-        while a computer is connected over network MIDI (the desk box)"""
-        hide = set() if self.two_fm1s() else {"FM-1 B"}
+        """(sources, destinations) on the matrix: NET's row and column only while a computer is connected over
+        network MIDI (the desk box), SMP's only where there are pads"""
+        hide = set()
         if not getattr(self.midi, "net", None):
             hide.add("NET")
         if not getattr(self.midi, "pads", False):          # the sampler: the Studio's
@@ -86,14 +83,25 @@ class MidiScreens:
     def open_matrix(self):
         self.screen = "matrix"
 
+    def keyboard_routes(self):
+        """the routes a keyboard plays MIDI gear through: from Bluetooth or a USB device to Bluetooth or a USB
+        device (not the pads, not a DAW), the ones Settings > Playing's Arp and Chord switch all at once"""
+        is_keys = lambda end: end in KEYBOARDS or end.startswith(blemidi.DEVICE)   # noqa: E731
+        return [k for k in self.routes() if all(is_keys(end) for end in k.split(">"))]
+
     def keys_route(self):
-        """the keyboard's route: Bluetooth to the FM-1 (what Settings > Playing's Arp and Chord switch, there and on
-        USB keys to the FM-1 alike)"""
-        return self.routes()["BT>FM-1"]
+        """the keyboard's route as Settings > Playing shows it: the first of keyboard_routes (all alike once
+        switched there), or how one starts while there's none"""
+        keys = self.keyboard_routes()
+        return self.routes()[keys[0]] if keys else dict(blemidi.DEFAULT_ROUTE)
 
     def toggle_keys(self, name):
+        keys = self.keyboard_routes()
+        if not keys:
+            self.say("No MIDI gear to play: plug a USB device in", 2)
+            return
         on = not self.keys_route()[name]
-        for key in ("BT>FM-1", "USB>FM-1", "BT>FM-1 B", "USB>FM-1 B"):
+        for key in keys:
             self.set_route_of(key, **{name: on})
         r = self.keys_route()
         what = f"Arp {r['arp']} {r['arp_rate']}" if name == "arp_on" else f"Chord {r['chord']}"
@@ -262,9 +270,7 @@ class MidiScreens:
 
     def route_title(self):
         source, dest = self.route_key.split(">")
-        two = self.two_fm1s()
-        name = lambda n: ("FM-1 A" if two and n == "FM-1" else n[len(blemidi.DEVICE):] if n.startswith(  # noqa
-            blemidi.DEVICE) else n)
+        name = lambda n: n[len(blemidi.DEVICE):] if n.startswith(blemidi.DEVICE) else n   # noqa: E731
         return f"{name(source)} > {name(dest)}"
 
     def midi_view(self):
@@ -272,7 +278,7 @@ class MidiScreens:
             return None
         return (tuple(self.mx), self.route_key, self.route_row, self.route_edit, self.chan_row, self.chan_edit,
                 self.preset_row, self.preset_menu, json.dumps(self.state.get("routes"), sort_keys=True),
-                json.dumps(self.presets(), sort_keys=True), self.two_fm1s())
+                json.dumps(self.presets(), sort_keys=True))
 
     # ---- drawing
 

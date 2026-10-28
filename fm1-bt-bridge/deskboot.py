@@ -1,5 +1,5 @@
-"""The Studio's boot screen (480x320), in SLOOP's style and the last theme it showed: the FM-1 Companion's name,
-STUDIO, XOXO//AUDIO//LABS, and a bar along the start-up's steps until HOME takes over.
+"""The Studio's boot screen (480x320), in SLOOP's style and the last theme it showed: XOXO, STUDIO,
+XOXO//AUDIO//LABS, and a bar along the start-up's steps until HOME takes over.
 
 Two moments use it. Early in boot, before the app runs, a udev rule copies splash.raw onto the screen as soon as
 the touchscreen's framebuffer appears (install.sh; the kernel's console is kept off the screen), so the boot text
@@ -14,7 +14,7 @@ import sloopstyle as st
 
 W, H = 480, 320
 STEPS = ("STARTING THE SAMPLER", "STARTING MIDI", "STARTING AUDIO", "FINDING YOUR DEVICES")
-VERSION = "STUDIO 1.6"
+VERSION = "0.1"
 SPLASH = Path.home() / ".local" / "share" / "fm1-bridge" / "splash.raw"   # RGB565, what udev copies at boot
 
 
@@ -33,7 +33,7 @@ def frame(t, step=None, version=VERSION):
     d = ImageDraw.Draw(img)
     for k in range(4):                             # SLOOP's four track colours, a band along the top
         d.rectangle((k * W // 4, 0, (k + 1) * W // 4 - 1, 5), fill=t.track[k])
-    name = "FM-1 COMPANION"
+    name = "XOXO"
     w, _ = st.text_size(name, 3)
     st.text(img, ((W - w) // 2, 62), name, t.hi, 3)
     studio = "S T U D I O"

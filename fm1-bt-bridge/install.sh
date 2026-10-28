@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# FM-1 Companion installer for Raspberry Pi OS Lite: the Pocket (Pi Zero W + OLED HAT) or the Studio
-# (Pi 3/4 + 3.5" SPI touchscreen), told apart by the board.
+# XOXO Studio installer for Raspberry Pi OS Lite: the Studio (Pi 3/4 + 3.5" SPI touchscreen), or the pocket
+# build (Pi Zero W + OLED HAT) it shares its code with, told apart by the board.
 # Run as your normal user (not with sudo):  bash install.sh
 set -euo pipefail
 
@@ -71,7 +71,7 @@ if [ "$BUILD" = desk ] && ! grep -q "^dtoverlay=\(waveshare35a\|piscreen\|mipi-d
     sudo cp "$CONFIG" "$CONFIG.bak"
     printf '
 [all]
-# FM-1 Companion Studio: the 3.5" touchscreen
+# XOXO Studio: the 3.5" touchscreen
 dtparam=spi=on
 %s
 ' "$SCREEN" | sudo tee -a "$CONFIG" >/dev/null
@@ -85,7 +85,7 @@ if [ "$BUILD" = desk ]; then              # the boot screen as soon as the touch
 fi
 
 if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): listed for computers to find
-    echo "== Announcing the Studio's network MIDI (FM-1 Companion, FM-1 Companion MCU)"
+    echo "== Announcing the Studio's network MIDI (XOXO Studio, XOXO Studio MCU)"
     sudo install -D -m 644 "$DIR/config/fm1-midi.service" /etc/avahi/services/fm1-midi.service
     sudo install -D -m 644 "$DIR/config/fm1-midi-mcu.service" /etc/avahi/services/fm1-midi-mcu.service
 fi
@@ -111,7 +111,6 @@ fi
 echo "== Installing the bridge"
 install -D -m 755 "$DIR/bridge.py"                              ~/.local/share/fm1-bridge/bridge.py
 install -D -m 644 "$DIR/blemidi.py"                             ~/.local/share/fm1-bridge/blemidi.py
-install -D -m 644 "$DIR/sloop.py"                               ~/.local/share/fm1-bridge/sloop.py
 install -D -m 644 "$DIR/libui.py"                               ~/.local/share/fm1-bridge/libui.py
 install -D -m 644 "$DIR/meters.py"                              ~/.local/share/fm1-bridge/meters.py
 install -D -m 644 "$DIR/midiui.py"                              ~/.local/share/fm1-bridge/midiui.py
@@ -158,7 +157,7 @@ if [ "$BUILD" = desk ] && [ ! -f ~/.local/share/fm1-bridge/splash.raw ]; then   
     (cd ~/.local/share/fm1-bridge && python3 -c "import deskboot, sloopstyle; deskboot.save(sloopstyle.Theme())")         || echo "   (the boot screen's picture comes with the first start instead)"
 fi
 
-echo "== Booting faster (on Trixie a Zero W otherwise takes ~3 minutes before the Companion starts)"
+echo "== Booting faster (on Trixie a Zero W otherwise takes ~3 minutes before the app starts)"
 # cloud-init only applies Raspberry Pi Imager's settings on the first boot, but costs ~40 s on every boot
 sudo touch /etc/cloud/cloud-init.disabled
 # start the user services (PipeWire, the bridge) without waiting for NetworkManager

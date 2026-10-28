@@ -100,13 +100,13 @@ PART = re.compile(r"^(.+_fm1)-(a|b|usb\d+|u-[a-z0-9]+)\.wav$")   # a take's part
 
 
 def part_label(key):
-    """"a" -> "FM-1 A", "u-ep136" -> "EP136" (a USB device, by its name), "usb0" -> "USB keys" (before v2.9)"""
+    """"u-ep136" -> "EP136" (a USB device, by its name), "usb0" -> "USB keys" (older takes)"""
     if key.startswith("u-"):
         return key[2:].upper()
     if key.startswith("usb"):
         n = int(key[3:] or 0)
         return "USB keys" + (f" {n + 1}" if n else "")
-    return f"FM-1 {key.upper()}"
+    return key.upper()
 
 
 def recording_parts(name):

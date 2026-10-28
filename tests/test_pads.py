@@ -105,38 +105,17 @@ def test_midi_notes_and_voices():
     assert np.frombuffer(pcm, dtype="<i2").tolist() == [32767, -32767]   # clipped
 
 
-def test_sloop_layout():
-    """the SLOOP layout: SLOOP's drum track's GM notes on channel 10 play the pads in its key order; other
-    channels and the MPC notes don't; the PADS tab switches it and turns the FM-1 > SMP route on"""
-    assert pads.pad_of(38, 9, "sloop") == 2 and pads.pad_of(70, 9, "sloop") == 13     # SNARE, SHAKER
-    assert pads.pad_of(38, 0, "sloop") is None and pads.pad_of(45, 9, "sloop") is None
-    assert pads.note_of(15, "sloop") == 56 and pads.note_of(15) == 51
+def test_mpc_layout():
+    """the MPC layout, the only one: notes 36-51 on any channel play pads 1-16"""
+    assert pads.MAPS == ("mpc",)
+    assert pads.pad_of(36, 9) == 0 and pads.pad_of(38, 0) == 2 and pads.pad_of(51, 15) == 15
+    assert pads.pad_of(35) is None and pads.pad_of(52, 9) is None
+    assert pads.note_of(0) == 36 and pads.note_of(15) == 51
     e = pads.Engine(48000)
-    e.set_kit(dict(kit(p2={"sample": wav("sn.wav", 48000)}), map="sloop"))
-    e.midi(bytes([0x90, 38, 100]))                                   # a synth track's note: not the pads
-    assert e.sounding() == []
-    e.midi(bytes([0x99, 38, 100]))                                   # SLOOP's snare: pad 3
+    e.set_kit(kit(p2={"sample": wav("sn.wav", 48000)}))
+    e.midi(bytes([0x93, 38, 100]))                                   # channel 4: pad 3 all the same
     assert e.sounding() == [2]
-    assert pads.clean_kit({"map": "weird"})["map"] == "mpc"
-    import bridge
-    import deskui
-
-    class Display:
-        image = theme = None
-
-        def show_rgb(self, img):
-            self.image = img
-    app = bridge.App(Display(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-    ui.open_tab("PADS")
-    ui.render(0.0, force=True)
-    assert not app.routes()["FM-1>SMP"]["on"]
-    box = next(w[0] for w in ui.widgets if w[3] == "pad-map")
-    ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-    ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
-    assert app.kit()["map"] == "sloop" and app.routes()["FM-1>SMP"]["on"] and "OUT = SEQ" in app.message
+    assert pads.clean_kit({"map": "weird"})["map"] == "mpc" and pads.clean_kit({"map": "sloop"})["map"] == "mpc"
 
 
 def test_sequencer_timing():
@@ -382,7 +361,7 @@ def test_factory_kits():
     assert "808-KIT" in pads.list_kits()
     assert mine.read_bytes() == b"mine" and (samples / "808-KICK.wav").stat().st_mtime < 1e9
     eight = pads.load_kit(pads.kit_path("808 KIT"))
-    assert eight["map"] == "sloop" and Path(eight["pads"][0]["sample"]).name == "808-KICK.wav"
+    assert eight["map"] == "mpc" and Path(eight["pads"][0]["sample"]).name == "808-KICK.wav"
     assert [p["choke"] for p in eight["pads"][4:7]] == [1, 1, 1] and eight["pads"][2]["choke"] == 0
     mine.unlink()
     e = pads.Engine()
@@ -479,17 +458,17 @@ def test_sampler_in_the_box():
 
         def send(self, msg):
             self.sent.append(msg)
-    b = blemidi.MidiBridge(["felucca"], pads=Conn())
+    b = blemidi.MidiBridge(pads=Conn())
     b.to_ble = lambda m: None
     b.controllers.send_messages = lambda messages: None
     b.from_controllers(bytes([0x99, 36, 100]))                       # USB keys > SMP: on at first
     assert b.pads.sent == [("midi", [[0x99, 36, 100]])]
-    assert blemidi.default_routes()["FM-1>SMP"]["on"] is False
+    assert blemidi.default_routes()["Box>SMP"]["on"] is False
     node = {"type": "PipeWire:Interface:Node", "id": 70,
             "info": {"props": {"media.class": "Audio/Source", "node.name": "fm1-sampler"}}}
     port = {"type": "PipeWire:Interface:Port", "id": 71,
             "info": {"props": {"node.id": 70, "port.name": "capture_FL", "port.direction": "out", "port.id": 0}}}
-    _, _, _, others = bridge.pick_nodes([node, port], ["felucca"])
+    _, others = bridge.pick_nodes([node, port])
     assert others[0]["label"] == "SAMPLER" and bridge.device_keys(others) == ["u-sampler"]
 
 
