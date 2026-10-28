@@ -1188,3 +1188,42 @@ def test_internal_sources_say_no_usb():
     ui = deskui.DeskUI(app, app.display)
     assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("SAMPLER", ""),
                                                                            ("XO-4", "")]
+
+
+def test_home_shows_every_source():
+    """HOME: every source with its mixer level (a bar and a %), the decks while they run, then the speaker; two
+    columns past seven rows; a row opens the mixer"""
+    import bridge
+    import deskui
+
+    class Decks:
+        on = True
+
+        def running(self):
+            return self.on
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.state["mix"] = {"u-xo4": 80, "decks": 150}
+    app.volume = 70
+    app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True}] + [
+        {"id": 2 + i, "name": f"alsa_input.usb-{i}", "label": n} for i, n in enumerate(("EP-136", "SMK-37"))]
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+    ui.decks_proc = Decks()
+    rows = ui.home_rows()
+    assert [(r[0], r[1], r[5]) for r in rows] == [("u-xo4", "XO-4", "80%"), ("u-ep136", "EP-136", "100%"),
+                                                  ("u-smk37", "SMK-37", "100%"), ("decks", "DECKS", "150%"),
+                                                  ("spk", "SPEAKER", "70%")]
+    assert rows[3][3] != rows[4][3]                                 # the decks not in the speaker's colour
+    ui.render(0.0, force=True)
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "row"] == [r[0] for r in rows]
+    ui.decks_proc.on = False                                        # the decks off: their row goes
+    assert "decks" not in [r[0] for r in ui.home_rows()]
+    app.others += [{"id": 9 + i, "name": f"alsa_input.usb-x{i}", "label": f"DEV{i}"} for i in range(5)]
+    ui.render(0.0, force=True)                                      # nine rows: two columns, every one there
+    boxes = [w[0] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "row"]
+    assert len(boxes) == 9 and len({b[0] for b in boxes}) == 2
+    box = boxes[0]
+    ui.touch("down", box[0] + 10, box[1] + 4, 0.0)
+    ui.touch("up", box[0] + 10, box[1] + 4, 0.0)
+    assert ui.tab == "MIX"
