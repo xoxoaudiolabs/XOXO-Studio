@@ -587,6 +587,15 @@ def test_tab_bar():
     ui.open_decks = lambda: opened.append(True) or setattr(ui, "tab", "DECKS")   # (no decks program here)
     press(("tab", "DECKS"))                                          # the DJ decks: a tab, no longer in MORE
     assert opened and ui.tab == "DECKS" and "DJ DECKS" not in [m[0] for m in deskui.MORE]
+    app.pads = None
+    for tab in ("MIX", "PADS", "REC", "MIDI", "MORE"):              # every tab: < HOME, top left
+        app.screen = "status"
+        ui.open_tab(tab)
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == "home")
+        assert box[0] < 10 and box[2] <= 70, (tab, box)
+        press("home")
+        assert ui.tab == "HOME", tab
 
 
 def test_four_usb_devices():

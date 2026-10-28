@@ -390,9 +390,14 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
     def lit(self, key):
         return self.held is not None and self.held[3] == key
 
+    def home_button(self, img, d):
+        """the tabs' way home, top left (as XO-4's and the decks' screens have it)"""
+        self.button(img, d, (4, 3, 64, HDR_H - 5), "< HOME", lambda: self.open_tab("HOME"), key="home")
+
     def header(self, img, d, title, right=""):
         t = self.theme
-        st.text(img, (10, 9), title, t.hi)
+        self.home_button(img, d)
+        st.text(img, (72, 9), title, t.hi)
         if right:
             st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
@@ -508,9 +513,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         a, t = self.app, self.theme
         rec = a.recorder.recording()
         secs = a.recorder.seconds() if rec else None
-        st.text(img, (10, 9), "RECORDER", t.hi)
+        self.home_button(img, d)
+        st.text(img, (72, 9), "RECORDER", t.hi)
         state = f"REC {int(secs) // 60}:{int(secs) % 60:02}" if rec else "READY" if a.capture_target() else "NO SOURCE"
-        st.text(img, (96, 9), state, (255, 112, 92) if rec else t.c[3])
+        st.text(img, (144, 9), state, (255, 112, 92) if rec else t.c[3])
         if len(self.sources()) > 1:          # Record parts: each source on its own too
             parts = a.state.get("rec_parts")
             self.button(img, d, (W - 254, 4, W - 130, HDR_H - 6), f"PARTS {'ON' if parts else 'OFF'}",
@@ -539,9 +545,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             cols.append(("phones", "PHONES", 2, a.state.get("phones", 80), 100))
         nodes = dict(a.mix_channels())
         if len(self.sources()) > 1:          # Record parts: only with more than one source
-            box = (110, 4, 230, HDR_H - 6)
+            box = (120, 4, 240, HDR_H - 6)
             self.button(img, d, box, f"PARTS {parts}", self.toggle_parts, on=a.state.get("rec_parts"))
-        self.button(img, d, (236, 4, 330, HDR_H - 6), "METERS", lambda: self.open_tab("METER"), key="meters")
+        self.button(img, d, (246, 4, 340, HDR_H - 6), "METERS", lambda: self.open_tab("METER"), key="meters")
         width = W // len(cols)
         top, bottom = HDR_H + 26, H - TAB_H - (64 if a.jack else 30)   # with a jack: CUE buttons underneath
         blend = {0: "CUE", 25: "75/25", 50: "50/50", 75: "25/75", 100: "MAIN"}

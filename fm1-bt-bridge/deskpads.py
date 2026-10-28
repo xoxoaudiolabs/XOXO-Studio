@@ -74,7 +74,8 @@ class DeskPads:
             return self.draw_fx(img, d, now)
         a, t = self.app, self.theme
         kit = a.kit()
-        self.button(img, d, (4, 3, 96, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
+        self.home_button(img, d)
+        self.button(img, d, (70, 3, 158, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
         repeat = a.state.get("repeat")
         buttons = [("RPT" if repeat is None else pads.DIVS[repeat], self.toggle_repeat, repeat is not None,
                     "pad-repeat"),
