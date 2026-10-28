@@ -258,6 +258,13 @@ def test_decks_screen():
         ui.touch("down", box[0] + 2, box[1] + 2, 0.0)
         ui.touch("up", box[0] + 2, box[1] + 2, 0.1)
     tap(("deck", "PLAY", 0))
+    tap(("deck", "FX", 0))                                 # FX: a tap switches it, a hold steps to the next
+    box = keys[("deck", "FX", 1)][0]
+    ui.touch("down", box[0] + 2, box[1] + 2, 0.0)
+    ui.touch("move", box[0] + 2, box[1] + 2, 0.7)
+    ui.touch("up", box[0] + 2, box[1] + 2, 0.7)
+    assert ("fx", 0, "toggle") in sent and ("fx", 1, "next") in sent and ("fx", 1, "toggle") not in sent
+    sent[:] = [c for c in sent if c[0] != "fx"]
     tap(("deck-row", 1))
     tap("decks-load-b")
     box = keys[("deck-cue", 1)][0]

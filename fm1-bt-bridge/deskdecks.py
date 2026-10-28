@@ -70,7 +70,7 @@ class DeskDecks:
         s = p.status or {}
         rows = tuple((d.get("title"), d.get("bpm"), round(d.get("pos", 0) * 2) / 2, d.get("playing"),
                       d.get("synced"), d.get("loop"), d.get("pfl"), d.get("pitch"), tuple(d.get("cues") or ()),
-                      d.get("loading"), d.get("error")) for d in s.get("decks", []))
+                      d.get("loading"), d.get("error"), d.get("fx"), d.get("fx_on")) for d in s.get("decks", []))
         return (rows, round(s.get("xfade", 0.5), 2), s.get("cursor"), s.get("scanning"), p.library_n,
                 s.get("source"), s.get("sources"), p.note_n,
                 self.decks_top, p.running(), len(p.overviews[0]), len(p.overviews[1]), p.note, self.decks_full,
@@ -141,9 +141,13 @@ class DeskDecks:
         self.widget((ox, oy - 4, ox + ow, oy + oh + 4), "drag",
                     lambda phase, x, y, i=i, ox=ox, ow=ow: self.overview_touch(i, phase, x, ox, ow),
                     ("deck-seek", i))
-        # the buttons: CUE (held), PLAY, SYNC, PFL
-        by, bw = HDR_H + 122, (DECK_W - 12) // 4
+        # the buttons: CUE (held), PLAY, SYNC, PFL, FX (a tap: on / off; held: the next FX)
+        by, bw = HDR_H + 122, (DECK_W - 12) // 5
         keys = (("CUE", None), ("PLAY", deck.get("playing")), ("SYNC", deck.get("synced")), ("PFL", deck.get("pfl")))
+        fx = {"REVERB": "VERB", "FLANGER": "FLNG"}.get(deck.get("fx") or "ECHO", deck.get("fx") or "ECHO")
+        box = (x0 + 6 + 4 * bw, by, x0 + 6 + 5 * bw - 4, by + 24)
+        self.button(img, d, box, fx, lambda i=i: p.send("fx", i, "toggle"), color=colour, on=bool(deck.get("fx_on")),
+                    key=("deck", "FX", i), long=lambda i=i: p.send("fx", i, "next"))
         for k, (label, on) in enumerate(keys):
             box = (x0 + 6 + k * bw, by, x0 + 6 + (k + 1) * bw - 4, by + 24)
             if label == "CUE":
