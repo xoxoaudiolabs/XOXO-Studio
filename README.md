@@ -86,6 +86,19 @@ Not there yet:
 - copying patterns
 - playing the synths live from a keyboard
 
+## Screens
+
+Drawn on a PC by the Studio's own drawing code with a made-up studio (`python tools/studio_screens.py docs/images`), at twice the screen's 480×320: not photos of the device.
+
+| | |
+|---|---|
+| ![HOME](docs/images/studio-home.png) **HOME** | ![MIXER](docs/images/studio-mixer.png) **MIXER** |
+| ![XO-4 drums](docs/images/studio-xo4-drums.png) **XO-4: DRUMS** | ![XO-4 synth](docs/images/studio-xo4-synth.png) **XO-4: SYN 1** |
+| ![XO-4 sound](docs/images/studio-xo4-sound.png) **XO-4: SOUND** | ![XO-4 pads](docs/images/studio-xo4-pads.png) **XO-4: PADS** |
+| ![XO-4 FX](docs/images/studio-xo4-fx.png) **XO-4: synth FX** | ![DECKS](docs/images/studio-decks.png) **DECKS** |
+| ![EDITOR](docs/images/studio-editor.png) **EDITOR** | ![MIDI](docs/images/studio-midi.png) **MIDI** |
+| ![MORE](docs/images/studio-more.png) **MORE** | |
+
 Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 
 ## Tested
