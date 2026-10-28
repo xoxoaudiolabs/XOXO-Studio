@@ -1,8 +1,8 @@
 """The desk box's touch screens (480x320), in SLOOP's style and the theme picked in MORE > THEME (sloopstyle.py).
 
 A tab bar along the bottom: HOME (the sources, tempo, record / start / tap), MIXER (tab "MIX": a slider a
-source, and the speaker; METERS opens the meters, larger), SAMPLER (tab "PADS": the MPC-style sampler, its
-sequencer, punch-in FX and sample editor: deskpads.py, pads.py, padfx.py), RECORDER (tab "REC": the reel-to-reel
+source, and the speaker; METERS opens the meters, larger), EDITOR (the sample editor, full screen; the pads
+themselves are XO-4's DRUMS: deskxo4.py, with their pages from deskpads.py, pads.py, padfx.py), RECORDER (tab "REC": the reel-to-reel
 meter, REC / STOP, Record parts, the takes), MIDI (the routes: tap to switch one; DAW opens a Mackie Control
 surface for a DAW on a computer, such as Kraken, over network MIDI: netmidi.py) and MORE (settings, the theme,
 the DJ decks, shut down). Nothing of the Pocket's screens shows here: settings, lists, confirmations, jobs and the
@@ -30,9 +30,9 @@ from deskxo4 import DeskXO4
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
-TABS = ("HOME", "MIX", "PADS", "XO4", "DECKS", "REC", "MIDI", "MORE")
-TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
-FULL_TABS = ("PADS", "XO4", "DECKS", "REC")      # screens of their own: no tab bar under them (< HOME, top left)
+TABS = ("HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE")
+TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
+FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC")    # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
@@ -121,8 +121,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             base += (json.dumps(a.routes(), sort_keys=True), tuple(a.matrix_lists()[0]))
         if self.tab in METER_TABS:
             base += (a.view(now),)
-        if self.tab == "PADS":
-            base += self.pads_view()
         if self.tab == "DAW":
             base += (json.dumps(getattr(a.midi, "mcu", None)), tuple(getattr(a.midi, "net", None) or ()),
                      json.dumps(sorted(self.daw_local.items())))
@@ -141,7 +139,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             self.open_tab("MIDI")
         elif a.screen == "settings" and a.settings_menu is None:
             a.screen = "status"
-            self.open_tab(self.tab if self.tab == "PADS" else "MORE")   # back where the list was opened from
+            self.open_tab(self.tab if self.tab == "XO4" else "MORE")    # back where the list was opened from
 
     def render(self, now, force=False):
         self.current_theme(now)
@@ -164,9 +162,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             self.draw_page(img, ImageDraw.Draw(img), now)
         else:
             getattr(self, "draw_" + self.tab.lower())(img, ImageDraw.Draw(img), now)
-            if not self.pads_screen() and self.tab not in FULL_TABS:   # a pad's page, kits, sampling, the decks,
-                                                                        # XO-4:
-                                                                  # full screen
+            if self.tab not in FULL_TABS:          # (EDITOR, XO-4 and its pads' pages, DECKS, RECORD: full screen)
                 self.draw_tabs(img)
         a = self.app
         if a.busy:
@@ -218,7 +214,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
     def draw_editor(self, img, d, now):
         import meters
         a, t, ed = self.app, self.theme, self.app.ed
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", self.editor_back, key="ed-back")
+        home = (self.tab == "EDITOR" and self.pad_trim is None and not self.ed_from_browse
+                and not (self.ed_files and ed))     # (the EDITOR tab's: back is HOME, as the other tabs)
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< HOME" if home else "< BACK", self.editor_back, key="ed-back")
         self.button(img, d, (90, 3, 170, HDR_H - 5), "OPEN", self.editor_files, on=self.ed_files or not ed,
                     key="ed-open")
         if self.ed_files or not ed:                # OPEN: the samples and takes to edit
@@ -384,8 +382,11 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         back_to_pads = self.pad_trim is not None or self.ed_from_browse
         self.trimmed()                             # a pad's sample trimmed: back on its pad
         self.app.editor_close()
-        if back_to_pads:                           # the sampler's: back to it (BROWSE, or the pad's page)
-            self.app.screen, self.tab, self.ed_from_browse = "status", "PADS", False
+        if back_to_pads:                           # opened from a pad: back to it, in XO-4's DRUMS
+            self.app.screen, self.tab, self.ed_from_browse, self.xo4_track = "status", "XO4", False, 0
+        elif self.tab == "EDITOR":                 # the EDITOR tab: HOME
+            self.app.screen = "status"
+            self.open_tab("HOME")
 
     def widget(self, box, kind, action, key=None, long=None):
         self.widgets.append((box, kind, action, key or box, long))
@@ -477,6 +478,11 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             a.levels.stop()
         if name == "DECKS":                         # the DJ decks: started (once) and their screen shown
             self.open_decks()
+            return
+        if name == "EDITOR":                        # the sample editor: the file last edited, or its OPEN list
+            self.tab, self.classic = name, False
+            self.open_sample_editor()
+            self.ed_from_browse = False             # (closed: HOME, not the pads)
             return
         self.tab, self.classic = name, False
         if name in METER_TABS:

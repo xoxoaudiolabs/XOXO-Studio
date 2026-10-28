@@ -52,11 +52,6 @@ class DeskPads:
                 self.browse, self.browse_top,
                 rec, self.pad_pick_source, self.held and self.held[3], seq)
 
-    def pads_screen(self):
-        """True when a pads page (not the grid) is up: no tab bar under it"""
-        return self.tab == "PADS" and (self.pad_edit is not None or self.kits_open or self.pad_rec is not None
-                                       or self.pad_pick_source is not None or self.seq_open or self.fx_open)
-
     # ---- the grid
 
     def draw_pads(self, img, d, now):
@@ -245,8 +240,8 @@ class DeskPads:
             kit = a.kit()
             kit["pads"][self.pad_trim]["sample"] = str(a.ed["saved"])
             a.set_kit(kit)
-        if self.pad_trim is not None:
-            self.tab, self.pad_edit = "PADS", self.pad_trim
+        if self.pad_trim is not None:              # back on the pad's page, in XO-4's DRUMS
+            self.tab, self.pad_edit, self.xo4_track = "XO4", self.pad_trim, 0
         self.pad_trim = None
 
     # ---- sampling into a pad: choose a source, record, stop
@@ -644,7 +639,7 @@ class DeskPads:
     def browse_edit(self, name, folder):
         """a sample or a take from OPEN into the touch editor (remembered: the EDITOR button opens it again)"""
         a = self.app
-        self.ed_from_browse, self.ed_files = True, False
+        self.ed_from_browse, self.ed_files = self.tab != "EDITOR", False   # (the EDITOR tab's: back is HOME)
         self.ed_view, self.ed_wave, self.ed_drag = None, None, None
         a.state["editor_last"] = [name, folder]
         a.save_settings()
@@ -679,7 +674,8 @@ class DeskPads:
         self.pad_trim, self.ed_from_browse = None, False
         self.ed_view, self.ed_wave, self.ed_drag = None, None, None
         a.editor_close()
-        a.screen, self.tab, self.kits_open, self.pad_edit, self.pad_mode = "status", "PADS", False, i, False
+        a.screen, self.tab, self.kits_open, self.pad_edit, self.pad_mode = "status", "XO4", False, i, False
+        self.xo4_track = 0                             # (the pad's page, over XO-4's DRUMS)
         a.say(f"Pad {i + 1}: {Path(saved).stem[:16]}", 2)
 
     def load_kit(self, name):

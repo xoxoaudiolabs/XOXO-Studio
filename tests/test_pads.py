@@ -195,88 +195,10 @@ def test_note_repeat():
     assert not [ev for ev in e.seq.events(e.kit["seq"], 10.8, 11.0) if ev[2] == 1]
 
 
-def test_seq_page():
-    """the SEQ page: pick a pad, tap steps, hold one for its level and ratchet, pages, LEN, DIV, QUANT, PLAY
-    makes the box the clock when there's none to follow, REC goes to the engine"""
-    import bridge
-    import deskui
-
-    class Display:
-        image = theme = None
-
-        def show_rgb(self, img):
-            self.image = img
-
-    class Pads:
-        sounding, step = [], None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-
-    class Midi:
-        clock = None
-
-        def __init__(self):
-            self.sent = []
-
-        def set_clock(self, mode, bpm):
-            self.sent.append(("clock", mode, bpm))
-
-        def transport(self, what):
-            self.sent.append(("transport", what))
-    app = bridge.App(Display(), dict(bridge.DEFAULTS))
-    app.save_settings, app.pads, app.midi = (lambda: None), Pads(), Midi()
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-    ui.open_tab("PADS")
-    ui.render(0.0, force=True)
-
-    def touch(key, hold=0.0):
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if hold:
-            ui.touch("move", box[0] + 5, box[1] + 4, hold)
-        ui.touch("up", box[0] + 4, box[1] + 4, hold)
-        ui.render(0.0, force=True)
-    touch("pad-repeat")
-    touch("pad-repeat")
-    assert app.state["repeat"] == 2 and app.pads.sent[-1] == ("repeat", 2)      # RPT 1/16
-    touch("seq")
-    assert ui.seq_open and ui.pads_screen()
-    touch(("seq-pad", 2))
-    assert ui.seq_pad == 2 and app.pads.sent[-1] == ("tap", 2, 100)
-    touch(("seq-step", 4))
-    assert app.kit()["seq"]["steps"][4] == [[2, 0, 1]]
-    touch(("seq-step", 4), hold=0.7)                                 # held: its sheet
-    assert ui.seq_edit == 4
-    touch(("seq-row", "LEVEL"))
-    touch(("seq-row", "RATCHET"))
-    touch("seq-nudge+")
-    assert app.kit()["seq"]["steps"][4] == [[2, 3, 2]] and app.kit()["seq"]["micro"][4] == 4
-    touch("seq-done")
-    for _ in range(16):
-        touch("seq-len+")
-    assert app.kit()["seq"]["len"] == 32 and ("seq-page", 1) in [w[3] for w in ui.widgets]
-    touch(("seq-page", 1))
-    touch(("seq-step", 20))
-    assert app.kit()["seq"]["steps"][20] == [[2, 0, 1]]
-    touch("seq-div")
-    touch("seq-quant")
-    assert app.kit()["seq"]["div"] == 3 and app.kit()["seq"]["quant"] is False
-    touch("seq-rec")
-    assert app.pads.sent[-1] == ("rec", True)
-    touch("seq-play")
-    assert app.state["clock_mode"] == "box" and ("transport", "start") in app.midi.sent
-    assert pads.clean_kit(app.state["kit"]) == app.kit()             # it all saves with the kit
-
-
 def test_browse_and_the_editor():
-    """the sample editor lives with the sampler: EDITOR opens it (its OPEN list the first time, then the file
-    last edited), OPEN lists the samples and takes, BACK goes list > take > sampler, TO PAD saves the edit onto a
-    pad and opens its page; MORE has no editor of its own"""
+    """the sample editor is a tab: EDITOR opens it (its OPEN list the first time, then the file last edited), OPEN
+    lists the samples and takes, BACK goes list > take > HOME, TO PAD saves the edit onto a pad and opens its page
+    over XO-4's DRUMS; a pad's TRIM opens its sample, and BACK goes to the pad's page; MORE has no editor"""
     import time as clock
     import bridge
     import deskui
@@ -304,8 +226,6 @@ def test_browse_and_the_editor():
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     assert "SAMPLE EDITOR" not in [m[0] for m in deskui.MORE]
-    ui.open_tab("PADS")
-    ui.render(0.0, force=True)
 
     def touch(key):
         ui.render(0.0, force=True)
@@ -319,8 +239,8 @@ def test_browse_and_the_editor():
             if not app.ed["loading"]:
                 return
             clock.sleep(0.02)
-    touch("editor")                                                  # EDITOR, the first time: its OPEN list
-    assert app.screen == "editor" and app.ed is None and ui.ed_files
+    ui.open_tab("EDITOR")                                            # EDITOR, the first time: its OPEN list
+    assert ui.tab == "EDITOR" and app.screen == "editor" and app.ed is None and ui.ed_files
     touch(("browse", "samples"))
     touch(("file", "tone.wav"))
     opened()
@@ -329,16 +249,30 @@ def test_browse_and_the_editor():
     assert ui.ed_files
     touch("ed-back")                                                 # BACK: to the take
     assert not ui.ed_files and app.ed["name"] == "tone.wav"
-    touch("ed-back")                                                 # BACK again: the sampler
-    assert app.screen == "status" and ui.tab == "PADS"
-    touch("editor")                                                  # EDITOR again: the file last edited
+    touch("ed-back")                                                 # BACK again: out of the editor
+    assert app.screen == "status" and ui.tab == "HOME"               # a file from OPEN, in the EDITOR tab: HOME
+    ui.open_tab("EDITOR")                                            # EDITOR again: the file last edited
     opened()
     assert app.ed["name"] == "tone.wav" and not ui.ed_files
+    touch("ed-back")                                                 # (and BACK from it: HOME too)
+    assert app.screen == "status" and ui.tab == "HOME"
+    ui.open_tab("EDITOR")
+    opened()
     touch("ed-to-pad")
     touch(("ed-pad", 7))
     pad = app.kit()["pads"][7]
     assert pad["sample"] and Path(pad["sample"]).exists() and Path(pad["sample"]).name != "tone.wav"
-    assert app.screen == "status" and ui.tab == "PADS" and ui.pad_edit == 7
+    assert app.screen == "status" and ui.tab == "XO4" and ui.xo4_track == 0 and ui.pad_edit == 7
+    assert ui.xo4_pad_page() and any(w[3] == "pad-back" for w in ui.widgets)   # the pad's page, over XO-4
+    k = app.kit()                                                    # a pad's TRIM: its sample in the editor
+    k["pads"][7]["sample"] = str(library.folder("samples") / "tone.wav")
+    app.set_kit(k)
+    touch(("pad-act", "TRIM"))
+    opened()
+    assert app.screen == "editor" and app.ed["name"] == "tone.wav" and ui.pad_trim == 7
+    touch("ed-back")                                                 # BACK: the pad's page again
+    assert app.screen == "status" and ui.tab == "XO4" and ui.xo4_track == 0 and ui.pad_edit == 7
+    assert ui.pad_trim is None
 
 
 def test_kits():
@@ -390,9 +324,9 @@ def test_first_kit_is_the_808():
         library.LIBRARY, pads._factory_checked = was, False
 
 
-def test_pads_tab():
-    """the PADS tab: a tap plays a pad (held: until let go), EDIT opens its page, - / + and choices change it,
-    a sample picked goes on it, kits save, load and start afresh"""
+def test_pads_in_xo4():
+    """the pads, in XO-4's DRUMS: a pad sounds while held (until let go), RPT steps the note repeat, EDIT and a pad
+    open its page, - / + and choices change it, a sample picked goes on it, kits save, load and start afresh"""
     import bridge
     import deskui
     import library
@@ -415,8 +349,10 @@ def test_pads_tab():
     app.save_settings, app.pads = (lambda: None), Pads()
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
-    ui.open_tab("PADS")
+    ui.open_tab("XO4")
+    ui.xo4_track = 0                                                 # DRUMS: the pads
     ui.render(0.0, force=True)
+    assert "PADS" not in deskui.TABS
 
     def touch(key, hold=False):
         box = next(w[0] for w in ui.widgets if w[3] == key)
@@ -424,20 +360,21 @@ def test_pads_tab():
         if not hold:
             ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
         ui.render(0.0, force=True)
-    touch(("pad", 1))                                                # an empty pad: its page, to set it up
-    assert ui.pad_edit == 1 and not app.pads.sent
-    touch("pad-back")
     k = app.kit()
     k["pads"][0]["sample"] = wav("hit.wav", 1000)
     app.set_kit(k)
     ui.render(0.0, force=True)
-    touch(("pad", 0), hold=True)                                     # held: sounding, not yet let go
-    assert app.pads.sent[-1] == ("tap", 0, 110)
+    touch(("xo4-pad", 0), hold=True)                                 # held: sounding, not yet let go
+    assert app.pads.sent[-1] == ("tap", 0, 110) and ui.xo4_pad == 0
     ui.touch("up", 0, 0, 0.0)
     assert app.pads.sent[-1] == ("untap", 0)
-    touch("pad-mode")                                                # EDIT, then pad 5
-    touch(("pad", 4))
-    assert ui.pad_edit == 4 and ui.pads_screen()
+    touch("xo4-rpt")
+    touch("xo4-rpt")
+    assert app.state["repeat"] == 2 and app.pads.sent[-1] == ("repeat", 2)      # RPT 1/16
+    touch("xo4-edit")                                                # EDIT, then pad 5
+    assert ui.pad_mode
+    touch(("xo4-pad", 4))
+    assert ui.pad_edit == 4 and ui.xo4_pad_page() and ui.tab == "XO4"
     touch(("pad+", "level"))
     touch(("pad-", "tune"))
     touch("pad-down")                                                # MODE is further down the page
@@ -454,15 +391,55 @@ def test_pads_tab():
     ui.render(0.0, force=True)
     assert app.kit()["pads"][4]["sample"] == str(sample) and app.screen == "status"
     assert app.pads.sent[-1][0] == "kit"                             # the engine has the kit
-    touch("pad-back")
-    touch("kits")
+    touch("pad-back")                                                # BACK: the pads again
+    assert ui.pad_edit is None and not ui.xo4_pad_page() and ui.tab == "XO4"
+    touch("xo4-kits")                                                # the kit's name: KITS
+    assert ui.kits_open and ui.xo4_pad_page()
     touch("kit-save")
     assert "KIT-1" in pads.list_kits()
     touch("kit-new")
     assert app.kit()["name"] == "KIT 2" and not app.kit()["pads"][4]["sample"]
-    touch("kits")
+    touch("xo4-kits")
     touch(("kit", "KIT-1"))
     assert app.kit()["pads"][4]["sample"] == str(sample)             # loaded back
+    if ui.kits_open:
+        touch("kits-back")
+    assert not ui.xo4_pad_page() and any(w[3] == "xo4-kits" for w in ui.widgets)
+
+
+def test_kit_pattern_into_xo4():
+    """a kit with a pattern from the pads' own (retired) sequencer: XO-4's first pattern with empty drums gets it
+    (its length, notes, levels, ratchets, nudges, and the swing when the song has none); the kit keeps none. A
+    second kit's pattern goes into the next empty one"""
+    import bridge
+    import xo4
+    app = bridge.App(None, dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    k = pads.empty_kit("OLD BEAT")
+    seq = k["seq"]
+    seq["len"], seq["swing"] = 12, 20
+    seq["steps"][0], seq["steps"][4], seq["micro"][4] = [[0, 3, 2]], [[2, 1, 1]], 8
+    app.state["kit"] = k
+    kit = app.kit()
+    assert not any(kit["seq"]["steps"]) and not any(app.state["kit"]["seq"]["steps"])   # the kit: no pattern
+    song = app.song()
+    drums = song["patterns"]["A"][xo4.DRUMS]
+    assert drums["len"] == 12 and song["swing"] == 20
+    assert {k: drums["steps"][0][k] for k in ("notes", "levels", "ratchets")} == {"notes": [0], "levels": [3],
+                                                                                  "ratchets": [2]}
+    assert {k: drums["steps"][4][k] for k in ("notes", "levels", "ratchets", "nudge")} == {
+        "notes": [2], "levels": [1], "ratchets": [1], "nudge": 8}
+    assert not any(drums["steps"][i] for i in range(xo4.NSTEP) if i not in (0, 4))
+    assert not any(song["patterns"]["B"][xo4.DRUMS]["steps"])
+    two = pads.empty_kit("NEXT BEAT")                                # set_kit: the same, into B (A's drums taken)
+    two["seq"]["len"], two["seq"]["swing"] = 16, 60
+    two["seq"]["steps"][2] = [[5, 0, 1]]
+    app.set_kit(two)
+    song = app.song()
+    assert not any(app.kit()["seq"]["steps"]) and app.kit()["name"] == "NEXT BEAT"
+    b = song["patterns"]["B"][xo4.DRUMS]
+    assert b["len"] == 16 and b["steps"][2]["notes"] == [5] and song["swing"] == 20      # the song's swing kept
+    assert song["patterns"]["A"][xo4.DRUMS]["steps"][4]["nudge"] == 8                     # A as it was
 
 
 def test_sampler_in_the_box():

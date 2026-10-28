@@ -548,8 +548,8 @@ def test_touch_screens():
 
 
 def test_tab_bar():
-    """eight tabs (MIXER, SAMPLER, XO-4, DECKS, RECORD with the reel-to-reel meter ...); the meters open from MIXER and the
-    DAW from MIDI, each with a back button, their tab lit under them"""
+    """eight tabs (MIXER, EDITOR, XO-4 with the pads in its DRUMS, DECKS, RECORD with the reel-to-reel meter ...); the
+    meters open from MIXER and the DAW from MIDI, each with a back button, their tab lit under them"""
     import bridge
     import deskui
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
@@ -557,7 +557,8 @@ def test_tab_bar():
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.render(0.0, force=True)
-    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "PADS", "XO4", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["PADS"] == "SAMPLER"
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["XO4"] == "XO-4"
+    assert "PADS" not in deskui.TABS and "PADS" not in deskui.TAB_LABEL               # the pads: in XO-4's DRUMS
 
     def press(key):
         box = next(w[0] for w in ui.widgets if w[3] == key)
@@ -581,7 +582,7 @@ def test_tab_bar():
     press("rec-takes")
     assert app.screen == "pick" or app.message == "No recordings yet"   # the takes (a Studio page), or none
     assert "RECORDINGS" not in [m[0] for m in deskui.MORE]
-    for tab in ("REC", "PADS"):                                     # RECORD and SAMPLER: full screen, as DECKS
+    for tab in ("REC", "EDITOR", "XO4"):                            # RECORD, EDITOR and XO-4: full screen, as DECKS
         app.screen = "status"
         ui.open_tab(tab)
         ui.render(0.0, force=True)
@@ -594,7 +595,7 @@ def test_tab_bar():
     press(("tab", "DECKS"))                                          # the DJ decks: a tab, no longer in MORE
     assert opened and ui.tab == "DECKS" and "DJ DECKS" not in [m[0] for m in deskui.MORE]
     app.pads = None
-    for tab in ("MIX", "PADS", "REC", "MIDI", "MORE"):              # every tab: < HOME, top left
+    for tab in ("MIX", "REC", "MIDI", "MORE"):                      # every tab: < HOME, top left
         app.screen = "status"
         ui.open_tab(tab)
         ui.render(0.0, force=True)
@@ -602,6 +603,14 @@ def test_tab_bar():
         assert box[0] < 10 and box[2] <= 70, (tab, box)
         press("home")
         assert ui.tab == "HOME", tab
+    for tab, key in (("EDITOR", "ed-back"), ("XO4", "xo4-home")):    # the full screens' own < HOME
+        app.screen = "status"
+        ui.open_tab(tab)
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        assert box[0] < 10, (tab, box)
+        press(key)
+        assert ui.tab == "HOME" and app.screen == "status", tab
 
 
 def test_four_usb_devices():
