@@ -1,0 +1,16 @@
+[Unit]
+Description=FM-1 Companion web page (library)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/.local/share/fm1-bridge
+Environment=PYTHONUNBUFFERED=1
+# not needed at boot: let the Companion start first on the Zero W's single core
+ExecStartPre=/bin/sleep 45
+ExecStart=/usr/bin/python3 %h/.local/share/fm1-bridge/web.py
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=default.target
