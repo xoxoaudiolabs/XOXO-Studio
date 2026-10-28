@@ -91,9 +91,11 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
 
     def sources(self):
         """[(mix key, label, detail, track colour index)] of the sound sources there are, each by its own name
-        (detail: the input pair it takes, for an interface with more than two channels)"""
+        (detail: the input pair it takes, for an interface with more than two channels; else "USB" for a USB
+        device, nothing for the Studio's own: the pads, XO-4)"""
         a = self.app
-        return [(key, a.channel_name(key, node), a.input_label(key, node) or "USB", i % 4)
+        return [(key, a.channel_name(key, node), a.input_label(key, node) or ("" if node.get("internal") else "USB"),
+                 i % 4)
                 for i, (key, node) in enumerate(a.mix_channels())]
 
     def view(self, now):

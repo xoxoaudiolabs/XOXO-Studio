@@ -1168,3 +1168,23 @@ def test_home_tempo():
     app.midi = type("M", (), {"clock": {"bpm": 97, "playing": True}, "set_clock": lambda self, *a: None})()
     press(("tempo", "-"))
     assert app.state["bpm"] == 300 and "Following" in app.message
+
+
+def test_internal_sources_say_no_usb():
+    """HOME's sources: a USB device says USB beside its name; the Studio's own (the pads, XO-4) say nothing"""
+    import bridge
+    import deskui
+
+    def node(i, name, cls="Audio/Source", nick=None):
+        props = {"media.class": cls, "node.name": name}
+        if nick:
+            props["alsa.card_name"] = nick
+        return {"id": i, "type": "PipeWire:Interface:Node", "info": {"props": props}}
+    objects = [node(1, "alsa_input.usb-Casio_EP-136-00.analog-stereo", nick="EP-136"), node(2, "fm1-sampler"),
+               node(3, "fm1-xo4")]
+    sink, sources = bridge.pick_nodes(objects)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.others = sources
+    ui = deskui.DeskUI(app, app.display)
+    assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("SAMPLER", ""),
+                                                                           ("XO-4", "")]

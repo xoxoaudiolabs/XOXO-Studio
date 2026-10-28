@@ -263,9 +263,9 @@ def pick_nodes(objects):
             node["ports"] = ports.get(o.get("id"), [])
             sources.append(node)
         elif cls == "Audio/Source" and name == "fm1-sampler":     # the Studio's pads (pads.py): a source too
-            sources.append(dict(node, label="SAMPLER", ports=ports.get(o.get("id"), [])))
+            sources.append(dict(node, label="SAMPLER", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4's synths (xo4.py): a source too
-            sources.append(dict(node, label="XO-4", ports=ports.get(o.get("id"), [])))
+            sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Sink" and name.startswith("bluez_output."):
             sink = sink or node
     return sink, sources
