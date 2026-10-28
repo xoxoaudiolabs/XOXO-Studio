@@ -583,6 +583,13 @@ def test_deck_fx():
     D.command(["fx", 1, "toggle"], lambda m: None)
     assert e.decks[1].fx.kind == "REVERB" and e.decks[1].fx.on
 
+
+def test_heard_without_a_controller():
+    """a fresh deck's volume is up: the touch screen alone (no fader ever moved) is heard"""
+    d = decks.Deck("A")
+    assert d.volume == 1.0
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

@@ -295,7 +295,8 @@ class Deck:
         self.loop = None                         # (start, end) frames while looping
         self.loop_beats, self.last_loop = 4.0, None
         self.roll = None                         # (slip position, beats) while a roll pad is held
-        self.gain, self.volume, self.pfl = 0.5, 0.0, False
+        self.gain, self.volume, self.pfl = 0.5, 1.0, False   # (volume up: played by touch alone it's heard; a
+                                                             # controller's fader takes over when it moves)
         self.tone = Tone()
         self.shift = False
         self.pad_mode = "hotcue"
