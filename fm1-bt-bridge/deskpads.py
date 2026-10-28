@@ -38,6 +38,7 @@ class DeskPads:
         self.seq_open, self.seq_pad, self.seq_page = False, 0, 0   # the SEQ page: the pad being placed, the page
         self.seq_edit, self.seq_rec = None, False      # the step whose hit is being edited; live REC
         self.fx_open = False                           # the FX page
+        self.mpc_open = False                          # the big 4x4 pads (XO-4's DRUMS > PADS)
         self.fx_on, self.fx_latch = None, False        # the punch-in FX on; LATCH (a tap holds it)
 
     def pads_view(self):
@@ -46,7 +47,7 @@ class DeskPads:
         rec = self.pad_rec and (self.pad_rec["pad"], int(self.pad_rec["rec"].seconds()))
         seq = (self.seq_pad, self.seq_page, self.seq_edit, self.seq_rec, a.seq_playing(),
                a.pads and a.pads.step, a.clock_text()) if self.seq_open else None
-        seq = (seq, self.fx_open, self.fx_on, self.fx_latch)
+        seq = (seq, self.fx_open, self.fx_on, self.fx_latch, self.mpc_open)
         return (str(a.state.get("kit")), sounding, self.pad_edit, self.pad_mode, self.pad_top,
                 self.kits_open and self.kits_top, self.kits_open,
                 self.browse, self.browse_top,
@@ -67,20 +68,20 @@ class DeskPads:
             return self.draw_seq(img, d)
         if self.fx_open:
             return self.draw_fx(img, d, now)
-        a, t = self.app, self.theme
+        a, t = self.app, self.theme             # the big pads, MPC style (XO-4's DRUMS > PADS)
         kit = a.kit()
-        self.home_button(img, d)
-        self.button(img, d, (70, 3, 158, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
+        self.button(img, d, (4, 3, 74, HDR_H - 5), "< XO-4", self.close_mpc, key="mpc-back")
+        self.button(img, d, (80, 3, 168, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
         repeat = a.state.get("repeat")
         buttons = [("RPT" if repeat is None else pads.DIVS[repeat], self.toggle_repeat, repeat is not None,
                     "pad-repeat"),
                    ("FX", self.open_fx, self.fx_on is not None, "fx-open"),
-                   ("SEQ", self.open_seq, a.seq_playing(), "seq"),
-                   ("EDITOR", self.open_sample_editor, False, "editor"),
-                   ("SETUP", self.toggle_pad_mode, self.pad_mode, "pad-mode")]
-        for k, (label, action, on, key) in enumerate(buttons):     # right to left from SETUP
-            x1 = W - 4 - (len(buttons) - 1 - k) * 63
-            self.button(img, d, (x1 - 60, 3, x1, HDR_H - 5), label, action, on=on, key=key)
+                   ("REC", self.xo4_toggle_rec, self.xo4_rec, "mpc-rec"),
+                   ("EDIT", self.toggle_pad_mode, self.pad_mode, "pad-mode")]
+        for k, (label, action, on, key) in enumerate(buttons):     # right to left from EDIT
+            x1 = W - 4 - (len(buttons) - 1 - k) * 74
+            self.button(img, d, (x1 - 70, 3, x1, HDR_H - 5), label, action, on=on, key=key,
+                        color=(255, 112, 92) if label == "REC" else None)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         sounding = set(a.pads.sounding) if a.pads else set()
         gw, gh = (W - 10) // 4, (H - HDR_H - 8) // 4      # the whole height: no tab bar under the pads
@@ -100,7 +101,13 @@ class DeskPads:
             if self.pad_mode or not pad["sample"]:         # EDIT, or an empty pad: its page (to sample it)
                 self.widget(box, "tap", lambda i=i: self.open_pad(i), ("pad", i))
             else:
-                self.widget(box, "gate", lambda down, i=i: self.hit(i, down), ("pad", i))
+                self.widget(box, "gate", lambda down, i=i: self.xo4_play_pad(i, down), ("pad", i))
+
+    def open_mpc(self):
+        self.mpc_open = True
+
+    def close_mpc(self):
+        self.mpc_open = False                          # (a latched FX stays on)
 
     def hit(self, i, down):
         if self.app.pads:

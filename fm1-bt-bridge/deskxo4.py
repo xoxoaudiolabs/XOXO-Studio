@@ -11,7 +11,8 @@ the decks are: the step grid and the keys need the height the tab bar takes.
   step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +.
               DRUMS: the hit last put on (the pad picked, on that step): its LEVEL (NORM, GHOST, SOFT, HARD), its
               ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
-  below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the punch-in FX), EDIT, and the 16 pads:
+  below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the punch-in FX), PADS (the 16 pads big,
+              4x4 as on an MPC, full screen: KIT, RPT, FX, REC, EDIT above them), EDIT, and the 16 pads:
               played (they sound while held, playing or not; with REC on, recorded) and picked for the steps; EDIT on,
               a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling, trimming). These
               are the pads' own pages (deskpads.py), back to XO-4 when closed. The rest: OCT - / +, KEY and SCALE (the note keys
@@ -197,7 +198,7 @@ class DeskXO4:
     def xo4_pad_page(self):
         """a pads' page open over XO-4's DRUMS"""
         return (self.pad_edit is not None or self.kits_open or self.pad_rec is not None
-                or self.pad_pick_source is not None or self.fx_open)
+                or self.pad_pick_source is not None or self.fx_open or self.mpc_open)
 
     def draw_xo4_pads(self, img, d):
         import pads
@@ -205,11 +206,12 @@ class DeskXO4:
         kit = a.kit()
         y = HDR_H + 136                         # KIT, RPT, FX, EDIT (where the synths have OCT, KEY, SCALE, SOUND)
         repeat = a.state.get("repeat")
-        self.button(img, d, (4, y, 136, y + 30), kit["name"][:14], self.open_kits, key="xo4-kits")
-        self.button(img, d, (142, y, 238, y + 30), "RPT" if repeat is None else "RPT " + pads.DIVS[repeat],
+        self.button(img, d, (4, y, 112, y + 30), kit["name"][:12], self.open_kits, key="xo4-kits")
+        self.button(img, d, (116, y, 206, y + 30), "RPT" if repeat is None else "RPT " + pads.DIVS[repeat],
                     self.toggle_repeat, on=repeat is not None, key="xo4-rpt")
-        self.button(img, d, (244, y, 340, y + 30), "FX", self.open_fx, on=self.fx_on is not None, key="xo4-fx")
-        self.button(img, d, (346, y, W - 4, y + 30), "EDIT", self.toggle_pad_mode, on=self.pad_mode, key="xo4-edit")
+        self.button(img, d, (210, y, 270, y + 30), "FX", self.open_fx, on=self.fx_on is not None, key="xo4-fx")
+        self.button(img, d, (274, y, 372, y + 30), "PADS", self.open_mpc, key="xo4-mpc")   # the big pads
+        self.button(img, d, (376, y, W - 4, y + 30), "EDIT", self.toggle_pad_mode, on=self.pad_mode, key="xo4-edit")
         top, pw = y + 36, W // 8
         sounding = set(a.pads.sounding) if a.pads else set()
         for i in range(16):
