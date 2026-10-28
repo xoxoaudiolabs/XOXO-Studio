@@ -150,6 +150,20 @@ def test_midi_track_through_the_routes():
     assert bridge.source_label("XO4") == "XO-4"
 
 
+def test_sound_settings():
+    """the SOUND page's steps: through a list of values from the nearest, or by a step in a range; how values
+    read; every starting sound a whole, clean patch"""
+    assert xo4.step_setting("ratio", 2.0, 1) == 2.5 and xo4.step_setting("ratio", 1.9, -1) == 1.5
+    assert xo4.step_setting("ratio", 16.0, 4) == 16.0 and xo4.step_setting("ratio", 0.25, -1) == 0.25   # the ends
+    assert xo4.step_setting("index", 3.0, 4) == 4.0 and xo4.step_setting("level", 0.99, 1) == 1.0
+    assert xo4.step_setting("attack", 0.0, 1) == 0.002 and xo4.step_setting("sustain", 0.6, -2) == 0.5
+    assert [xo4.setting_text(k, v) for k, v in (("release", 0.25), ("release", 1.5), ("level", 0.22),
+                                                ("ratio", 1.41))] == ["250MS", "1.5S", "22%", "1.41"]
+    import xo4synth
+    for name, patch in xo4.SOUNDS.items():
+        assert xo4synth.clean_patch(patch) == dict(xo4synth.PATCH, **patch), name
+    assert [k for k, _, _ in xo4.SETTINGS] == list(xo4synth.PATCH)        # every patch setting on the page
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

@@ -10,7 +10,13 @@ the decks are: the step grid and the keys need the height the tab bar takes.
   step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +
   below       DRUMS: the 16 pads (pick one; stopped, it sounds). The rest: OCT - / +, KEY and SCALE (the note keys
               offer the scale's notes), and 14 note keys from the octave: a tap adds the note to the selected step
-              or takes it off (four at most: a chord); stopped, it sounds
+              or takes it off (four at most: a chord); stopped, it sounds. SYN 1 and SYN 2: SOUND opens the synth's
+              page (below)
+
+The SOUND page (a synth track's): < XO-4 back, HEAR (its last notes), six starting sounds (KEYS, BASS, BELL,
+PLUCK, PAD, LEAD), and the patch's settings, each - / + (held: four steps): RATIO, BRIGHT (the modulation
+index), BR DECAY and BR HOLD (how the brightness falls, and what stays), ATTACK, DECAY, SUSTAIN, RELEASE, LEVEL.
+While stopped, a change sounds the track's last notes.
 """
 
 import sloopstyle as st
@@ -32,6 +38,7 @@ class DeskXO4:
         self.xo4_oct = list(OCTAVES)
         self.xo4_brush = [[], [60], [36], [48]]  # the notes a new step gets, a track
         self.xo4_rev = 0                         # bumped with each change: what's drawn follows
+        self.xo4_sound = False                   # the SOUND page (SYN 1, SYN 2) open
 
     # ---- the song
 
@@ -49,7 +56,8 @@ class DeskXO4:
         a = self.app
         x = getattr(a, "xo4", None)
         return (self.xo4_rev, self.xo4_track, self.xo4_edit, self.xo4_step, self.xo4_page, self.xo4_pad,
-                tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text())
+                tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
+                self.xo4_sound)
 
     # ---- drawing
 
@@ -57,6 +65,8 @@ class DeskXO4:
         import xo4
         a, t = self.app, self.theme
         song = self.xo4_song()
+        if self.xo4_sound and self.xo4_track in (xo4.SYNTH1, xo4.SYNTH2):
+            return self.draw_xo4_sound(img, d, song)
         name = self.xo4_pattern(song)
         track = song["patterns"][name][self.xo4_track]
         x = getattr(a, "xo4", None)
@@ -169,6 +179,9 @@ class DeskXO4:
         self.button(img, d, (246, y, 380, y + 30), song["scale"], self.xo4_scale, key="xo4-scale")
         if self.xo4_track == xo4.MIDI:
             st.text(img, (388, y + 8), f"CH {song['midi_channel'] + 1}", t.c[3])
+        else:                                   # a synth: its SOUND page
+            self.button(img, d, (386, y, W - 4, y + 30), "SOUND", self.xo4_sound_open, color=t.track[self.xo4_track],
+                        key="xo4-sound")
         step = track["steps"][self.xo4_step] if self.xo4_step is not None else None
         held = set(step["notes"]) if step else set()
         low = (octave + 1) * 12 + song["root"]
@@ -196,7 +209,7 @@ class DeskXO4:
             self.xo4_save(song)
 
     def xo4_pick_track(self, k):
-        self.xo4_track, self.xo4_step, self.xo4_page = k, None, 0
+        self.xo4_track, self.xo4_step, self.xo4_page, self.xo4_sound = k, None, 0, False
         self.xo4_rev += 1
 
     def xo4_pick_pad(self, i):
@@ -305,6 +318,71 @@ class DeskXO4:
         song = self.xo4_song()
         song["root"] = (song["root"] + 1) % 12
         self.xo4_save(song)
+
+    # ---- the SOUND page
+
+    def draw_xo4_sound(self, img, d, song):
+        import xo4
+        import xo4synth
+        t = self.theme
+        k = self.xo4_track
+        patch = song["patches"][k - xo4.SYNTH1]
+        self.button(img, d, (4, 3, 80, HDR_H - 5), "< XO-4", self.xo4_sound_close, key="xo4-sound-back")
+        st.text(img, (90, 9), f"{TRACK_LABELS[k]} SOUND", t.track[k])
+        self.button(img, d, (W - 84, 3, W - 4, HDR_H - 5), "HEAR", self.xo4_hear, key="xo4-hear")
+        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
+        names = list(xo4.SOUNDS)                # the starting sounds; the one the patch is now lit
+        bw = (W - 8) // len(names)
+        for n, name in enumerate(names):
+            same = xo4synth.clean_patch(xo4.SOUNDS[name]) == patch
+            self.button(img, d, (4 + n * bw, HDR_H + 4, 4 + (n + 1) * bw - 4, HDR_H + 36), name,
+                        lambda name=name: self.xo4_sound_preset(name), color=t.track[k], on=same,
+                        key=("xo4-preset", name))
+        left = ("ratio", "index", "mod_decay", "mod_sustain", "level")
+        right = ("attack", "decay", "sustain", "release")
+        names = {key: label for key, label, _ in xo4.SETTINGS}
+        for col, keys in enumerate((left, right)):
+            for row, key in enumerate(keys):
+                x0, y = 4 + col * 238, HDR_H + 42 + row * 48
+                self.button(img, d, (x0, y, x0 + 44, y + 42), "-", lambda key=key: self.xo4_sound_set(key, -1),
+                            key=("xo4-set", key, "-"), long=lambda key=key: self.xo4_sound_set(key, -4))
+                d.rectangle((x0 + 48, y, x0 + 182, y + 42), fill=t.grey[0])
+                self.centre(img, (x0 + 48, y + 2, x0 + 182, y + 20), names[key], t.c[2])
+                self.centre(img, (x0 + 48, y + 20, x0 + 182, y + 40), xo4.setting_text(key, patch[key]), t.hi)
+                self.button(img, d, (x0 + 186, y, x0 + 230, y + 42), "+", lambda key=key: self.xo4_sound_set(key, 1),
+                            key=("xo4-set", key, "+"), long=lambda key=key: self.xo4_sound_set(key, 4))
+
+    def xo4_sound_open(self):
+        self.xo4_sound = True
+        self.xo4_rev += 1
+
+    def xo4_sound_close(self):
+        self.xo4_sound = False
+        self.xo4_rev += 1
+
+    def xo4_patch_change(self, change):
+        """the synth track's patch changed by change(patch); kept, sent to XO-4, and (stopped) heard"""
+        import xo4
+        song = self.xo4_song()
+        patch = song["patches"][self.xo4_track - xo4.SYNTH1]
+        change(patch)
+        self.xo4_save(song)
+        if not self.app.seq_playing():
+            self.xo4_hear()
+
+    def xo4_sound_set(self, key, steps):
+        import xo4
+        self.xo4_patch_change(lambda patch: patch.__setitem__(key, xo4.step_setting(key, patch[key], steps)))
+
+    def xo4_sound_preset(self, name):
+        import xo4
+        self.xo4_patch_change(lambda patch: patch.update(xo4.SOUNDS[name]))
+
+    def xo4_hear(self):
+        """the track's last notes, heard now (playing or not)"""
+        x = getattr(self.app, "xo4", None)
+        if x and self.xo4_track in (1, 2):
+            x.send("audition", self.xo4_track, list(self.xo4_brush[self.xo4_track] or [60]), 100)
 
     def xo4_scale(self):
         import xo4

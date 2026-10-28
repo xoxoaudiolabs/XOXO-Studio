@@ -71,10 +71,12 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
     - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
     - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.
     - **Emptying a step:** tap the selected step again.
+  - **SOUND** (SYN 1, SYN 2): the synth's page. Six starting sounds (KEYS, BASS, BELL, PLUCK, PAD, LEAD) and its
+    settings, each − / + (held: four steps): RATIO, BRIGHT, BR DECAY, BR HOLD (how the brightness falls, and what
+    stays), ATTACK, DECAY, SUSTAIN, RELEASE, LEVEL. HEAR plays the track's last notes; while stopped, a change does.
   - **Hearing it:** while stopped, what you tap sounds.
 
 Not there yet:
-- the synths' sound settings on the screen
 - copying patterns
 - playing the synths live from a keyboard
 

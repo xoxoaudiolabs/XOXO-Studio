@@ -40,6 +40,53 @@ SYNTH_PATCHES = ({"ratio": 1.0, "index": 2.0, "mod_decay": 0.6, "attack": 0.005,
                  {"ratio": 0.5, "index": 4.0, "mod_decay": 0.15, "mod_sustain": 0.1, "sustain": 0.4,
                   "release": 0.08, "level": 0.3})                                                     # bass
 
+SOUNDS = {                                  # the SOUND page's starting points: a whole patch each
+    "KEYS": SYNTH_PATCHES[0],
+    "BASS": SYNTH_PATCHES[1],
+    "BELL": {"ratio": 3.5, "index": 3.0, "mod_decay": 1.5, "mod_sustain": 0.1, "attack": 0.002, "decay": 1.5,
+             "sustain": 0.0, "release": 1.0, "level": 0.2},
+    "PLUCK": {"ratio": 2.0, "index": 5.0, "mod_decay": 0.08, "mod_sustain": 0.0, "attack": 0.002, "decay": 0.3,
+              "sustain": 0.0, "release": 0.15, "level": 0.25},
+    "PAD": {"ratio": 1.0, "index": 1.0, "mod_decay": 3.0, "mod_sustain": 0.5, "attack": 0.5, "decay": 1.0,
+            "sustain": 0.8, "release": 1.5, "level": 0.18},
+    "LEAD": {"ratio": 1.0, "index": 3.5, "mod_decay": 0.6, "mod_sustain": 0.6, "attack": 0.01, "decay": 0.2,
+             "sustain": 0.8, "release": 0.2, "level": 0.22},
+}
+# the SOUND page's settings: (patch key, its name there, the values - / + step through); RANGES: those that move
+# by a step instead, (step, low, high)
+RANGES = {"index": (0.25, 0.0, 12.0), "mod_sustain": (0.05, 0.0, 1.0), "sustain": (0.05, 0.0, 1.0),
+          "level": (0.02, 0.0, 1.0)}
+TIMES = (0.002, 0.005, 0.01, 0.02, 0.05, 0.08, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0)
+SETTINGS = (("ratio", "RATIO", (0.25, 0.5, 0.75, 1.0, 1.41, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0,
+                                11.0, 12.0, 14.0, 16.0)),
+            ("index", "BRIGHT", None),
+            ("mod_decay", "BR DECAY", TIMES),
+            ("mod_sustain", "BR HOLD", None),
+            ("attack", "ATTACK", (0.0,) + TIMES),
+            ("decay", "DECAY", TIMES),
+            ("sustain", "SUSTAIN", None),
+            ("release", "RELEASE", TIMES),
+            ("level", "LEVEL", None))
+
+
+def step_setting(key, value, steps):
+    """a SOUND setting moved steps along: through its list of values (from the nearest one), or by its step"""
+    if key in RANGES:
+        step, lo, hi = RANGES[key]
+        return round(max(lo, min(hi, value + steps * step)), 3)
+    values = next(v for k, _, v in SETTINGS if k == key)
+    near = min(range(len(values)), key=lambda i: abs(values[i] - value))
+    return values[max(0, min(len(values) - 1, near + steps))]
+
+
+def setting_text(key, value):
+    """how the SOUND page shows a value"""
+    if key in ("mod_sustain", "sustain", "level"):
+        return f"{round(value * 100)}%"
+    if key in ("mod_decay", "attack", "decay", "release"):
+        return f"{round(value * 1000)}MS" if value < 1 else f"{value:g}S"
+    return f"{value:g}"
+
 
 def np():
     import numpy

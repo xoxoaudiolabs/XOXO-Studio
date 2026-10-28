@@ -1227,3 +1227,55 @@ def test_home_shows_every_source():
     ui.touch("down", box[0] + 10, box[1] + 4, 0.0)
     ui.touch("up", box[0] + 10, box[1] + 4, 0.0)
     assert ui.tab == "MIX"
+
+
+def test_xo4_sound_page():
+    """XO-4's SOUND page: opened from a synth track, a starting sound picked, settings stepped (held: four), heard
+    while stopped, back to the steps; the patch kept and sent to XO-4"""
+    import bridge
+    import deskui
+    import xo4
+
+    class XO4:
+        step = pattern = queued = None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.xo4 = XO4()
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if hold:
+            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
+    ui.open_tab("XO4")
+    press(("xo4-track", 0))
+    ui.render(0.0, force=True)
+    assert "xo4-sound" not in {w[3] for w in ui.widgets}            # DRUMS: no SOUND
+    press(("xo4-track", 2))                                         # SYN 2
+    press("xo4-sound")
+    assert ui.xo4_sound
+    press(("xo4-preset", "BELL"))
+    patch = app.song()["patches"][1]
+    assert patch["ratio"] == 3.5 and app.xo4.sent[-1] == ("audition", 2, [36], 100)   # heard: its last notes
+    press(("xo4-set", "ratio", "+"))
+    press(("xo4-set", "index", "-"), hold=True)
+    patch = app.song()["patches"][1]
+    assert patch["ratio"] == 4.0 and patch["index"] == 2.0
+    assert ("song", app.song()) in app.xo4.sent                    # (XO-4 has it)
+    sent = len(app.xo4.sent)
+    press("xo4-hear")
+    assert app.xo4.sent[sent:] == [("audition", 2, [36], 100)]
+    assert app.song()["patches"][0] == xo4.empty_song()["patches"][0]   # SYN 1's untouched
+    press("xo4-sound-back")
+    ui.render(0.0, force=True)
+    assert not ui.xo4_sound and ("xo4-step", 0) in {w[3] for w in ui.widgets}
