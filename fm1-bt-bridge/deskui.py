@@ -115,7 +115,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
                 a.jack and a.jack["name"], a.state.get("phones"), tuple(a.cued()), a.state.get("cue_mix"),
                 tuple(sorted(getattr(a, "app_here", ()))),
                 a.message if now < a.message_until else None, tuple(self.sources()),
-                a.sink and a.sink["label"], a.state.get("desk_theme"), self.more_top)
+                a.sink and a.sink["label"], a.state.get("desk_theme"), self.more_top,
+                bool(self.decks_proc and self.decks_proc.running()))     # (HOME's DECKS row)
         if self.tab == "MIDI":
             base += (json.dumps(a.routes(), sort_keys=True), tuple(a.matrix_lists()[0]))
         if self.tab in METER_TABS:
@@ -495,25 +496,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         right = self.status_right()
         st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        sources = self.sources()
-        rows = [(key, label, detail, k, a.mix_level(key) / 200) for key, label, detail, k in sources[:3]]
-        speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
-        if len(sources) > 3:                  # more sources than rows: the rest are on MIX
-            speaker = f"{speaker[:9]}  +{len(sources) - 3} ON MIXER"
-        rows.append(("spk", "SPEAKER", speaker, 3, (a.volume or 0) / 100))
-        y = HDR_H + 4
-        for key, label, detail, k, level in rows[:4]:
-            tile = (8, y, 48, y + 38)
-            d.rectangle(tile, fill=t.dim[k])
-            letter = {"spk": ">"}.get(key, label[:1])
-            st.text(img, (tile[0] + 12, y + 3), letter, t.track[k], 2)
-            st.text(img, (58, y + 2), label, t.hi)
-            st.text(img, (58 + st.text_size(label)[0] + 10, y + 2), detail.upper(), t.track[k])
-            d.rectangle((58, y + 26, W - 10, y + 31), fill=t.c[0])
-            d.rectangle((58, y + 26, 58 + int((W - 68) * max(0.0, min(1.0, level))), y + 31), fill=t.track[k])
-            self.widget((0, y, W, y + 38), "tap", self.pick_speaker if key == "spk" else
-                        (lambda: self.open_tab("MIX")), ("row", key))
-            y += 42
+        self.draw_home_rows(img, d)
         top = H - TAB_H - 62
         rec = a.recorder.recording()
         self.button(img, d, (8, top, 180, top + 54), "STOP REC" if rec else "REC", a.toggle_recording,
@@ -521,6 +504,48 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         self.button(img, d, (188, top, 334, top + 54), "STOP" if a.playing else "START", a.start_stop,
                     on=a.playing)
         self.button(img, d, (342, top, 472, top + 54), "TAP", lambda: a.tap(time.monotonic()))
+
+    def home_rows(self):
+        """HOME's rows: every source (its mixer level), the DJ decks while they run, then the speaker (its volume):
+        [(key, label, detail, track colour, level 0..1, level's text)]"""
+        a = self.app
+        rows = [(key, label, detail, k, a.mix_level(key) / 200, f"{a.mix_level(key)}%")
+                for key, label, detail, k in self.sources()]
+        if self.decks_proc and self.decks_proc.running():
+            rows.append(("decks", "DECKS", "", len(rows) % 3, a.mix_level("decks") / 200,   # (not the speaker's colour)
+                         f"{a.mix_level('decks')}%"))
+        speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
+        volume = f"{a.volume}%" if a.volume is not None else ""
+        return rows + [("spk", "SPEAKER", speaker, 3, (a.volume or 0) / 100, volume)]
+
+    def draw_home_rows(self, img, d):
+        """all of HOME's rows between the header and the buttons: each its name, a small bar under it (where the
+        mixer has it) and the level; as tall as fits, in two columns past seven"""
+        t = self.theme
+        rows = self.home_rows()
+        top, bottom = HDR_H + 4, H - TAB_H - 66
+        cols = 1 if len(rows) <= 7 else 2
+        per = -(-len(rows) // cols)
+        rh = min(42, (bottom - top) // per)
+        cw = (W - 8) // cols
+        for n, (key, label, detail, k, level, value) in enumerate(rows):
+            x0, y = 8 + n // per * cw, top + n % per * rh
+            x1 = x0 + cw - 8
+            if rh >= 38:                        # room for the tile with the source's letter
+                d.rectangle((x0, y, x0 + 40, y + rh - 4), fill=t.dim[k])
+                st.text(img, (x0 + 12, y + 3), {"spk": ">"}.get(key, label[:1]), t.track[k], 2)
+                tx, bar = x0 + 50, y + rh - 14
+            else:                               # a stripe of its colour instead
+                d.rectangle((x0, y, x0 + 4, y + rh - 4), fill=t.track[k])
+                tx, bar = x0 + 12, y + rh - 9
+            st.text(img, (tx, y + 2), label, t.hi)
+            if detail:
+                st.text(img, (tx + st.text_size(label)[0] + 10, y + 2), detail.upper()[:16], t.track[k])
+            st.text(img, (x1 - st.text_size(value)[0], y + 2), value, t.c[3])
+            d.rectangle((tx, bar, x1, bar + 3), fill=t.c[0])
+            d.rectangle((tx, bar, tx + int((x1 - tx) * max(0.0, min(1.0, level))), bar + 3), fill=t.track[k])
+            self.widget((x0 - 8, y, x1 + 4, y + rh - 2), "tap", self.pick_speaker if key == "spk" else
+                        (lambda: self.open_tab("MIX")), ("row", key))
 
     # ---- RECORDER: the reel-to-reel meter (the reels turn while it records), REC / STOP, Record parts, the takes
 
