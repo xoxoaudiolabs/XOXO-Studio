@@ -11,7 +11,10 @@ the decks are: the step grid and the keys need the height the tab bar takes.
   step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +.
               DRUMS: the hit last put on (the pad picked, on that step): its LEVEL (NORM, GHOST, SOFT, HARD), its
               ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
-  below       DRUMS: the 16 pads (pick one; stopped, it sounds). The rest: OCT - / +, KEY and SCALE (the note keys
+  below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the punch-in FX), EDIT, and the 16 pads:
+              played (they sound while held, playing or not; with REC on, recorded) and picked for the steps; EDIT on,
+              a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling, trimming). These
+              are the pads' own pages (deskpads.py), back to XO-4 when closed. The rest: OCT - / +, KEY and SCALE (the note keys
               offer the scale's notes), and 14 note keys from the octave: a tap adds the note to the selected step
               or takes it off (four at most: a chord); stopped, it sounds. SYN 1 and SYN 2: SOUND opens the synth's
               page (below)
@@ -61,7 +64,7 @@ class DeskXO4:
         x = getattr(a, "xo4", None)
         return (self.xo4_rev, self.xo4_track, self.xo4_edit, self.xo4_step, self.xo4_page, self.xo4_pad,
                 tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
-                self.xo4_sound, self.xo4_rec)
+                self.xo4_sound, self.xo4_rec, self.pads_view() if self.xo4_track == 0 else None)
 
     # ---- drawing
 
@@ -69,6 +72,8 @@ class DeskXO4:
         import xo4
         a, t = self.app, self.theme
         song = self.xo4_song()
+        if self.xo4_track == xo4.DRUMS and self.xo4_pad_page():
+            return self.draw_pads(img, d, now)  # a pad's page, the kits, sampling, FX: the pads' own
         if self.xo4_sound and self.xo4_track in (xo4.SYNTH1, xo4.SYNTH2):
             return self.draw_xo4_sound(img, d, song)
         name = self.xo4_pattern(song)
@@ -189,22 +194,41 @@ class DeskXO4:
         self.button(img, d, (408, y, W - 4, y + 32), "Q ON" if song["quant"] else "Q OFF", self.xo4_quant,
                     on=song["quant"], key="xo4-quant")
 
+    def xo4_pad_page(self):
+        """a pads' page open over XO-4's DRUMS"""
+        return (self.pad_edit is not None or self.kits_open or self.pad_rec is not None
+                or self.pad_pick_source is not None or self.fx_open)
+
     def draw_xo4_pads(self, img, d):
-        t, kit = self.theme, self.app.kit()
-        top, pw = HDR_H + 136, W // 8
+        import pads
+        a, t = self.app, self.theme
+        kit = a.kit()
+        y = HDR_H + 136                         # KIT, RPT, FX, EDIT (where the synths have OCT, KEY, SCALE, SOUND)
+        repeat = a.state.get("repeat")
+        self.button(img, d, (4, y, 136, y + 30), kit["name"][:14], self.open_kits, key="xo4-kits")
+        self.button(img, d, (142, y, 238, y + 30), "RPT" if repeat is None else "RPT " + pads.DIVS[repeat],
+                    self.toggle_repeat, on=repeat is not None, key="xo4-rpt")
+        self.button(img, d, (244, y, 340, y + 30), "FX", self.open_fx, on=self.fx_on is not None, key="xo4-fx")
+        self.button(img, d, (346, y, W - 4, y + 30), "EDIT", self.toggle_pad_mode, on=self.pad_mode, key="xo4-edit")
+        top, pw = y + 36, W // 8
+        sounding = set(a.pads.sounding) if a.pads else set()
         for i in range(16):
-            r = 1 - i // 8                      # pads 1-8 the bottom row, as on the PADS grid
-            box = (i % 8 * pw + 2, top + r * 74, (i % 8 + 1) * pw - 3, top + r * 74 + 68)
+            r = 1 - i // 8                      # pads 1-8 the bottom row, as on an MPC
+            box = (i % 8 * pw + 2, top + r * 54, (i % 8 + 1) * pw - 3, top + r * 54 + 50)
             colour = t.track[(3 - i // 4) % 4]
             on = i == self.xo4_pad
-            d.rectangle(box, fill=colour if on else t.grey[0], outline=colour, width=2)
-            st.text(img, (box[0] + 5, box[1] + 4), str(i + 1), t.bg if on else colour)
+            lit = i in sounding or self.lit(("xo4-pad", i))
+            d.rectangle(box, fill=t.hi if lit else colour if on else t.grey[0], outline=colour, width=2)
+            st.text(img, (box[0] + 5, box[1] + 4), str(i + 1), t.bg if (on or lit) else colour)
             sample = kit["pads"][i]["sample"]
             if sample:
                 from pathlib import Path
-                st.text(img, (box[0] + 5, box[3] - 20), Path(sample).stem.replace("808-", "").replace("-", "")[:6],
-                        t.bg if on else t.c[3])
-            self.widget(box, "tap", lambda i=i: self.xo4_pick_pad(i), ("xo4-pad", i))
+                st.text(img, (box[0] + 5, box[3] - 18), Path(sample).stem.replace("808-", "").replace("-", "")[:6],
+                        t.bg if (on or lit) else t.c[3])
+            if self.pad_mode:                   # EDIT: the pad's page
+                self.widget(box, "tap", lambda i=i: self.open_pad(i), ("xo4-pad", i))
+            else:                               # played while held, and picked for the steps
+                self.widget(box, "gate", lambda down, i=i: self.xo4_play_pad(i, down), ("xo4-pad", i))
 
     def draw_xo4_keys(self, img, d, song, track):
         import xo4
@@ -252,11 +276,13 @@ class DeskXO4:
         self.xo4_track, self.xo4_step, self.xo4_page, self.xo4_sound = k, None, 0, False
         self.xo4_rev += 1
 
-    def xo4_pick_pad(self, i):
-        self.xo4_pad = i
-        self.xo4_rev += 1
-        if self.app.pads and not self.app.seq_playing():
-            self.app.pads.send("tap", i, 100)   # (stopped: heard as it's picked)
+    def xo4_play_pad(self, i, down):
+        """a pad touched: it sounds while held (playing or not: with REC on, XO-4 records it), and is the one the
+        steps place"""
+        if down and self.xo4_pad != i:
+            self.xo4_pad = i
+            self.xo4_rev += 1
+        self.hit(i, down)
 
     def xo4_go_page(self, pg):
         self.xo4_page = pg

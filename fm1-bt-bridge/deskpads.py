@@ -521,7 +521,7 @@ class DeskPads:
     def draw_fx(self, img, d, now):
         import padfx
         a, t = self.app, self.theme
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< PADS", self.close_fx, key="fx-back")
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", self.close_fx, key="fx-back")
         st.text(img, (96, 9), "PUNCH-IN FX", t.hi)
         st.text(img, (210, 9), self.tempo_text()[:12], t.c[2])
         self.button(img, d, (W - 104, 3, W - 4, HDR_H - 5), "LATCH", self.toggle_fx_latch, on=self.fx_latch,
@@ -566,7 +566,7 @@ class DeskPads:
 
     def draw_kits(self, img, d):
         a, t = self.app, self.theme
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< PADS", self.close_kits, key="kits-back")
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", self.close_kits, key="kits-back")
         st.text(img, (96, 9), "KITS", t.hi)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         every = pads.list_kits()
