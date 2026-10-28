@@ -41,7 +41,8 @@ The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, ap
 
 ## What's inside
 
-- **HOME, MIXER, RECORDER:** every USB sound source and the pads, a level each, recorded as one mix (or a part each), with meters
+- **HOME:** the tempo with − / +; every source (each USB device, the pads, XO-4, the decks while they run) and the speaker, each with a small bar and a % for its mixer level; REC, START, TAP
+- **MIXER, RECORD:** every source a level, recorded as one mix (or a part each), with meters
 - **SAMPLER (PADS):** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; the 808 KIT is loaded on the first start
 - **XO-4:** the Studio's own groovebox (full screen; below)
 - **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN
@@ -93,6 +94,7 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - "< HOME" at the top left of MIXER, SAMPLER, RECORD, MIDI and MORE looks right on the Studio's screen (the user's report)
 - SAMPLER and RECORD full screen (no tab bar) look right on the Studio's screen (the user's report)
 - HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
+- HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
 
 **Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, recording, the pads' own sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
