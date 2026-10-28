@@ -36,7 +36,8 @@ def test_clean_song():
                         "patches": [{"ratio": 99}, "nonsense"]})
     assert sorted(s["patterns"]) == list(xo4.PATTERNS) and all(len(t) == 4 for t in s["patterns"].values())
     drums = s["patterns"]["A"][xo4.DRUMS]
-    assert drums["len"] == 64 and drums["steps"][0] == {"notes": [3], "vel": 127, "len": 1.0}   # pad 20: no pad
+    assert drums["len"] == 64 and drums["steps"][0] == {"notes": [3], "vel": 127, "len": 1.0, "nudge": 0,
+                                                        "levels": [0], "ratchets": [1]}       # pad 20: no pad
     assert s["pattern"] == "A" and s["swing"] == 100 and s["levels"][:2] == [2.0, 0.0] and s["midi_channel"] == 15
     assert s["patches"][0]["ratio"] == 16.0 and s["patches"][1]["ratio"] == xo4.SYNTH_PATCHES[1]["ratio"]
     synth = xo4.clean_step({"notes": [60, 64, 67, 71, 74]}, xo4.SYNTH1)
@@ -163,6 +164,43 @@ def test_sound_settings():
     for name, patch in xo4.SOUNDS.items():
         assert xo4synth.clean_patch(patch) == dict(xo4synth.PATCH, **patch), name
     assert [k for k, _, _ in xo4.SETTINGS] == list(xo4synth.PATCH)        # every patch setting on the page
+
+
+def test_drum_levels_ratchets_nudge():
+    """a drum hit's level sets its velocity, its ratchet plays it that many times in the step; a step's nudge moves
+    it off the grid (64ths of a step); levels and ratchets stay with their pads, cleaned"""
+    step = xo4.clean_step({"notes": [5, 1], "levels": [3, 1], "ratchets": [2, 9], "nudge": -50}, xo4.DRUMS)
+    assert step["notes"] == [1, 5] and step["levels"] == [1, 3] and step["ratchets"] == [4, 2] and step["nudge"] == -32
+    song = song_with(xo4.DRUMS, {0: {"notes": [0], "levels": [3], "ratchets": [2]},
+                                 2: {"notes": [4], "levels": [1], "nudge": 16}})
+    seq = playing(xo4.Sequencer())
+    ons = [(round((t - 10.0) / U, 3), pad, vel) for t, _, kind, pad, vel in seq.due(song, seq.ahead, 10.0, 10.0 + 4 * U)
+           if kind == "on"]
+    assert ons == [(0.0, 0, 127), (0.5, 0, 127), (2.25, 4, 42)]     # HARD twice; a GHOST a quarter step late
+
+
+def test_live_rec():
+    """REC on and playing: a pad played goes onto the drums' nearest step at the level it was hit; QUANT off keeps
+    where it was played; a step not yet sent doesn't play it again; REC off or stopped: nothing recorded"""
+    song = xo4.clean_song(None)
+    seq = playing(xo4.Sequencer())
+    assert not seq.record(song, 2, 100, 10.0 + 4 * U)               # REC off
+    seq.rec = True
+    seq.due(song, seq.ahead, 10.0, 10.0 + 2 * U)                    # sent up to step 2
+    assert seq.record(song, 2, 40, 10.0 + 4 * U + 0.01)             # just after step 4: there, as a GHOST
+    step = song["patterns"]["A"][xo4.DRUMS]["steps"][4]
+    assert step["notes"] == [2] and step["levels"] == [1] and step["nudge"] == 0
+    ons = [pad for t, _, kind, pad, _ in seq.due(song, seq.ahead, 10.0 + 2 * U, 10.0 + 6 * U) if kind == "on"]
+    assert ons == []                                                # already heard live: not again this time round
+    song["quant"] = False
+    assert seq.record(song, 7, 120, 10.0 + 8 * U - U / 4)           # a quarter step early, kept
+    step = song["patterns"]["A"][xo4.DRUMS]["steps"][8]
+    assert step["notes"] == [7] and step["levels"] == [3] and step["nudge"] == -16
+    seq.grid = (PER, None, False)
+    assert not seq.record(song, 1, 100, 11.0)                       # stopped
+    engine = xo4.Engine(RATE)
+    engine.seq.grid, engine.seq.rec = (PER, 10.0, True), True
+    assert engine.played(9, 100, 10.0) and engine.song["patterns"]["A"][xo4.DRUMS]["steps"][0]["notes"] == [9]
 
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]

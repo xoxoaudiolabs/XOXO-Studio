@@ -1279,3 +1279,53 @@ def test_xo4_sound_page():
     press("xo4-sound-back")
     ui.render(0.0, force=True)
     assert not ui.xo4_sound and ("xo4-step", 0) in {w[3] for w in ui.widgets}
+
+
+def test_xo4_drum_hits():
+    """XO-4's DRUMS: the hit just put on shows its LEVEL, ratchet and the step's NUDGE; other pads on the step keep
+    theirs; QUANT and REC reach XO-4"""
+    import bridge
+    import deskui
+
+    class XO4:
+        step = pattern = queued = None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.xo4, app.pads = XO4(), None
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+
+    def step(i):
+        return app.song()["patterns"]["A"][0]["steps"][i]
+    ui.open_tab("XO4")
+    press(("xo4-pad", 0))
+    press(("xo4-step", 4))                                          # KICK on 5: selected
+    press("xo4-level")                                              # NORM -> HARD
+    press("xo4-ratchet")                                            # X1 -> X2
+    press("xo4-nudge+")
+    assert step(4)["levels"] == [3] and step(4)["ratchets"] == [2] and step(4)["nudge"] == 4
+    press(("xo4-pad", 2))
+    press(("xo4-step", 4))                                          # SNARE on the same step
+    press("xo4-level")
+    press("xo4-level")                                              # NORM -> HARD -> GHOST
+    assert step(4)["notes"] == [0, 2] and step(4)["levels"] == [3, 1] and step(4)["ratchets"] == [2, 1]
+    press(("xo4-step", 4))                                          # SNARE off again: the KICK's hit kept
+    assert step(4)["notes"] == [0] and step(4)["levels"] == [3] and step(4)["ratchets"] == [2]
+    press("xo4-quant")
+    assert app.song()["quant"] is False
+    press("xo4-rec")
+    assert ui.xo4_rec and ("rec", True) in app.xo4.sent
+    ui.render(0.0, force=True)
