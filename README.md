@@ -2,7 +2,7 @@
 
 A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs. It's the FM-1 Companion Studio with the FM-1 taken out, so it works as a universal tool with any USB or Bluetooth MIDI gear and any USB sound source.
 
-**Status: not yet tested on hardware.** The FM-1 parts are out: the SLOOP and X0X apps, the FM-1 library (backups, projects, sample slots, firmware), and FM-1 A/B in the sound sources and MIDI routes. Recording and the meters now take whatever the Studio plays. The first fresh install on a Pi is next. Until it's done, read everything here as how it's meant to work.
+**Status: installs and starts on a Pi; most of it not yet tried on hardware.** The FM-1 parts are out: the SLOOP and X0X apps, the FM-1 library (backups, projects, sample slots, firmware), and FM-1 A/B in the sound sources and MIDI routes. What's been tried and what hasn't is under [Tested](#tested).
 
 ## Hardware
 
@@ -14,43 +14,91 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 ## Set up
 
 1. **Flash the card** with Raspberry Pi Imager: *Raspberry Pi 3*, *Raspberry Pi OS Lite*. In its settings, set the hostname `XOXOStudio`, a user name and password, your Wi-Fi, and **enable SSH**.
-2. **Boot the Pi** (give it a few minutes the first time) and log in from your computer:
+2. **Boot the Pi** (give it a few minutes the first time).
+3. **Get the app onto the Pi**, either way:
+   - **From a download:** on GitHub, *Code › Download ZIP*, unzip it, and from the unzipped `XOXO-Studio-main` folder:
+     ```
+     scp -r fm1-bt-bridge YOUR_USER@xoxostudio.local:~
+     ```
+   - **With git** (updates later are a `git pull`): the repository is private, so give the Pi a deploy key, an SSH key that opens this repository only, read-only. On the Pi (`ssh YOUR_USER@xoxostudio.local`):
+     ```
+     sudo apt-get update && sudo apt-get install -y git
+     ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "xoxostudio"
+     cat ~/.ssh/id_ed25519.pub
+     ```
+     On GitHub: the repository's **Settings › Deploy keys › Add deploy key**, paste that line, leave *Allow write access* off. Then `git clone git@github.com:xoxoaudiolabs/XOXO-Studio.git` (answer `yes` to GitHub's host key) and use `XOXO-Studio/fm1-bt-bridge` below.
+4. **Install** over SSH, then reboot (it asks for your password once):
    ```
    ssh YOUR_USER@xoxostudio.local
-   ```
-3. **Give the Pi read access to this repository** (it's private): a deploy key, an SSH key that opens this
-   repository only, read-only. On the Pi:
-   ```
-   sudo apt-get update && sudo apt-get install -y git
-   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "xoxostudio"
-   cat ~/.ssh/id_ed25519.pub
-   ```
-   On GitHub: the repository's **Settings › Deploy keys › Add deploy key**, paste that line, leave
-   *Allow write access* off.
-4. **Clone and install**, then reboot:
-   ```
-   git clone git@github.com:xoxoaudiolabs/XOXO-Studio.git
-   bash XOXO-Studio/fm1-bt-bridge/install.sh
+   bash fm1-bt-bridge/install.sh
    sudo reboot
    ```
-   The first `git clone` asks to trust GitHub's host key: answer `yes`. On the first start the Studio asks for
-   the touch setup (four targets) before HOME.
+   On the first start the Studio asks for the touch setup (four targets) before HOME.
 
-**Updating:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
+**Updating with git:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
 
 The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, apart from the FM-1 Companion's, so a phone can keep both on its home screen.
 
 ## What's inside
 
 - **HOME, MIXER, RECORDER:** every USB sound source and the pads, a level each, recorded as one mix (or a part each), with meters
-- **PADS:** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; an 808 kit comes with it
+- **SAMPLER (PADS):** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; an 808 kit comes with it
+- **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
-- **MORE:** the DJ decks, themes, Wi-Fi, touch setup, shut down
+- **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
 Next: **XO-4**, the Studio's own groovebox (drums, two FM synth tracks, a MIDI track).
 
 Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 
-## License
+## Tested
 
-GPL-3.0 (see LICENSE). The pad sequencer, the punch-in FX and the look come from SLOOP (isod89/sloop-fm1, GPL-3.0). The 808 kit is Michael Fischer's recordings of a TR-808 (CC0).
+**On hardware** (2026-10-28: a Raspberry Pi 3 B+ on Raspberry Pi OS Lite, Trixie, 64-bit; a 3.5" ILI9486 / ADS7846 touchscreen; a PiSugar battery):
+- installed from the GitHub ZIP as above: the installer ran to the end with no errors in its log
+- after the reboot the app, its sampler and the web page start; the screen and the touch are found; the settings hold a touch calibration and a theme picked on the screen
+- the battery's charge is read
+- the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
+
+**Not yet tried on hardware:** sound out (a Bluetooth speaker, the jack), USB sound sources, the mixer and CUE, recording, the pads playing and their sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks (the DECKS tab, MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
+
+**On a PC:** the test suite passes (each `tests/test_*.py` with its own runner; `tests/test_desk.py` through pytest).
+
+## License and credits
+
+XOXO Studio is GPL-3.0 (see [LICENSE](LICENSE)), like SLOOP, which parts of it come from. It began as the FM-1 Companion Studio (xoxoaudiolabs/FM-1-Companion, GPL-3.0).
+
+**From SLOOP** ([isod89/sloop-fm1](https://github.com/isod89/sloop-fm1), GPL-3.0), rewritten in Python here: the pads' step sequencer (its `seq.c`), the sixteen punch-in FX (`punch.c`), and the look: the palettes and track colours (`gfx.c`).
+
+**Copied into this repository** (each with its licence beside it):
+
+| What | From | Licence |
+|---|---|---|
+| `fm1-bt-bridge/vendor/fonts/` (Terminus) | Dimitar Toshkov Zhekov, as SLOOP ships it ([VENDORED.md](fm1-bt-bridge/vendor/fonts/VENDORED.md)) | SIL Open Font License 1.1 |
+| `fm1-bt-bridge/kits/808/` (the 808 KIT's sixteen sounds) | Michael Fischer's recordings of a Roland TR-808 (1994), from [tidalcycles/sounds-tr808-fischer](https://github.com/tidalcycles/sounds-tr808-fischer) ([CREDITS.md](fm1-bt-bridge/kits/808/CREDITS.md)) | CC0 1.0 |
+
+Not affiliated with Roland or Hercules. TR-808 is a trademark of Roland Corporation; DJControl Inpulse is Hercules's (Guillemot Corporation).
+
+**Built on** (installed by `install.sh` from Raspberry Pi OS's own packages, or already part of it; not copied into this repository, and each under its own licence):
+
+| Software | What XOXO Studio uses it for | Licence |
+|---|---|---|
+| Raspberry Pi OS (Debian) and the Linux kernel | the system; the screen's drivers (fbtft, SPI, I2C) | GPL-2.0 (the kernel); Debian's packages each their own |
+| PipeWire (`pw-cat`, `pw-record`, `pw-loopback` …) and its Bluetooth plugin | all the sound: the mixer, Bluetooth audio, recording, the pads, the decks | MIT, with some parts LGPL-2.1-or-later |
+| WirePlumber (`wpctl`) | PipeWire's session manager; levels | MIT |
+| BlueZ | Bluetooth: speakers, Bluetooth MIDI | GPL-2.0-or-later (its libraries LGPL-2.1-or-later) |
+| D-Bus | talking to BlueZ | GPL-2.0-or-later or AFL-2.1 (some parts MIT, BSD) |
+| systemd | the app's services | LGPL-2.1-or-later (some parts GPL-2.0-or-later) |
+| NetworkManager (`nmcli`) | Wi-Fi on / off | GPL-2.0-or-later (its libraries LGPL-2.1-or-later) |
+| RealtimeKit (rtkit) | real-time priority for the sound | GPL-3.0-or-later (some parts MIT) |
+| udisks2, exfatprogs, ntfs-3g | USB drives of music for the decks | GPL-2.0-or-later (udisks2's library LGPL-2.0-or-later) |
+| Python 3 | the app itself | PSF License |
+| Pillow | drawing every screen, the icons | the PIL Software License (MIT-CMU) |
+| NumPy | meters, the sampler, the sample editor | BSD-3-Clause |
+| mido and python-rtmidi (RtMidi) | MIDI | MIT |
+| libsndfile, with mpg123 | the DJ decks reading MP3, FLAC, WAV, AIFF and Ogg | LGPL-2.1-or-later (some parts Apache-2.0); mpg123 LGPL-2.1 |
+| dbus-python | BlueZ over D-Bus | MIT (some parts AFL-2.1 or GPL-2.0-or-later) |
+| PyGObject | BlueZ's events (GLib) | LGPL-2.1-or-later |
+| spidev, libgpiod's Python bindings, smbus2, i2c-tools | the pocket build's screen and keys; the PiSugar battery | MIT; LGPL-2.1-or-later; MIT; GPL-2.0-or-later |
+| DejaVu fonts | the pocket build's text | Bitstream Vera / DejaVu licence (free) |
+
+The licences are each project's own, as Debian lists them in each package's `/usr/share/doc/<package>/copyright` on the Pi: that file is the one to go by.

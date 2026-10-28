@@ -219,7 +219,7 @@ def test_cue_sources():
 
 
 def test_decks_screen():
-    """MORE > DJ DECKS: the decks' screen from their status; its buttons send the decks their commands (a pretend
+    """the DECKS tab: the decks' screen from their status; its buttons send the decks their commands (a pretend
     decks program: no sound, no Hercules)"""
     import bridge
     import deskui
@@ -548,7 +548,7 @@ def test_touch_screens():
 
 
 def test_tab_bar():
-    """six tabs (MIXER, SAMPLER, RECORDER with the reel-to-reel meter ...); the meters open from MIXER and the
+    """seven tabs (MIXER, SAMPLER, DECKS, RECORDER with the reel-to-reel meter ...); the meters open from MIXER and the
     DAW from MIDI, each with a back button, their tab lit under them"""
     import bridge
     import deskui
@@ -557,7 +557,7 @@ def test_tab_bar():
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.render(0.0, force=True)
-    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "PADS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["PADS"] == "SAMPLER"
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "PADS", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["PADS"] == "SAMPLER"
 
     def press(key):
         box = next(w[0] for w in ui.widgets if w[3] == key)
@@ -581,6 +581,12 @@ def test_tab_bar():
     press("rec-takes")
     assert app.screen == "pick" or app.message == "No recordings yet"   # the takes (a Studio page), or none
     assert "RECORDINGS" not in [m[0] for m in deskui.MORE]
+    app.screen = "status"
+    ui.render(0.0, force=True)
+    opened = []
+    ui.open_decks = lambda: opened.append(True) or setattr(ui, "tab", "DECKS")   # (no decks program here)
+    press(("tab", "DECKS"))                                          # the DJ decks: a tab, no longer in MORE
+    assert opened and ui.tab == "DECKS" and "DJ DECKS" not in [m[0] for m in deskui.MORE]
 
 
 def test_four_usb_devices():
