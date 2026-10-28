@@ -14,17 +14,29 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 ## Set up
 
 1. **Flash the card** with Raspberry Pi Imager: *Raspberry Pi 3*, *Raspberry Pi OS Lite*. In its settings, set the hostname `XOXOStudio`, a user name and password, your Wi-Fi, and **enable SSH**.
-2. **Boot the Pi** (give it a few minutes the first time). On your computer, from this repository's folder, copy the app over:
-   ```
-   scp -r fm1-bt-bridge YOUR_USER@xoxostudio.local:~
-   ```
-3. **Install** over SSH, then reboot:
+2. **Boot the Pi** (give it a few minutes the first time) and log in from your computer:
    ```
    ssh YOUR_USER@xoxostudio.local
-   bash fm1-bt-bridge/install.sh
+   ```
+3. **Give the Pi read access to this repository** (it's private): a deploy key, an SSH key that opens this
+   repository only, read-only. On the Pi:
+   ```
+   sudo apt-get update && sudo apt-get install -y git
+   ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519 -C "xoxostudio"
+   cat ~/.ssh/id_ed25519.pub
+   ```
+   On GitHub: the repository's **Settings › Deploy keys › Add deploy key**, paste that line, leave
+   *Allow write access* off.
+4. **Clone and install**, then reboot:
+   ```
+   git clone git@github.com:xoxoaudiolabs/XOXO-Studio.git
+   bash XOXO-Studio/fm1-bt-bridge/install.sh
    sudo reboot
    ```
-   On the first start the Studio asks for the touch setup (four targets) before HOME.
+   The first `git clone` asks to trust GitHub's host key: answer `yes`. On the first start the Studio asks for
+   the touch setup (four targets) before HOME.
+
+**Updating:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
 
 The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, apart from the FM-1 Companion's, so a phone can keep both on its home screen.
 
