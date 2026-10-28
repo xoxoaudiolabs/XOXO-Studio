@@ -23,16 +23,16 @@ class WebLink:
         midi, clock = self.midi, getattr(self.midi, "clock", None) if self.midi else None
         keys = self.keys_route()
         return {
-            "fm1": self.source and (self.source["label"] + (" + B" if self.source_b else "")),
+            "sources": [self.channel_name(k, n) for k, n in self.mix_channels()],
             "live": self.live(),
             "mixer": ([{"key": k, "label": self.channel_name(k, n), "level": self.mix_level(k),
                         "input": self.input_label(k, n)} for k, n in self.mix_channels()]
                       if len(self.mix_channels()) > 1 else None),
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,
-            "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled), "usb": midi and midi.usb_label(),
+            "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled),
                      "error": midi and midi.error, "controllers": list(getattr(midi, "controllers", None) or []),
-                     "usb_b": getattr(midi, "usb_b", None), "net": list(getattr(midi, "net", None) or []),
+                     "net": list(getattr(midi, "net", None) or []),
                      "pads": bool(getattr(midi, "pads", False))},
             "matrix": dict(zip(("sources", "dests"), self.matrix_lists())),
             "clock": clock, "clock_text": self.clock_text(),

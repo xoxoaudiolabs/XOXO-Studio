@@ -53,9 +53,6 @@ class Midi:
     def set_routes(self, routes):
         pass
 
-    def usb_label(self):
-        return "Felucca"
-
     def activity(self):
         return time.monotonic()               # the MIDI dot on
 
@@ -114,14 +111,8 @@ def scenes(app):
     def settings_play():
         app.screen, app.setting, app.settings_menu = "settings", 0, "play"
 
-    def settings_sloop():
-        app.screen, app.setting, app.settings_menu = "settings", 0, "sloop"
-
     def settings_midi():
         app.screen, app.setting, app.settings_menu = "settings", 2, "midi"
-
-    def settings_fm1():
-        app.screen, app.setting, app.settings_menu = "settings", 0, "fm1"
 
     def volume():
         app.volume, app.volume_shown = 64, time.monotonic() + 60
@@ -129,26 +120,17 @@ def scenes(app):
     def matrix():
         app.screen, app.mx = "matrix", [0, 0]
 
-    def matrix_two():                         # a second FM-1 on the hub: its row and column
-        app.midi.usb_b = "Felucca:Felucca MIDI 1 28:0"
-        routes = blemidi_routes()
-        routes["USB>FM-1 B"]["on"] = False    # the SMK-37 plays A, Bluetooth plays B
-        routes["BT>FM-1"]["on"] = False
-        app.state["routes"] = routes
-        app.screen, app.mx = "matrix", [1, 1]
-
-    def settings_mixer():                     # FM-1 A and B and the SMK-37's own synth
-        app.source_b = dict(app.source, id=3, name="alsa_input.usb-Felucca-00.2")
-        app.others = [{"id": 4, "name": "alsa_input.usb-SMK-37", "label": "SMK-37+VA"}]
-        app.state["mix"] = {"a": 100, "b": 80, "usb": 175}
-        app.screen, app.settings_menu, app.setting = "settings", "audio", 5
+    def settings_mixer():                     # the EP-136 and the SMK-37's own synth
+        app.others = app.others + [{"id": 4, "name": "alsa_input.usb-SMK-37", "label": "SMK-37+VA"}]
+        app.state["mix"] = {"u-ep136": 100, "u-smk37va": 175}
+        app.screen, app.settings_menu, app.setting = "settings", "audio", 4
 
     def route():
         import blemidi
         routes = blemidi.default_routes()
-        routes["BT>FM-1"].update(transpose=12, velocity="soft")
+        routes["BT>USB"].update(on=True, transpose=12, velocity="soft")
         app.state["routes"] = routes
-        app.screen, app.route_key, app.route_row = "route", "BT>FM-1", 2
+        app.screen, app.route_key, app.route_row = "route", "BT>USB", 2
 
     def recordings():
         import library as lib
@@ -170,11 +152,6 @@ def scenes(app):
     def editor_note():
         editor("note")
 
-    def job():
-        app.screen, app.job_title = "job", "Firmware"
-        state = {"job": "flash", "state": "running", "step": "Writing", "percent": 64}
-        app.library_state = lambda now=None: state
-
     def speakers():
         app.screen, app.scanning, app.cursor = "scan", False, 1
         app.devices = [{"name": n, "mac": ""} for n in ("AirPods Pro", "JBL Go 3", "WH-1000XM4")]
@@ -191,16 +168,11 @@ def scenes(app):
         app.screen, app.scan_kind, app.cursor = "scan", "midi", 0
 
     return [("status", status), ("status-charging", charging), ("status-rec", recording), ("settings", settings),
-            ("settings-play", settings_play), ("settings-sloop", settings_sloop), ("settings-fm1", settings_fm1), ("settings-midi", settings_midi), ("status-volume", volume),
-            ("matrix", matrix), ("matrix-two", matrix_two), ("settings-mixer", settings_mixer), ("route", route), ("speakers", speakers),
+            ("settings-play", settings_play), ("settings-midi", settings_midi), ("status-volume", volume),
+            ("matrix", matrix), ("settings-mixer", settings_mixer), ("route", route), ("speakers", speakers),
             ("pairing", pairing), ("screensaver", saver), ("recordings", recordings), ("bt-keys", bt_keys),
             ("editor", editor), ("editor-note", editor_note),
-            ("player", player), ("job", job)]
-
-
-def blemidi_routes():
-    import blemidi
-    return blemidi.default_routes()
+            ("player", player)]
 
 
 def write_take(path):
@@ -241,11 +213,9 @@ def main():
         display = Capture()
         app = bridge.App(display, dict(state))
         app.loop, app.midi, app.wifi = Loop(), Midi(), False
-        app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
-        app.fw_label = "SLOOP 2.8"          # what the FM-1 says it runs: IN shows this, not its USB name
+        app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"}]
         app.sink = {"id": 2, "name": "bluez_output.jbl", "label": "JBL Go 3"}
         app.volume = 75
-        app.library_state = lambda now=None: None     # no library job (whatever this computer has)
         dict(scenes(app))[name]()
         app.render()
         oled(display.image).save(out / f"screen-{name}.png", optimize=True)
@@ -273,9 +243,9 @@ class RgbCapture:
 
 
 def desk_screens(state, out):
-    """The Studio's touch screens (desk-ui-NAME.png), in SLOOP's GREEN and in a custom theme like FM-1 A's
-    (desk-ui-NAME-theme.png), as the real Studio runs: two FM-1s, an SMK-37 running Clipper, a K.O. Sidekick
-    (EP-136), the sampler with a kit and a beat, the headphone jack, a speaker. The tabs, then the sampler's pages
+    """The Studio's touch screens (desk-ui-NAME.png), in GREEN and in a custom theme (desk-ui-NAME-theme.png),
+    as a Studio might run: an SMK-37 running Clipper, a K.O. Sidekick (EP-136), the sampler with a kit and a beat,
+    the headphone jack, a speaker. The tabs, then the sampler's pages
     (SEQ, FX, the sample editor), the recorder and the boot screen"""
     import deskboot
     import sloopstyle
@@ -339,24 +309,19 @@ def studio_app(state, display, theme, samples):
 
         def send(self, *msg):
             pass
-    app = bridge.App(display, dict(state, rec_parts=True, cues=["u-clipper"], cue_mix=50, desk_theme="follow"))
+    app = bridge.App(display, dict(state, rec_parts=True, cues=["u-clipper"], cue_mix=50))
     app.loop, app.midi, app.wifi = Loop(), Midi(), True
-    app.midi.usb_b = "Felucca:Felucca MIDI 1 28:0"
     app.midi.split, app.midi.pads, app.midi.net = True, True, []
     app.midi.controllers = ["Clipper", "EP-136"]
-    app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
-    app.source_b = {"id": 3, "name": "alsa_input.usb-Felucca.2", "label": "Felucca"}
     app.others = [{"id": 4, "name": "alsa_input.usb-Clipper", "label": "Clipper"},
                   {"id": 5, "name": "alsa_input.usb-EP-136", "label": "EP-136", "ports": [f"capture_AUX{i}" for i in range(8)]},
                   {"id": 6, "name": "fm1-sampler", "label": "SAMPLER"}]
     app.jack = {"id": 9, "name": "alsa_output.bcm2835", "label": "PHONES"}
-    app.fw_label = "SLOOP 2.8"
     app.sink = {"id": 2, "name": "bluez_output.jbl", "label": "JBL Go 3"}
     app.volume, app.playing = 64, True
     app.battery = {"percent": 78, "mv": 3818, "plugged": False}
     app.levels = Levels()
     app.recorder, app.tape_done = Recording(), 0.35
-    app.library_state = lambda now=None: None
     app.save_settings = lambda: None
     app.pads = Pads()
     kit = pads.empty_kit("BOOM BAP")
@@ -372,7 +337,7 @@ def studio_app(state, display, theme, samples):
         seq["steps"][i].append([2, 0, 1])
     seq["steps"][14] = sorted(seq["steps"][14] + [[0, 1, 2]])
     app.state["kit"] = kit
-    app.state["routes"] = {"U:EP-136>FM-1": {"on": False}, "U:EP-136>FM-1 B": {"transpose": 12}}
+    app.state["routes"] = {"U:EP-136>SMP": {"on": False}, "U:EP-136>U:Clipper": {"on": True, "transpose": 12}}
     ui = deskui.DeskUI(app, display)
     ui.current_theme = lambda now, theme=theme: setattr(ui, "theme", theme) or theme
     ui.theme = theme
@@ -389,10 +354,9 @@ def desk_meters_sheet(state, out, theme):
         display = RgbCapture()
         app = bridge.App(display, dict(state, meter=i))
         app.loop, app.midi, app.wifi = Loop(), Midi(), False
-        app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
+        app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"}]
         app.sink = {"id": 2, "name": "bluez_output.jbl", "label": "JBL Go 3"}
         app.levels = Levels()
-        app.library_state = lambda now=None: None
         if name == "Tape":
             app.recorder, app.tape_done = Recording(), 0.35
         ui = deskui.DeskUI(app, display)
@@ -460,10 +424,8 @@ def meters_sheet(state, out):
         display = Capture()
         app = bridge.App(display, dict(state, meter=i))
         app.loop, app.midi, app.wifi = Loop(), Midi(), False
-        app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
-        app.fw_label = "SLOOP 2.8"          # what the FM-1 says it runs: IN shows this, not its USB name
+        app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"}]
         app.levels = Levels()
-        app.library_state = lambda now=None: None
         app.midi = Midi()
         if meters.METERS[i] == "Tape":        # the tape deck while it records
             app.recorder, app.tape_done = Recording(), 0.35

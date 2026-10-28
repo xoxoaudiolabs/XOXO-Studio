@@ -50,7 +50,7 @@ def setup():
 
 def test_page_and_listing():
     status, page, headers = call("/")
-    assert status == 200 and b"FM-1 Companion" in page and headers["Content-Type"].startswith("text/html")
+    assert status == 200 and b"<title>" in page and headers["Content-Type"].startswith("text/html")
     status, lib = jcall("/api/library")
     assert status == 200 and set(lib) == {"samples", "recordings"}, lib
 
@@ -134,21 +134,21 @@ def test_status_and_commands():
                  {"cmd": "set", "key": "clock_mode", "value": "box"}, {"cmd": "set", "key": "audio_rate", "value": 44100},
                  {"cmd": "set", "key": "volume", "value": 55}, {"cmd": "transport", "value": "start"},
                  {"cmd": "record", "value": "stop"}, {"cmd": "preset", "slot": "2", "action": "save", "name": "Keys"},
-                 {"cmd": "routes", "routes": {"BT>FM-1": {"transpose": 12, "channels": 9}}}):
+                 {"cmd": "routes", "routes": {"BT>SMP": {"transpose": 12, "channels": 9}}}):
         library.write_status({"live": True})      # as the box does every 2 s (a request here can take 2 s)
         reply = jcall("/api/command", good)
         assert reply[1]["ok"], (good, reply)
     for bad in ({"cmd": "set", "key": "bpm", "value": 999}, {"cmd": "set", "key": "metronome", "value": "yes"},
                 {"cmd": "set", "key": "shutdown", "value": True}, {"cmd": "transport", "value": "rewind"},
-                {"cmd": "routes", "routes": {"BT>FM-1": {"transpose": 99}}},
+                {"cmd": "routes", "routes": {"BT>SMP": {"transpose": 99}}},
                 {"cmd": "routes", "routes": {"BT>BT": {"on": True}}},
-                {"cmd": "routes", "routes": {"BT>FM-1": {"channels": [0] * 15}}},
+                {"cmd": "routes", "routes": {"BT>SMP": {"channels": [0] * 15}}},
                 {"cmd": "preset", "slot": "9", "action": "save"}, {"cmd": "reboot"}, ["not", "a", "dict"]):
         library.write_status({"live": True})
         assert jcall("/api/command", bad)[0] == 400, bad
     queued = library.take_commands()
     assert [c["cmd"] for c in queued] == ["set"] * 5 + ["transport", "record", "preset", "routes"]
-    assert queued[-1]["routes"]["BT>FM-1"]["transpose"] == 12 and queued[-1]["routes"]["FM-1>BT"]["on"] is True
+    assert queued[-1]["routes"]["BT>SMP"]["transpose"] == 12 and queued[-1]["routes"]["Box>BT"]["on"] is True
     assert library.take_commands() == []                               # taken once
 
 

@@ -1,5 +1,5 @@
 """Tests for the MIDI process's own logic (blemidi.py): BLE MIDI packets, clock tempo, the box as clock master.
-No Bluetooth or FM-1 needed (needs mido).
+No Bluetooth or USB gear needed (needs mido).
 
   python tests/test_midi.py
 """
@@ -15,20 +15,37 @@ import blemidi  # noqa: E402
 TICK_120 = 60 / (120 * 24)
 
 
-class FakeUsb:
+class FakeControllers:
+    """the USB MIDI devices (the routes' USB): what's sent to them"""
     def __init__(self):
         self.sent = []
 
     def send_messages(self, messages):
         self.sent.extend(messages)
 
-    def label(self):
-        return "Felucca"
+    def send_to(self, name, messages):
+        self.sent.extend(messages)
+
+    def names(self):
+        return ["SMK-37+VA"]
+
+    def poll(self):
+        pass
+
+
+class FakePads:
+    """the Studio's sampler (the routes' SMP): the notes it's sent, as bytes"""
+    def __init__(self):
+        self.sent = []
+
+    def send(self, msg):
+        if msg[0] == "midi":
+            self.sent.extend(bytes(m) for m in msg[1])
 
 
 def make_bridge():
-    bridge = blemidi.MidiBridge(["felucca"])
-    bridge.usb = FakeUsb()
+    bridge = blemidi.MidiBridge(pads=FakePads())
+    bridge.controllers = FakeControllers()
     bridge.to_ble_sent = []
     bridge.to_ble = bridge.to_ble_sent.append
     bridge.bluez = {"idle_add": lambda f: f(), "connected_peers": lambda: []}
@@ -36,30 +53,30 @@ def make_bridge():
 
 
 def test_midi_recording():
-    """while a take records, what's played in is logged a track a source (not clock, not SysEx, not an FM-1's
-    REMOTE OUT channel 16) and written as a .mid whose time 0 is the take's first frame"""
+    """while a take records, what's played in is logged a track a source (every channel; not clock, not SysEx)
+    and written as a .mid whose time 0 is the take's first frame"""
     import tempfile
     import mido
     bridge = make_bridge()
     bridge.split = True
     bridge.start_midi_log()
     t0 = time.monotonic()
-    bridge.from_fm1("FM-1", [0x90, 60, 100])
-    bridge.from_fm1("FM-1", [0xBF, 102, 127])                 # FM-1 A's REMOTE OUT (ch 16): left out
-    bridge.from_fm1("FM-1", [0xF8])                           # clock: left out (the file has the tempo)
-    bridge.from_controllers([0x90, 64, 90], name="SMK-37+VA MIDI 1")
+    bridge.from_ble(ble_packet([0x90, 60, 100]), "/dev/keys")
+    bridge.from_ble(ble_packet([0xBF, 102, 127]), "/dev/keys")         # channel 16: logged like any other
+    bridge.from_ble(ble_packet([0xF8]), "/dev/keys")                   # clock: left out (the file has the tempo)
+    bridge.from_controllers([0x90, 64, 90], name="SMK-37+VA")
     log = bridge.stop_midi_log()
-    bridge.from_fm1("FM-1", [0x80, 60, 0])                    # after the take: not logged
-    assert [(s, list(m)) for _, s, m in log] == [("FM-1", [0x90, 60, 100]), ("u-smk37vamid", [0x90, 64, 90])] \
-        or [(s, list(m)) for _, s, m in log][0] == ("FM-1", [0x90, 60, 100])
-    shifted = [(t0 + 0.5, "FM-1", bytes([0x90, 60, 100])), (t0 + 1.0, "FM-1", bytes([0x80, 60, 0])),
+    bridge.from_ble(ble_packet([0x80, 60, 0]), "/dev/keys")            # after the take: not logged
+    assert [(s, list(m)) for _, s, m in log] == [("BT", [0x90, 60, 100]), ("BT", [0xBF, 102, 127]),
+                                                 ("U:SMK-37+VA", [0x90, 64, 90])]
+    shifted = [(t0 + 0.5, "BT", bytes([0x90, 60, 100])), (t0 + 1.0, "BT", bytes([0x80, 60, 0])),
                (t0 + 1.25, log[-1][1], bytes([0x90, 64, 90]))]      # (its note never let go)
     path = Path(tempfile.mkdtemp()) / "take.mid"
     assert blemidi.write_midi(shifted, path, t0, 120.0, bridge.source_label)
     mid = mido.MidiFile(str(path))
     assert mid.type == 1 and mid.ticks_per_beat == 480 and len(mid.tracks) == 3
     names = [next((m.name for m in tr if m.type == "track_name"), None) for tr in mid.tracks[1:]]
-    assert names[0] == "FM-1" and names[1].startswith("SMK-37")
+    assert names[0] == "Bluetooth MIDI" and names[1].startswith("SMK-37")
     ticks = []
     for tr in mid.tracks[1:]:
         at = 0
@@ -88,8 +105,7 @@ def test_peer_name_after_address():
 def test_several_bluetooth_devices():
     """Phones connect to the box and the box connects to keyboards, several at once: each sender keeps its own
     running status, and what goes out to BT reaches every one of them."""
-    bridge = blemidi.MidiBridge(["felucca"])
-    bridge.usb = FakeUsb()
+    bridge = blemidi.MidiBridge(pads=FakePads())
     notified, written = [], []
     connected = [("/hci0/dev_AA", "iPad", "AA:00:00:00:00:01"), ("/hci0/dev_BB", "microKEY", "BB:00:00:00:00:02")]
     bridge.bluez = {"idle_add": lambda f: f(), "connected_peers": lambda: connected,
@@ -104,7 +120,7 @@ def test_several_bluetooth_devices():
     bridge.from_ble(bytes([0x80, 0x80, 0x90, 0x3C, 0x40]), "/hci0/dev_AA")
     bridge.from_ble(bytes([0x80, 0x80, 0x91, 0x30, 0x40]), "/hci0/dev_BB")
     bridge.from_ble(bytes([0x80, 0x80, 0x3E, 0x40]), "/hci0/dev_AA")
-    assert bridge.usb.sent == [bytes([0x90, 0x3C, 0x40]), bytes([0x91, 0x30, 0x40]), bytes([0x90, 0x3E, 0x40])]
+    assert bridge.pads.sent == [bytes([0x90, 0x3C, 0x40]), bytes([0x91, 0x30, 0x40]), bytes([0x90, 0x3E, 0x40])]
     bridge.to_ble(bytes([0xF8]))
     assert len(notified) == 1 and written == [("/hci0/dev_BB", notified[0])]
     bridge.keyboard_gone("/hci0/dev_BB")
@@ -155,14 +171,17 @@ def test_follow_passes_clock_box_keeps_it():
     bridge = make_bridge()
     note, clock, start = b"\x90\x3c\x64", b"\xf8", b"\xfa"
     bridge.from_ble(ble_packet(note, clock, start), "/dev/keys")
-    assert bridge.usb.sent == [note, clock, start]      # follow: everything through
+    assert bridge.pads.sent == [note, clock, start]     # follow: everything through
     assert bridge.watch["BT"].playing
-    bridge.usb.sent.clear()
+    bridge.pads.sent.clear()
     bridge.clock_mode = "box"
     bridge.from_ble(ble_packet(note, clock, b"\xfc"), "/dev/keys")
-    assert bridge.usb.sent == [note]                     # box: its own clock only
-    bridge.from_usb(clock)
-    bridge.from_usb(note)
+    assert bridge.pads.sent == [note]                    # box: its own clock only
+    routes = blemidi.default_routes()
+    routes["USB>BT"]["on"] = True
+    bridge.set_routes(routes)
+    bridge.from_controllers(clock)
+    bridge.from_controllers(note)
     assert bridge.to_ble_sent == [note]
 
 
@@ -172,7 +191,7 @@ def test_running_status_across_packets():
     second = bytes([0x80, 0x81, 0x40, 0x64])            # header, timestamp, running-status data
     bridge.from_ble(first, "/dev/keys")
     bridge.from_ble(second, "/dev/keys")
-    assert bridge.usb.sent == [b"\x90\x3c\x64", b"\x90\x40\x64"]
+    assert bridge.pads.sent == [b"\x90\x3c\x64", b"\x90\x40\x64"]
 
 
 def test_box_clock_timing():
@@ -199,9 +218,10 @@ def test_box_clock_timing():
 def test_transport():
     bridge = make_bridge()
     bridge.transport("start")
-    assert bridge.usb.sent == [b"\xfa"] and bridge.to_ble_sent == [b"\xfa"] and bridge.playing
+    assert bridge.to_ble_sent == [b"\xfa"] and bridge.playing
+    assert bridge.controllers.sent == [] and bridge.pads.sent == []    # Box > USB, Box > SMP off at first
     bridge.transport("stop")
-    assert bridge.usb.sent[-1] == b"\xfc" and not bridge.playing
+    assert bridge.to_ble_sent[-1] == b"\xfc" and not bridge.playing
 
 
 def test_route_passes_everything_by_default():
@@ -247,16 +267,17 @@ def test_no_stuck_notes():
 def test_bridge_uses_the_matrix():
     bridge = make_bridge()
     routes = blemidi.default_routes()
-    routes["BT>FM-1"]["transpose"] = 2
-    routes["FM-1>BT"]["on"] = False
+    routes["BT>SMP"]["transpose"] = 2
+    routes["BT>USB"]["on"] = True
     routes["Box>BT"]["on"] = False
+    routes["Box>USB"]["on"] = True
     bridge.set_routes(routes)
     bridge.from_ble(ble_packet(b"\x90\x3c\x40"), "/dev/keys")
-    assert bridge.usb.sent == [b"\x90\x3e\x40"]
-    bridge.from_usb(b"\x90\x3c\x40")
-    assert bridge.to_ble_sent == []                                     # FM-1 > BT off
+    assert bridge.pads.sent == [b"\x90\x3e\x40"] and bridge.controllers.sent == [b"\x90\x3c\x40"]
+    bridge.from_controllers(b"\x90\x3c\x40")
+    assert bridge.to_ble_sent == []                                     # USB > BT off
     bridge.transport("start")
-    assert bridge.usb.sent[-1] == b"\xfa" and bridge.to_ble_sent == []  # Box > FM-1 on, Box > BT off
+    assert bridge.controllers.sent[-1] == b"\xfa" and bridge.to_ble_sent == []  # Box > USB on, Box > BT off
 
 
 def test_bars_follow_start():
@@ -340,23 +361,23 @@ def test_arpeggiator():
 def test_arp_keeps_time_without_a_clock():
     bridge = make_bridge()
     routes = blemidi.default_routes()
-    routes["BT>FM-1"].update(arp_on=True, arp="up", arp_rate="1/16")
+    routes["BT>SMP"].update(arp_on=True, arp="up", arp_rate="1/16")
     bridge.set_routes(routes)
     bridge.bpm = 120.0                                                  # 1/16 at 120 BPM: every 125 ms
     bridge.from_ble(ble_packet(b"\x90\x3c\x64", b"\x90\x40\x64"), "/dev/keys")
-    assert bridge.usb.sent == []
+    assert bridge.pads.sent == []
     threading.Thread(target=bridge.clock_loop, daemon=True).start()
     time.sleep(0.6)
-    ons = [m for m in bridge.usb.sent if m[0] == 0x90]
+    ons = [m for m in bridge.pads.sent if m[0] == 0x90]
     assert 4 <= len(ons) <= 6 and [m[1] for m in ons[:3]] == [0x3C, 0x40, 0x3C], ons
-    assert b"\xf8" not in bridge.usb.sent                               # its own ticks: no clock sent
+    assert b"\xf8" not in bridge.pads.sent                              # its own ticks: no clock sent
     bridge.set_routes(blemidi.default_routes())                          # arp off: the loop goes quiet
 
 
 def test_notes_for_the_midi_meter():
     bridge = make_bridge()
     bridge.from_ble(ble_packet(b"\x90\x3c\x40", b"\x90\x40\x40", b"\x99\x24\x7f"), "/dev/keys")
-    bridge.from_usb(b"\x92\x43\x50")                                  # the FM-1's own sequencer
+    bridge.from_controllers(b"\x92\x43\x50")                          # a USB keyboard: any source counts
     notes, chans = bridge.notes_status(time.monotonic())
     assert notes == [0x24, 0x3C, 0x40, 0x43] and chans == (1 << 0) | (1 << 9) | (1 << 2)
     bridge.from_ble(ble_packet(b"\x80\x3c\x00", b"\x90\x40\x00"), "/dev/keys")
@@ -366,94 +387,36 @@ def test_notes_for_the_midi_meter():
     assert notes == [] and chans == 0
 
 
-class FakeControllers:
-    def __init__(self):
-        self.sent = []
-
-    def send_messages(self, messages):
-        self.sent.extend(messages)
-
-    def names(self):
-        return ["SMK-37+VA"]
-
-
-PORTS = ["Midi Through:Midi Through Port-0 14:0", "Felucca:Felucca MIDI 1 16:0", "SMK-37+VA:SMK-37+VA MIDI 1 20:0",
+PORTS = ["Midi Through:Midi Through Port-0 14:0", "EP-136:EP-136 MIDI 1 16:0", "SMK-37+VA:SMK-37+VA MIDI 1 20:0",
          "RtMidiIn Client:RtMidiIn Client 129:0", "AA:BB:CC:DD:EE:FF:Bluetooth 128:0"]
 
 
-def test_a_usb_keyboard_is_never_the_fm1():
-    bridge = make_bridge()
-    usb = blemidi.UsbMidi(["fm-1", "felucca"], None)
-    assert usb.pick(PORTS) == "Felucca:Felucca MIDI 1 16:0"
-    assert usb.pick([p for p in PORTS if "Felucca" not in p]) is None      # no FM-1: no fallback to the keyboard
-    assert usb.pick(["Generic pid.codes Test PID:x 16:0"]) == "Generic pid.codes Test PID:x 16:0"
-    assert bridge.controllers.wanted(PORTS) == {"SMK-37+VA": "SMK-37+VA:SMK-37+VA MIDI 1 20:0"}
+def test_usb_midi_devices():
+    """every USB MIDI device is taken (a client's first port), the system's own ports and Bluetooth links aren't"""
+    controllers = blemidi.UsbControllers(lambda message, name=None: None)
+    assert controllers.wanted(PORTS) == {"EP-136": "EP-136:EP-136 MIDI 1 16:0",
+                                         "SMK-37+VA": "SMK-37+VA:SMK-37+VA MIDI 1 20:0"}
 
 
-def test_usb_keys_play_the_fm1():
+def test_usb_keys_play_the_pads():
     bridge = make_bridge()
-    bridge.controllers = FakeControllers()
     bridge.from_controllers(b"\x90\x3c\x40")
-    assert bridge.usb.sent == [b"\x90\x3c\x40"]                     # USB > FM-1 on at first
+    assert bridge.pads.sent == [b"\x90\x3c\x40"]                       # USB > SMP on at first
     assert bridge.to_ble_sent == []                                    # USB > BT off at first
-    bridge.from_usb(b"\x90\x30\x40")
     bridge.from_ble(ble_packet(b"\x90\x31\x40"), "/dev/keys")
     assert bridge.controllers.sent == []                               # nothing to the keyboard at first
     routes = blemidi.default_routes()
-    routes["USB>FM-1"]["transpose"] = 12
-    routes["FM-1>USB"]["on"] = True
+    routes["USB>SMP"]["transpose"] = 12
+    routes["BT>USB"]["on"] = True
     bridge.set_routes(routes)
     bridge.from_controllers(b"\x90\x3c\x40")
-    assert bridge.usb.sent[-1] == b"\x90\x48\x40"
-    bridge.from_usb(b"\x90\x30\x40")
+    assert bridge.pads.sent[-1] == b"\x90\x48\x40"
+    bridge.from_ble(ble_packet(b"\x90\x30\x40"), "/dev/keys")
     assert bridge.controllers.sent == [b"\x90\x30\x40"]
-    assert {k for k, r in blemidi.default_routes().items() if not r["on"]} == set(blemidi.OFF_AT_FIRST)
-
-
-CARDS = """ 0 [SMK37VA        ]: USB-Audio - SMK-37+VA
-                      SMK-37+VA at usb-20980000.usb-1.2, full speed
- 1 [Felucca        ]: USB-Audio - Felucca
-                      Hugelton Instruments Felucca at usb-20980000.usb-1.3, full speed
- 2 [vc4hdmi        ]: vc4-hdmi - vc4-hdmi
-                      vc4-hdmi
- 3 [Felucca_1      ]: USB-Audio - Felucca
-                      Hugelton Instruments Felucca at usb-20980000.usb-1.1, full speed"""
-TWO = ["Midi Through:Midi Through Port-0 14:0", "SMK-37+VA:SMK-37+VA MIDI 1 16:0", "Felucca:Felucca MIDI 1 20:0",
-       "Felucca:Felucca MIDI 1 28:0"]
-
-
-def test_two_fm1s_by_hub_port():
-    import sloop
-    cards = sloop.fm1_cards(CARDS)
-    assert cards == [3, 1]                                             # hub port 1 is A, whatever its card number
-    a = blemidi.UsbMidi(["felucca"], None)
-    b = blemidi.UsbMidi(["felucca"], None, slot=1)
-    assert a.pick(TWO, cards) == "Felucca:Felucca MIDI 1 28:0"        # card 3: client 16 + 4 x 3
-    assert b.pick(TWO, cards) == "Felucca:Felucca MIDI 1 20:0"
-    assert b.pick(TWO[:3], [1]) is None                                # one FM-1: no B
-    assert sloop.find_ports(TWO, card=1) == "Felucca:Felucca MIDI 1 20:0"
-
-
-def test_both_fm1s_play():
-    bridge = make_bridge()
-    bridge.usb_b = FakeUsb()
-    bridge.controllers = FakeControllers()
-    bridge.from_ble(ble_packet(b"\x90\x3c\x40"), "/dev/keys")
-    bridge.from_controllers(b"\x90\x40\x40")
-    assert bridge.usb.sent == bridge.usb_b.sent == [b"\x90\x3c\x40", b"\x90\x40\x40"]   # both play at first
-    bridge.from_fm1("FM-1 B", b"\x90\x30\x40")
-    assert bridge.usb.sent[-1] == b"\x90\x40\x40" and bridge.to_ble_sent == []         # B's own notes stay put
-    routes = blemidi.default_routes()
-    routes["BT>FM-1 B"]["transpose"] = -12
-    routes["USB>FM-1"]["on"] = False
-    bridge.set_routes(routes)
-    bridge.from_ble(ble_packet(b"\x90\x3c\x40"), "/dev/keys")
-    bridge.from_controllers(b"\x90\x40\x40")
-    assert bridge.usb.sent[-1] == b"\x90\x3c\x40" and bridge.usb_b.sent[-2:] == [b"\x90\x30\x40", b"\x90\x40\x40"]
     bridge.enabled = False                                             # BLE MIDI off: USB keys still play
     bridge.from_controllers(b"\x90\x41\x40")
-    assert bridge.usb_b.sent[-1] == b"\x90\x41\x40"
-
+    assert bridge.pads.sent[-1] == b"\x90\x4d\x40"
+    assert {k for k, r in blemidi.default_routes().items() if not r["on"]} == set(blemidi.OFF_AT_FIRST)
 
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]

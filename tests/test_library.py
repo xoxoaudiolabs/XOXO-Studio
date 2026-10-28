@@ -1,8 +1,7 @@
-"""Tests for the library (sloop.py, library.py) against a pretend FM-1. No hardware needed.
+"""Tests for the library (library.py, sampler.py). No hardware needed.
 
-  python tests/test_library.py        (needs mido: pip install mido)
+  python tests/test_library.py        (needs numpy)
 """
-import json
 import math
 import os
 import struct
@@ -18,19 +17,7 @@ TMP = Path(tempfile.mkdtemp(prefix="fm1-test-"))
 os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
 os.environ["FM1_SETTINGS"] = str(TMP / "settings.json")          # never this computer's own box settings
 
-import fake_fm1  # noqa: E402
 import library  # noqa: E402
-import sloop  # noqa: E402
-
-
-def device(**kw):
-    fake = fake_fm1.FakeFM1(**kw)
-    return fake, sloop.Sloop(sloop.Link(mido=fake, time_scale=0.02))
-
-
-def use(fake):
-    """library jobs connect through the fake"""
-    library.connect = lambda: sloop.Sloop(sloop.Link(mido=fake, time_scale=0.02))
 
 
 def write_wav(path, seconds=0.3, hz=220):
@@ -41,98 +28,6 @@ def write_wav(path, seconds=0.3, hz=220):
         w.writeframes(b"".join(struct.pack("<h", int(12000 * math.sin(2 * math.pi * hz * i / 44100)))
                                for i in range(int(44100 * seconds))))
     return path
-
-
-def test_encodings():
-    for data in (b"", b"\x00", bytes(range(256)), bytes([0xFF] * 7), bytes([0x80] * 15)):
-        assert sloop.unpack7(sloop.pack7(data)) == data
-        assert all(b < 0x80 for b in sloop.pack7(data))
-    assert sloop.u35(0x12345678) == [0x78, 0x2C, 0x51, 0x11, 0x01]
-    assert sloop.project_format(fake_fm1.project(6)) == 6 and sloop.project_format(b"PER3") == 0
-    assert sloop.firmware_at_least("SLOOP 2.6", (2, 5, 1)) and not sloop.firmware_at_least("SLOOP 2.5", (2, 5, 1))
-
-
-def test_info():
-    fake, dev = device()
-    assert dev.version == "SLOOP 2.7.1" and dev.info["proto"] == 12 and dev.can_backup()
-    assert dev.info["pcount"] == 71 and sloop.device_format(dev.info) == 6
-    assert device(proto=5)[1].can_backup() is False
-
-
-def test_backup_round_trip():
-    fake, dev = device()
-    original = dict(fake.objects)
-    backup = dev.backup()
-    assert backup["format"] == "sloop-backup" and backup["version"] == 1 and backup["firmware"] == "SLOOP 2.7.1"
-    objects = sloop.objects_of(backup)
-    assert objects == {i: original[i] for i in fake.listed()}
-    json.dumps(backup)                                     # it serialises as SLOOP's editor expects
-    # wipe the device, restore, and everything is back byte for byte
-    for i in fake.objects:
-        fake.objects[i] = b"" if i >= 2 else fake.objects[i]
-    dev.restore(backup)
-    assert all(fake.objects[i] == original[i] for i in original), "restore is not byte-identical"
-
-
-def test_lost_frames_are_retried():
-    fake, dev = device()
-    fake.drop_every = 7                                    # every 7th request gets no answer
-    backup = dev.backup()
-    assert sloop.objects_of(backup)[0] == fake.objects[0]
-
-
-def test_lost_replies_after_a_write():
-    fake, dev = device()
-    original = dict(fake.objects)
-    backup = dev.backup()
-    for i in (2, 5, 32):
-        fake.objects[i] = b""
-    fake.lose_reply_every = 3  # writes happen, but some replies never come back
-    dev.restore(backup)
-    fake.lose_reply_every = 0
-    assert all(fake.objects[i] == original[i] for i in original), "restore with lost replies differs"
-
-
-def test_refusals():
-    fake, dev = device()
-    backup = dev.backup()
-    fake.playing = True
-    try:
-        dev.restore(backup)
-        raise AssertionError("restore while playing")
-    except sloop.SloopError as e:
-        assert e.code == "stop"
-    fake.playing = False
-    newer = dict(backup, objects=[dict(o) for o in backup["objects"]])
-    old_fake, old_dev = device(version="SLOOP 2.5", pcount=61, proto=10)
-    try:
-        old_dev.restore(newer)
-        raise AssertionError("a 2.7 backup into 2.5")
-    except sloop.SloopError as e:
-        assert e.code == "newer"
-    broken = json.loads(json.dumps(backup))
-    broken["objects"][0]["crc"] ^= 1
-    try:
-        sloop.objects_of(broken)
-        raise AssertionError("damaged backup accepted")
-    except sloop.SloopError as e:
-        assert e.code == "bad"
-
-
-def test_projects():
-    fake, dev = device()
-    backup = dev.backup()
-    assert set(sloop.projects_in(backup)) == {"working", "A", "D"}
-    data = sloop.project_from(backup, "D")
-    dev.put_project(data, "B")
-    assert fake.objects[3] == fake.objects[5]
-    shared = sloop.project_file(data, "My song", "SLOOP 2.7.1", "x:D")
-    assert sloop.project_from(json.loads(json.dumps(shared))) == data
-    try:
-        sloop.project_from(backup, "C")
-        raise AssertionError("empty project accepted")
-    except sloop.SloopError:
-        pass
 
 
 def write_recording(path, before=1.0, sound=10.0, hz=110.0):

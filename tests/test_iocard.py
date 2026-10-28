@@ -1,5 +1,5 @@
-"""The I/O card (iocard.py): found by its USB name, never taken for an FM-1, its DIN jacks in the MIDI matrix, the
-master mix on its line out. No card needed (needs Pillow and mido).
+"""The I/O card (iocard.py): found by its USB name, never taken for a sound source, its DIN jacks in the MIDI
+matrix, the master mix on its line out. No card needed (needs Pillow and mido).
 
   python tests/test_iocard.py
 """
@@ -12,19 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blemidi  # noqa: E402
 import bridge  # noqa: E402
 import iocard  # noqa: E402
-import sloop  # noqa: E402
 from test_desk import RgbCapture  # noqa: E402
 
 # as Linux should show the card (from its USB descriptors; not yet seen on a real one)
 CARD_PORTS = ["Companion I/O:Companion I/O MIDI 1 28:0", "Companion I/O:Companion I/O MIDI 2 28:1"]
-FM1_PORTS = ["Felucca:Felucca MIDI 1 24:0"]
-CARDS = """ 0 [Headphones     ]: bcm2835_headpho - bcm2835 Headphones
-                      bcm2835 Headphones
- 2 [Felucca        ]: USB-Audio - Felucca
-                      Hagelton Instruments Felucca at usb-3f980000.usb-1.2, full speed
- 3 [IO             ]: USB-Audio - Companion I/O
-                      xoxoaudiolabs Companion I/O at usb-3f980000.usb-1.3, full speed
-"""
+KEYS_PORTS = ["EP-136:EP-136 MIDI 1 24:0"]
 
 
 def node(i, cls, name, **props):
@@ -39,32 +31,22 @@ JACK = node(9, "Audio/Sink", "alsa_output.platform-bcm2835_audio.stereo-fallback
 SPEAKER = node(5, "Audio/Sink", "bluez_output.AA_BB_CC_DD_EE_FF.1", **{"node.description": "Speaker"})
 
 
-def test_found_by_name_never_an_fm1():
+def test_found_by_name():
     assert iocard.is_card("Companion I/O") and iocard.is_card(CARD_SINK["info"]["props"]["node.name"])
-    assert not iocard.is_card("Felucca") and not iocard.is_card("bcm2835 Headphones")
+    assert not iocard.is_card("EP-136") and not iocard.is_card("bcm2835 Headphones")
     assert iocard.din_port(CARD_PORTS[0]) and not iocard.din_port(CARD_PORTS[1])
-    assert not iocard.din_port(FM1_PORTS[0])
-    # the FM-1's matcher (the box's own source_match) passes the card by
-    fm1 = blemidi.UsbMidi(bridge.DEFAULTS["source_match"], lambda m: None)
-    assert fm1.pick(CARD_PORTS + FM1_PORTS) == FM1_PORTS[0] and fm1.pick(CARD_PORTS) is None
-    assert sloop.fm1_cards(CARDS) == [2]                             # its sound card isn't an FM-1's
-    assert sloop.find_ports(CARD_PORTS) is None
+    assert not iocard.din_port(KEYS_PORTS[0])
 
 
 def test_din_in_the_matrix():
-    fm1 = blemidi.UsbMidi(bridge.DEFAULTS["source_match"], lambda m: None)
-    keys = blemidi.UsbControllers(fm1, lambda m: None)
-    real = sloop.fm1_cards
-    sloop.fm1_cards = lambda text=None: [6]
-    try:
-        names = FM1_PORTS + CARD_PORTS + ["SMK-37:SMK-37 MIDI 1 32:0"]
-        assert keys.wanted(names) == {"DIN": CARD_PORTS[0], "SMK-37": "SMK-37:SMK-37 MIDI 1 32:0"}
-        assert keys.wanted(CARD_PORTS[1:]) == {}                     # the Card port alone: not opened
-    finally:
-        sloop.fm1_cards = real
+    keys = blemidi.UsbControllers(lambda m: None)
+    names = KEYS_PORTS + CARD_PORTS + ["SMK-37:SMK-37 MIDI 1 32:0"]
+    assert keys.wanted(names) == {"EP-136": KEYS_PORTS[0], "DIN": CARD_PORTS[0],
+                                  "SMK-37": "SMK-37:SMK-37 MIDI 1 32:0"}
+    assert keys.wanted(CARD_PORTS[1:]) == {}                         # the Card port alone: not opened
     sources, dests = blemidi.matrix(["DIN", "SMK-37"])               # the Studio: a row and a column of its own
     assert "U:DIN" in sources and "U:DIN" in dests
-    assert blemidi.route_default("U:DIN>FM-1")["on"] and not blemidi.route_default("FM-1>U:DIN")["on"]
+    assert blemidi.route_default("U:DIN>SMP")["on"] and not blemidi.route_default("Box>U:DIN")["on"]
 
 
 def test_line_out_found():
@@ -73,8 +55,8 @@ def test_line_out_found():
     assert card == {"id": 30, "name": CARD_SINK["info"]["props"]["node.name"], "label": "I/O CARD"}
     assert iocard.sink_node([JACK, SPEAKER]) is None
     assert bridge.jack_node(objects)["id"] == 9                      # the jack is still the jack
-    source, sink, _, others = bridge.pick_nodes(objects, bridge.DEFAULTS["source_match"])
-    assert sink["id"] == 5 and source is None and others == []      # a line out, not a sound source
+    sink, sources = bridge.pick_nodes(objects)
+    assert sink["id"] == 5 and sources == []                         # a line out, not a sound source
 
 
 class FakeLoop:
@@ -88,6 +70,9 @@ class FakeLoop:
         return False
 
     def heal(self, objects, now=None):
+        return False
+
+    def follow(self, objects):
         return False
 
     def stop(self):

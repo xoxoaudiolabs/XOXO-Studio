@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""The FM-1 Companion's web page, http://fm1bridge.local over Wi-Fi or Ethernet.
+"""XOXO Studio's web page, http://xoxostudio.local (the Pi's hostname) over Wi-Fi or Ethernet. Its own app,
+apart from the FM-1 Companion's: its own name and manifest id, so a phone keeps both on its home screen.
 
 Four tabs: Status (the box's live status, and the settings you change while playing: metronome, tempo,
 clock, arp, chord, volume, audio rate, Start/Stop, recording), MIDI (the routes as a grid, each route's
@@ -30,7 +31,8 @@ import sampler  # noqa: E402
 MAX_UPLOAD = 50 * 1024 * 1024
 EDITABLE = ("recordings", "samples")    # what the sample editor opens
 ICONS = Path(__file__).resolve().parent / "icons"    # the home-screen icons, for installing the page as an app
-MANIFEST = {"name": "FM-1 Companion", "short_name": "FM-1", "start_url": "/", "scope": "/", "display": "standalone",
+MANIFEST = {"id": "/xoxo-studio", "name": "XOXO Studio", "short_name": "XOXO Studio", "start_url": "/", "scope": "/",
+            "display": "standalone",
             "background_color": "#0f1115", "theme_color": "#0f1115",
             "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
                       {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
@@ -61,7 +63,7 @@ def check_command(c):
               "clock_mode": value in ("follow", "box"), "click": value in ("low", "mid", "high"),
               "audio_rate": value in (44100, 48000),
               "volume": number and int(value) == value and 0 <= value <= 100}.get(key)
-        if isinstance(key, str) and re.fullmatch(r"mix_(a|b|usb|u-[a-z0-9]+)", key):
+        if isinstance(key, str) and re.fullmatch(r"mix_u-[a-z0-9]+", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):
             ok = True
@@ -280,10 +282,10 @@ class Handler(BaseHTTPRequestHandler):
 PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0f1115">
-<title>FM-1 Companion</title>
+<title>XOXO Studio</title>
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icons/icon-192.png"><link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="FM-1"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="XOXO Studio"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
 :root{--bg:#f4f5f7;--card:#fff;--ink:#16181d;--dim:#626875;--line:#e2e5ea;--soft:#eef0f3;--accent:#1677c9;--on:#1d8a4a;--bad:#c23a32;--rec:#d6332b}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a20;--ink:#e8eaee;--dim:#9aa1ad;--line:#2a2f38;--soft:#20242c;--accent:#5fb0ff;--on:#4cc27e;--bad:#ff6b61;--rec:#ff5a52}}
@@ -336,7 +338,7 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
 .sedgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 10px;margin:10px 0}.sedgrid label{font-size:13px;color:var(--dim);display:flex;flex-direction:column;gap:3px}
 .sedgrid input,.sedgrid select{width:100%;box-sizing:border-box}.warn{color:var(--bad)}
 </style></head><body>
-<header><h1>FM-1 Companion</h1><span id="recpill" class="pill rec" hidden>REC</span><span id="pill" class="pill">…</span></header>
+<header><h1>XOXO Studio</h1><span id="recpill" class="pill rec" hidden>REC</span><span id="pill" class="pill">…</span></header>
 <main>
 
 <!-- ======================= STATUS ======================= -->
@@ -345,7 +347,7 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
 <div class="grid">
 <section><h2>Audio</h2>
   <div class="line" id="s-batline" hidden><span class="k">Battery</span><span class="v" id="s-bat">–</span></div>
-  <div class="line"><span class="k">FM-1</span><span class="v" id="s-fm1">–</span></div>
+  <div class="line"><span class="k">Sources</span><span class="v" id="s-src-in">–</span></div>
   <div class="line"><span class="k">Speaker</span><span class="v" id="s-spk">–</span></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2"></div>
@@ -365,11 +367,11 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
   <div class="line"><span><span class="k">Chord</span> <span class="dim small" id="s-chordd"></span></span><label class="sw"><input type="checkbox" id="s-chord"><span></span></label></div>
   <div class="line"><span class="k">MIDI device</span><span class="v" id="s-midi">–</span></div>
   <div class="line"><span class="k">USB keys</span><span class="v" id="s-usbkeys">–</span></div>
-  <p class="dim small" style="margin:6px 0 0">Pattern, rate and chord type: MIDI tab, Bluetooth → FM-1.</p>
+  <p class="dim small" style="margin:6px 0 0">Arp and Chord switch every keyboard route to your MIDI gear; pattern, rate and chord type: MIDI tab, on a route.</p>
 </section>
 <section><h2>Record</h2>
   <button class="recbtn" id="s-rec" onclick="toggleRec()">● Record</button>
-  <p class="dim small" style="margin:8px 0 0">Records the FM-1 on the box (a WAV at the FM-1's own rate). Takes are in the Recordings tab.</p>
+  <p class="dim small" style="margin:8px 0 0">Records what the Studio plays (a WAV). Takes are in the Recordings tab.</p>
 </section>
 </div>
 </div>
@@ -479,7 +481,7 @@ function renderStatus() {
   for (const id of ["s-rec", "r-rec"]) { $(id).classList.toggle("on", rec); $(id).textContent = rec ? `■ Stop recording  ${mins(st.recording)}` : "● Record"; $(id).disabled = off; }
   if (off) return;
   const s = st.settings;
-  $("s-fm1").textContent = st.fm1 || "not found";
+  $("s-src-in").textContent = (st.sources || []).join(", ") || "none";
   const bat = !st.offline && st.battery;
   $("s-batline").hidden = !bat;
   if (bat) $("s-bat").textContent = `${bat.percent}%` + (bat.plugged ? " · charging" : "");
@@ -500,7 +502,7 @@ function renderStatus() {
   $("s-midi").textContent = st.midi.error ? "Bluetooth error" : !st.midi.enabled ? "off" : (st.midi.peer || "waiting");
   $("s-usbkeys").textContent = (st.midi.controllers || []).join(", ") || "none";
 }
-// the mixer: a level for each sound source while there's more than one (FM-1 A and B, a USB keyboard's synth)
+// the mixer: a level for each sound source while there's more than one (a USB keyboard's synth, the pads)
 // a source with more than two channels (an audio interface) shows which pair it takes; tap it for the next
 let shownMix = "", mixUntil = 0, mixTimer;
 function renderMixer(st) {
@@ -524,27 +526,26 @@ function bump(d) { editingUntil = Date.now() + 2500; const el = $("s-tempo"); el
 function toggleRec() { cmd({cmd:"record", value: st && st.recording != null ? "stop" : "start"}, false).then(() => setTimeout(refresh, 900)); }
 
 // ---------------------------------------------------------------- MIDI tab
-// FM-1 B's row and column only while a second FM-1 is plugged in (then the first is FM-1 A)
 // NET (network MIDI: a DAW on a computer, the desk box) only while a computer is connected
-const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "FM-1":"FM-1", "FM-1 B":"FM-1 B", "Box":"Box clock"}, ALL_DESTS = ["FM-1", "FM-1 B", "BT", "USB", "NET", "SMP"];
-let twoFm1 = false, netOn = false, padsOn = false, SOURCES = {}, DESTS = [];
+const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "Box":"Box clock"}, ALL_DESTS = ["BT", "USB", "NET", "SMP"];
+let netOn = false, padsOn = false, SOURCES = {}, DESTS = [];
 // the Studio: each USB MIDI device its own row and column ("U:" + its name), as st.matrix lists them
 let matrixKey = "";
 const devName = (k) => k.startsWith("U:") ? k.slice(2) : null;
-function setFm1s(two, net = netOn, pads = padsOn, matrix = null) {
-  twoFm1 = two; netOn = net; padsOn = pads;
-  const shown = (k) => (two || k !== "FM-1 B") && (net || k !== "NET") && (pads || k !== "SMP");
-  const label = (k) => devName(k) || (two && k === "FM-1" ? "FM-1 A" : ALL_SOURCES[k] || k);
+function setMatrix(net = netOn, pads = padsOn, matrix = null) {
+  netOn = net; padsOn = pads;
+  const shown = (k) => (net || k !== "NET") && (pads || k !== "SMP");
+  const label = (k) => devName(k) || ALL_SOURCES[k] || k;
   const srcs = matrix ? matrix.sources : Object.keys(ALL_SOURCES).filter(shown);
   SOURCES = Object.fromEntries(srcs.map((k) => [k, label(k)]));
   DESTS = matrix ? matrix.dests : ALL_DESTS.filter(shown);
   const [s, d] = sel.split(">");
-  if (!(s in SOURCES) || !DESTS.includes(d)) sel = "BT>FM-1";
+  if (!(s in SOURCES) || !DESTS.includes(d)) sel = `${Object.keys(SOURCES)[0]}>${DESTS.find((x) => x !== Object.keys(SOURCES)[0])}`;
 }
-const destName = (d) => devName(d) || (d === "BT" ? "Bluetooth" : d === "NET" ? "Network" : d === "SMP" ? "Sampler" : twoFm1 && d === "FM-1" ? "FM-1 A" : d);
+const destName = (d) => devName(d) || (d === "BT" ? "Bluetooth" : d === "NET" ? "Network" : d === "SMP" ? "Sampler" : d);
 const CHORDS = ["oct","5th","maj","min","7","maj7","m7"], ARPS = ["up","down","updown","played","random"], RATES = ["1/4","1/8","1/8T","1/16"];
-let routes = null, sel = "BT>FM-1", routesDirtyUntil = 0, saveTimer;
-setFm1s(false);
+let routes = null, sel = "BT>SMP", routesDirtyUntil = 0, saveTimer;
+setMatrix();
 function renderMatrix() {
   if (!routes) { $("mx").innerHTML = `<tr><td class="dim">Waiting for the box…</td></tr>`; return; }
   $("mx").innerHTML = `<tr><th></th>${DESTS.map((d) => `<th>to ${destName(d)}</th>`).join("")}</tr>` +
@@ -625,7 +626,7 @@ function renderLibrary() {
     <div class="row"><span class="meta">${(s.bytes / 1024).toFixed(0)} KB</span><button onclick="sedOpen('samples', ${q(s.name)})">Edit…</button><button class="danger" onclick="del('samples',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No WAV files yet.</p>`;
   $("recordings").innerHTML = lib.recordings.length ? lib.recordings.map((r, i) => `<div class="item" style="display:block"><div class="row" style="justify-content:space-between"><div><div class="name">${when(r.date)}</div>
-    <div class="meta">${mins(r.seconds)} · ${(r.bytes / 1048576).toFixed(1)} MB${r.clips >= 5 ? ` · <span class="warn" title="The FM-1 clipped before the box got the sound: set its USB to master and turn it down, or lower its track levels">clipped ${r.clips}×</span>` : ""}</div></div>
+    <div class="meta">${mins(r.seconds)} · ${(r.bytes / 1048576).toFixed(1)} MB${r.clips >= 5 ? ` · <span class="warn" title="The sound clipped before the Studio got it: turn the source down at the source">clipped ${r.clips}×</span>` : ""}</div></div>
     <a href="/files/recordings/${encodeURIComponent(r.name)}" download><button>Download</button></a></div>
     <audio controls preload="none" src="/files/recordings/${encodeURIComponent(r.name)}?inline=1"></audio>
     <div class="row" style="margin-top:6px"><button onclick="sedOpen('recordings', ${q(r.name)})">Edit as sample…</button>
@@ -749,7 +750,7 @@ async function status() {
   const r = JSON.stringify(st.routes), p = JSON.stringify(st.presets || {});
   const net = !!(st.midi.net && st.midi.net.length);
   const mk = JSON.stringify(st.matrix || null);
-  if (!!st.midi.usb_b !== twoFm1 || net !== netOn || !!st.midi.pads !== padsOn || mk !== matrixKey) { matrixKey = mk; setFm1s(!!st.midi.usb_b, net, !!st.midi.pads, st.matrix || null); shownRoutes = ""; }
+  if (net !== netOn || !!st.midi.pads !== padsOn || mk !== matrixKey) { matrixKey = mk; setMatrix(net, !!st.midi.pads, st.matrix || null); shownRoutes = ""; }
   if (r !== shownRoutes && Date.now() > routesDirtyUntil) { routes = JSON.parse(r); shownRoutes = r; renderMatrix(); renderEditor(); }
   if (p !== shownPresets && !String(document.activeElement && document.activeElement.id).startsWith("pn")) { shownPresets = p; renderPresets(); }
 }

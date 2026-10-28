@@ -163,10 +163,10 @@ def test_audio_rate():
     snap(app, "settings-rate")
     app.on_key("press")
     assert app.state["audio_rate"] == 48000 and reopened == [44100, 48000]
-    # reopening: no new loopback until the FM-1's input has had time to close
+    # reopening: no new loopback until the source's input has had time to close
     loop = bridge.Loopback(44100)
     loop.reopen(48000)
-    loop.ensure("alsa_input.fm1", "bluez_output.x")
+    loop.ensure("alsa_input.usb-EP-136-00", "bluez_output.x")
     assert loop.rate == 48000 and not loop.running()
 
 
@@ -184,9 +184,6 @@ class FakeMidi:
 
     def set_routes(self, routes):
         self.commands.append(("routes", routes))
-
-    def usb_label(self):
-        return "Felucca"
 
     def activity(self):
         return 0.0
@@ -210,7 +207,7 @@ def test_clock():
     app.state["clock_mode"] = "follow"
     app.midi.clock = None
     assert app.clock_text() == "follow"                    # following, and no clock arrives
-    app.midi.clock = {"bpm": 98, "source": "FM-1", "playing": False}
+    app.midi.clock = {"bpm": 98, "source": "USB", "playing": False}
     assert app.clock_text() == "follow 98"
     app.state["clock_mode"] = "box"
     app.midi.clock = {"bpm": 120, "source": "box", "playing": True}
@@ -300,10 +297,11 @@ def test_recording_parts():
     app = make_app()
     for f in library.folder("recordings").glob("*"):
         f.unlink()
-    app.source = {"id": 1, "name": "alsa_input.usb-Felucca-00", "label": "Felucca"}
-    app.source_b = {"id": 3, "name": "alsa_input.usb-Felucca-00.2", "label": "Felucca"}
-    app.others = [{"id": 4, "name": "alsa_input.usb-SMK-37", "label": "SMK-37+VA"}]
-    app.state["rec_parts"], app.state["mix"] = True, {"a": 100, "b": 50, "usb": 200}
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136-00", "label": "EP-136"},
+                  {"id": 3, "name": "alsa_input.usb-Mic-00", "label": "USB Mic"},
+                  {"id": 4, "name": "alsa_input.usb-SMK-37", "label": "SMK-37+VA"}]
+    app.state["rec_parts"] = True
+    app.state["mix"] = {"u-ep136": 100, "u-usbmic": 50, "usb": 200}     # the SMK-37: the old one-for-all-USB level
     fake, linked = FakePwPlay(), []
     meters.subprocess.Popen = fake
     real_link, meters.link_parts = meters.link_parts, linked.append
@@ -314,7 +312,7 @@ def test_recording_parts():
         assert cmd[cmd.index("--channels") + 1] == "6" and cmd[cmd.index("--channel-map") + 1] == "FL,FR,FC,LFE,RL,RR"
         raw = Path(cmd[-1])
         frames = np.zeros((48000 + 100, 6), dtype="<i2")          # 100 frames before the links: zeros
-        frames[100:] = [1000, -1000, 2000, -2000, 300, -300]      # A, B, the SMK-37
+        frames[100:] = [1000, -1000, 2000, -2000, 300, -300]      # the EP-136, the mic, the SMK-37
         with wave.open(str(raw), "wb") as w:
             w.setnchannels(6)
             w.setsampwidth(2)
@@ -322,7 +320,7 @@ def test_recording_parts():
             w.writeframes(frames.tobytes())
         time.sleep(1.7)
         assert linked == [[(n, "capture_FL", "capture_FR") for n in
-                           ("alsa_input.usb-Felucca-00", "alsa_input.usb-Felucca-00.2", "alsa_input.usb-SMK-37")]]
+                           ("alsa_input.usb-EP-136-00", "alsa_input.usb-Mic-00", "alsa_input.usb-SMK-37")]]
         app.finish_recording("Saved: {} recorded")
         assert "+ 3 parts" in app.message and app.parts_job is None
         take = raw.name
@@ -338,16 +336,16 @@ def test_recording_parts():
     def first(name):
         with wave.open(str(folder / name)) as w:
             return w.getnframes(), list(np.frombuffer(w.readframes(1), dtype="<i2"))
-    assert first(take.replace(".wav", "-b.wav")) == (48000, [2000, -2000])
+    assert first(take.replace(".wav", "-u-usbmic.wav")) == (48000, [2000, -2000])
     assert first(take) == (48000, [1000 + 1000 + 600, -2600])                   # 1000 + 2000 x 0.5 + 300 x 2
     listing = library.listing()["recordings"]
     assert [r["name"] for r in listing] == [take]                              # the parts are under it
     assert [(x["part"], x["label"], x["seconds"]) for x in listing[0]["parts"]] == [
-        ("a", "FM-1 A", 1), ("b", "FM-1 B", 1), ("u-smk37va", "SMK37VA", 1)]
+        ("u-ep136", "EP136", 1), ("u-smk37va", "SMK37VA", 1), ("u-usbmic", "USBMIC", 1)]
     app.pick_recording(take)
     assert [i[2] for i in app.pick["items"]] == ["play", "edit", "parts", "delete"]
     app.recording_action(take, "parts")
-    assert [i[0] for i in app.pick["items"]] == ["FM-1 A", "FM-1 B", "SMK37VA"]
+    assert [i[0] for i in app.pick["items"]] == ["EP136", "SMK37VA", "USBMIC"]
     app.recording_action(take, "delete")
     assert app.confirm["lines"][-1] == "and its 3 parts"
     app.confirm["action"]()
@@ -408,7 +406,7 @@ def recording_midi_take(target, lag):
     import wave
     import meters
     app = make_app()
-    app.source = {"id": 1, "name": "alsa_input.usb-Felucca-00", "label": "Felucca"}
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136-00", "label": "EP-136"}]
     app.state["rec_parts"], app.state["bpm"] = False, 128
     if target:
         app.capture_target = lambda: target
@@ -508,29 +506,29 @@ def node(i, name, card, cls="Audio/Source", **props):
 
 def test_mixer():
     smk = node(80, "alsa_input.usb-4c4a_SMK-37_VA_41-00.analog-stereo", 0, **{"alsa.card_name": "SMK-37+VA"})
-    a = node(81, "alsa_input.usb-H__gelton_Instruments_Felucca-00.analog-stereo", 3, **{"alsa.card_name": "Felucca"})
-    b = node(82, "alsa_input.usb-H__gelton_Instruments_Felucca-00.2.analog-stereo", 1, **{"alsa.card_name": "Felucca"})
+    a = node(81, "alsa_input.usb-teenage_engineering_EP-136-00.analog-stereo", 3, **{"alsa.card_name": "EP-136"})
+    b = node(82, "alsa_input.usb-teenage_engineering_EP-136-00.2.analog-stereo", 1, **{"alsa.card_name": "EP-136"})
     spk = node(97, "bluez_output.20_18.1", 9, cls="Audio/Sink")
-    match = bridge.DEFAULTS["source_match"]
-    source, sink, source_b, others = bridge.pick_nodes([smk, a, b, spk], match, [3, 1])
-    assert (source["id"], sink["id"], source_b["id"], [n["id"] for n in others]) == (81, 97, 82, [80])
-    assert bridge.pick_nodes([smk, spk], match)[0] is None          # no FM-1: the keyboard's sound isn't taken
+    sink, sources = bridge.pick_nodes([smk, a, b, spk])
+    assert (sink["id"], [n["id"] for n in sources]) == (97, [80, 81, 82])
+    assert bridge.pick_nodes([spk])[1] == []                         # nothing plugged in: no sources
     app = make_app()
-    app.source, app.source_b, app.others = source, None, []
+    app.others = sources[:1]
     app.screen, app.settings_menu, app.setting = "settings", "audio", 0
     assert [r[0] for r in app.settings_rows()] == ["speaker", "audio", "rate"]      # one source: no mixer
-    app.others = others
+    app.others = sources[:2]
     rows = app.settings_rows()
-    assert [r[:2] for r in rows[3:]] == [("mix_a", "FM-1 level"), ("mix_u-smk37va", "SMK-37+VA"),
+    assert [r[:2] for r in rows[3:]] == [("mix_u-smk37va", "SMK-37+VA"), ("mix_u-ep136", "EP-136 level"),
                                          ("rec_parts", "Record parts")]
-    app.source_b = source_b
-    assert [r[0] for r in app.settings_rows()[3:]] == ["mix_a", "mix_b", "mix_u-smk37va", "rec_parts"]
-    app.setting = 4                                                  # FM-1 B: down 4 steps of 5%
+    app.others = sources                                             # two of the same device: each its own
+    assert [r[:2] for r in app.settings_rows()[3:6]] == [("mix_u-smk37va", "SMK-37+VA"),
+                                                         ("mix_u-ep136", "EP-136 level"), ("mix_u-ep1362", "EP-136 #2")]
+    app.setting = 5                                                  # the second EP-136: down 4 steps of 5%
     keys(app, "press", "down", "down", "down", "down")
-    assert app.mix_level("b") == 80 and app.settings_rows()[4][2] == "± 80%"
+    assert app.mix_level("u-ep1362") == 80 and app.settings_rows()[5][2] == "± 80%"
     snap(app, "settings-mixer")
     keys(app, "left")
-    assert app.editing is None and app.mix_level("u-smk37va") == 100
+    assert app.editing is None and app.mix_level("u-smk37va") == 100 and app.mix_level("u-ep136") == 100
 
 
 def port(i, node_id, name, n):
@@ -540,16 +538,15 @@ def port(i, node_id, name, n):
 
 def test_any_usb_audio():
     """any USB audio: its own channel by name, an 8-channel interface's pair, a mono mic on both sides"""
-    fm1 = node(81, "alsa_input.usb-H__gelton_Instruments_Felucca-00.analog-stereo", 3, **{"alsa.card_name": "Felucca"})
     side = node(90, "alsa_input.usb-teenage_engineering_EP-136-00.multichannel-input", 4, **{"alsa.card_name": "EP-136"})
     mic = node(91, "alsa_input.usb-Mic-00.mono-fallback", 5, **{"alsa.card_name": "USB Mic"})
     ports = [port(200 + k, 90, f"capture_AUX{k}", k) for k in (3, 0, 1, 2, 4, 5, 6, 7)] + [port(300, 91, "capture_MONO", 0)]
-    source, _, _, others = bridge.pick_nodes([fm1, side, mic] + ports, bridge.DEFAULTS["source_match"])
+    _, others = bridge.pick_nodes([side, mic] + ports)
     assert others[0]["ports"] == [f"capture_AUX{k}" for k in range(8)]          # in channel order
     app = make_app()
-    app.source, app.others = source, others
-    assert [k for k, _ in app.mix_channels()] == ["a", "u-ep136", "u-usbmic"]
-    assert [app.channel_name(k) for k, _ in app.mix_channels()] == ["FM-1", "EP-136", "USB MIC"]
+    app.others = others
+    assert [k for k, _ in app.mix_channels()] == ["u-ep136", "u-usbmic"]
+    assert [app.channel_name(k) for k, _ in app.mix_channels()] == ["EP-136", "USB MIC"]
     ep, mono = others
     assert app.input_pairs(ep) == ["1-2", "3-4", "5-6", "7-8"] and app.input_pair("u-ep136", ep) == (
         "capture_AUX0", "capture_AUX1")
@@ -557,7 +554,7 @@ def test_any_usb_audio():
     assert app.input_pair("u-ep136", ep) == ("capture_AUX2", "capture_AUX3")
     assert app.input_label("u-ep136", ep) == "IN 3-4" and app.capture_ports_of("u-ep136", ep)[1] == "capture_AUX3"
     assert app.input_pair("u-usbmic", mono) == ("capture_MONO", "capture_MONO")   # one channel: both sides
-    assert app.input_pair("a", source) is None                                  # stereo: as ever
+    assert app.input_pair("u-x", {"ports": ["capture_FL", "capture_FR"]}) is None   # stereo: as ever
     assert bridge.device_keys([{"label": "EP-136"}, {"label": "EP-136"}]) == ["u-ep136", "u-ep1362"]
     fake = FakePwPlay()
     import meters
@@ -582,14 +579,15 @@ def test_pw_watch():
     assert watch.snapshot() is None                                 # no picture yet: not "all unplugged"
     spk = node(97, "bluez_output.20_18.1", 9, cls="Audio/Sink")
     spk["info"]["params"] = {"Props": [{"channelVolumes": [0.028959, 0.028959]}]}
-    watch.apply([spk, node(81, "alsa_input.usb-Felucca-00.analog-stereo", 3)])
+    watch.apply([spk, node(81, "alsa_input.usb-EP-136-00.analog-stereo", 3)])
     assert bridge.node_volume(watch.snapshot(), 97) == 31          # wpctl's 0.31
     watch.apply([{"id": 97, "info": {"params": {"Props": [{"channelVolumes": [0.125, 0.125]}]}}}])
     objects = watch.snapshot()
     assert bridge.node_volume(objects, 97) == 50                    # an update: the rest of the node kept
-    assert bridge.pick_nodes(objects, ["felucca"])[1]["id"] == 97
+    sink, sources = bridge.pick_nodes(objects)
+    assert sink["id"] == 97 and [n["id"] for n in sources] == [81]
     watch.apply([{"id": 81, "info": None}])                         # unplugged
-    assert bridge.pick_nodes(watch.snapshot(), ["felucca"])[0] is None
+    assert bridge.pick_nodes(watch.snapshot())[1] == []
 
 
 def test_midi_matrix():
@@ -604,18 +602,19 @@ def test_midi_matrix():
     app.on_key("left")
     assert app.screen == "settings" and app.settings_menu == "midi"     # left from the first column: back
     app.on_key("press")
-    app.on_key("press")                                   # BT > FM-1
-    assert app.screen == "route" and app.route_key == "BT>FM-1"
+    app.on_key("right")
+    app.on_key("press")                                   # BT > USB
+    assert app.screen == "route" and app.route_key == "BT>USB"
     snap(app, "route")
-    app.on_key("press")                                   # Route on -> off
-    assert app.routes()["BT>FM-1"]["on"] is False and app.midi.commands[-1][0] == "routes"
+    app.on_key("press")                                   # Route off -> on
+    assert app.routes()["BT>USB"]["on"] is True and app.midi.commands[-1][0] == "routes"
     app.on_key("press")
     app.on_key("down")                                    # Channels
     app.on_key("press")
     app.on_key("up")                                      # same -> all to 1
     app.on_key("up")                                      # -> all to 2
     app.on_key("press")
-    assert app.routes()["BT>FM-1"]["channels"] == 1 and app.route_edit is None
+    assert app.routes()["BT>USB"]["channels"] == 1 and app.route_edit is None
     app.on_key("down")                                    # Transpose
     app.on_key("press")
     for _ in range(3):
@@ -623,33 +622,33 @@ def test_midi_matrix():
     app.on_key("down")
     snap(app, "route-transpose")
     app.on_key("left")
-    assert app.routes()["BT>FM-1"]["transpose"] == 2
+    assert app.routes()["BT>USB"]["transpose"] == 2
     app.on_key("down")                                    # Velocity: normal -> soft -> hard -> fixed 40
     app.on_key("press")
     for _ in range(3):
         app.on_key("up")
     app.on_key("press")
-    assert app.routes()["BT>FM-1"]["velocity"] == "fixed" and app.routes()["BT>FM-1"]["fixed"] == 40
+    assert app.routes()["BT>USB"]["velocity"] == "fixed" and app.routes()["BT>USB"]["fixed"] == 40
     # Channels: custom opens the 16-channel table
     app.route_row = 1
     app.on_key("press")
     for _ in range(15):                                   # all to 2 -> all to 3 ... all to 16, then custom
         app.on_key("up")
     app.on_key("press")
-    assert app.screen == "chanmap" and app.routes()["BT>FM-1"]["channels"] == list(range(16))
+    assert app.screen == "chanmap" and app.routes()["BT>USB"]["channels"] == list(range(16))
     app.on_key("press")
     app.on_key("down")                                    # channel 1 -> off (wraps below 1)
     app.on_key("press")
-    assert app.routes()["BT>FM-1"]["channels"][0] is None
+    assert app.routes()["BT>USB"]["channels"][0] is None
     snap(app, "chanmap")
     app.on_key("left")
     assert app.screen == "route" and app.route_rows()[1][2] == "custom ›"
     app.on_key("left")
-    app.mx = [3, 1]                                       # Box > BT: only on/off
+    app.mx = [2, 0]                                       # Box > BT: only on/off
     app.on_key("press")
     assert [r[0] for r in app.route_rows()] == ["on"]
     app.on_key("left")
-    app.mx = [0, 1]                                       # BT > BT: no such route
+    app.mx = [0, 0]                                       # BT > BT: no such route
     app.on_key("press")
     assert app.screen == "matrix"
 
@@ -663,20 +662,20 @@ def test_arp_rows_and_presets():
     assert rows[3:5] == ["arp_on", "chord_on"]
     app.setting = 3
     keys(app, "press")
-    assert app.routes()["BT>FM-1"]["arp_on"] is True and app.settings_rows()[3][2] == "on"
+    assert app.routes()["BT>USB"]["arp_on"] is True and app.settings_rows()[3][2] == "on"
     assert "Arp up 1/8: on" in app.message and app.midi.commands[-1][0] == "routes"
     keys(app, "down", "press")
-    assert app.routes()["BT>FM-1"]["chord_on"] is True
+    assert app.routes()["BT>USB"]["chord_on"] is True
     snap(app, "settings-midi-quick")
     keys(app, "up", "press")                                 # Arp off again: the pattern is kept
-    assert app.routes()["BT>FM-1"]["arp_on"] is False and app.routes()["BT>FM-1"]["arp"] == "up"
+    assert app.routes()["BT>USB"]["arp_on"] is False and app.routes()["BT>USB"]["arp"] == "up"
     # the details on the route page
-    app.screen, app.route_key, app.route_row = "route", "BT>FM-1", 0
+    app.screen, app.route_key, app.route_row = "route", "BT>USB", 0
     rows = [r[0] for r in app.route_rows()]
     assert rows[-3:] == ["chord_on", "chord", "arp_on"]      # the chord's type shows while it's on
     app.route_row = rows.index("chord")
     keys(app, "press", "up", "press")                        # maj -> min
-    assert app.routes()["BT>FM-1"]["chord"] == "min"
+    assert app.routes()["BT>USB"]["chord"] == "min"
     app.route_row = rows.index("arp_on")
     keys(app, "press")                                       # Arp on: pattern, rate and octaves appear
     assert [r[0] for r in app.route_rows()][-4:] == ["arp_on", "arp", "arp_rate", "arp_octaves"]
@@ -688,13 +687,13 @@ def test_arp_rows_and_presets():
     keys(app, "down", "press")                               # preset 2 (empty): only Save here
     assert app.preset_actions() == ["Save here"]
     keys(app, "press")
-    assert app.state["route_presets"]["2"]["routes"]["BT>FM-1"]["chord"] == "min"
+    assert app.state["route_presets"]["2"]["routes"]["BT>USB"]["chord"] == "min"
     snap(app, "presets")
-    app.set_route_of("BT>FM-1", chord="maj", arp_on=False)
+    app.set_route_of("BT>USB", chord="maj", arp_on=False)
     keys(app, "press")
     assert app.preset_actions() == ["Load", "Save here", "Clear"]
     keys(app, "press")                                       # Load
-    assert app.routes()["BT>FM-1"]["chord"] == "min" and app.routes()["BT>FM-1"]["arp_on"] is True
+    assert app.routes()["BT>USB"]["chord"] == "min" and app.routes()["BT>USB"]["arp_on"] is True
     keys(app, "press", "down", "down", "press")              # Clear
     assert "2" not in app.state["route_presets"]
     keys(app, "left")
@@ -706,10 +705,10 @@ def test_web_link():
     app.midi = FakeMidi()
     app.loop.reopen = lambda rate: None
     status = app.web_status()
-    assert status["settings"]["bpm"] == 120 and status["routes"]["BT>FM-1"]["on"] and status["recording"] is None
+    assert status["settings"]["bpm"] == 120 and status["routes"]["BT>SMP"]["on"] and status["recording"] is None
     app.web_publish()
     assert library.read_status()["settings"]["metronome"] is False
-    for command in ({"cmd": "routes", "routes": {"BT>FM-1": {"transpose": 5}}},   # the page sends all of it
+    for command in ({"cmd": "routes", "routes": {"BT>USB": {"transpose": 5}}},   # the page sends all of it
                     {"cmd": "set", "key": "metronome", "value": True}, {"cmd": "set", "key": "bpm", "value": 97},
                     {"cmd": "set", "key": "clock_mode", "value": "box"}, {"cmd": "set", "key": "click", "value": "high"},
                     {"cmd": "set", "key": "audio_rate", "value": 44100}, {"cmd": "set", "key": "arp_on", "value": True},
@@ -720,8 +719,8 @@ def test_web_link():
     app.web_commands()
     s = app.state
     assert s["metronome"] and s["bpm"] == 97 and s["clock_mode"] == "box" and s["click"] == "high"
-    assert s["audio_rate"] == 44100 and app.routes()["BT>FM-1"]["arp_on"] is True
-    assert app.routes()["BT>FM-1"]["transpose"] == 5 and s["route_presets"]["3"]["name"] == "Night"
+    assert s["audio_rate"] == 44100 and app.routes()["BT>USB"]["arp_on"] is True
+    assert app.routes()["BT>USB"]["transpose"] == 5 and s["route_presets"]["3"]["name"] == "Night"
     assert ("transport", "start") in app.midi.commands and "bad setting" in app.message
     app.web_publish()
     assert library.read_status()["settings"]["metronome"] is True       # the page sees it
@@ -736,9 +735,6 @@ def test_bt_keyboards():
 
         def __init__(self):
             self.sent = []
-
-        def usb_label(self):
-            return "Felucca"
 
         def activity(self):
             return 0.0

@@ -181,8 +181,8 @@ def test_cue_sources():
     app.save_settings = lambda: None
     app.sink = {"id": 5, "name": "bluez_output.AA", "label": "Speaker"}
     app.jack = {"id": 9, "name": "alsa_output.bcm2835", "label": "PHONES"}
-    app.source = {"id": 1, "name": "fm1a", "label": "Felucca", "ports": []}
-    app.source_b = {"id": 3, "name": "fm1b", "label": "Felucca", "ports": []}
+    app.others = [{"id": 1, "name": "alsa_input.usb-ep136", "label": "EP-136", "ports": []},
+                  {"id": 3, "name": "alsa_input.usb-smk37", "label": "SMK-37+VA", "ports": []}]
     app.state["output"] = "speaker"
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
@@ -195,25 +195,25 @@ def test_cue_sources():
         ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
         ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
         ui.render(0.0, force=True)
-    tap(("cue", "b"))
-    assert app.cued() == ["b"] and app.outputs() == ("bluez_output.AA", "alsa_output.bcm2835")
+    tap(("cue", "u-smk37va"))
+    assert app.cued() == ["u-smk37va"] and app.outputs() == ("bluez_output.AA", "alsa_output.bcm2835")
     started = []
     app.cue_mixer.channels = {}
     ensure, bridge.Loopback.ensure = bridge.Loopback.ensure, (lambda self, source, sink, name=None, pair=None:
                                                               started.append((source, sink, name)))
     try:
-        app.cue_mixer.ensure(app.jack["name"], [("b", "fm1b", None)])
+        app.cue_mixer.ensure(app.jack["name"], [("u-smk37va", "alsa_input.usb-smk37", None)])
     finally:
         bridge.Loopback.ensure = ensure
-    assert started == [("fm1b", "alsa_output.bcm2835", "fm1-cue-b")]
+    assert started == [("alsa_input.usb-smk37", "alsa_output.bcm2835", "fm1-cue-u-smk37va")]
     tap("cue-mix")                                                   # 50/50 -> 25/75: more of the main mix
     assert app.state["cue_mix"] == 75 and app.cue_levels() == (50, 100)
     for _ in range(2):
         tap("cue-mix")
     assert app.state["cue_mix"] == 0 and app.cue_levels() == (100, 0)   # the cued source only
-    tap(("cue", "b"))
+    tap(("cue", "u-smk37va"))
     assert app.cued() == [] and app.cue_levels() == (100, 100)
-    app.state["cues"] = ["b"]
+    app.state["cues"] = ["u-smk37va"]
     app.jack = None
     assert app.cued() == []                                          # no jack: no cue
 
@@ -410,12 +410,12 @@ def test_decks_in_the_mixer():
     app.change_setting()
     assert app.state["decks_out"] == "hercules" and sent[-1] == ("output", "hercules")
     app.screen = "status"
-    app.sink, app.source = {"id": 2, "name": "bluez_output.jbl", "label": "JBL"}, {"id": 1, "name": "fm1-in"}
+    app.sink, app.others = {"id": 2, "name": "bluez_output.jbl", "label": "JBL"}, [{"id": 1, "name": "usb-in"}]
     assert app.capture_target() == "monitor:bluez_output.jbl"       # one source: what the speaker plays
     app.app_here = {"decks"}
     assert app.capture_target() == "monitor:bluez_output.jbl"       # the decks playing too: the same
     app.sink = app.jack = app.card = None
-    assert app.capture_target() == "fm1-in"                         # nothing to play on: the source itself
+    assert app.capture_target() == "usb-in"                         # nothing to play on: the source itself
 
 
 def test_hdmi_mirror():
@@ -491,8 +491,8 @@ def test_touch_screens():
     import sloopstyle
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings = lambda: None
-    app.source = {"id": 1, "name": "alsa_input.usb-Felucca", "label": "Felucca"}
-    app.others = [{"id": 4, "name": "alsa_input.usb-SMK", "label": "SMK-37+VA"}]
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"},
+                  {"id": 4, "name": "alsa_input.usb-SMK", "label": "SMK-37+VA"}]
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12                                             # no theme file: GREEN
     now = 0.0
@@ -599,8 +599,8 @@ def test_four_usb_devices():
                node(12, "SMK-37+VA", "alsa_input.usb-SMK"), node(13, "Scarlett 2i2", "alsa_input.usb-Focusrite"),
                {"type": "PipeWire:Interface:Node", "id": 14, "info": {"props": {
                    "media.class": "Audio/Source", "node.name": "fm1-sampler"}}}]
-    source, sink, source_b, others = bridge.pick_nodes(objects, ["felucca"])
-    assert source is None and len(others) == 5
+    sink, others = bridge.pick_nodes(objects)
+    assert sink is None and len(others) == 5
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings = lambda: None
     app.others = others
@@ -614,8 +614,8 @@ def test_four_usb_devices():
     ui.open_tab("MIX")
     ui.render(0.0, force=True)
     assert {("slide", k) for k in keys} <= {w[3] for w in ui.widgets}  # a fader each
-    b = blemidi.MidiBridge(["felucca"], net=True)
-    assert b.controllers.MAX == 8 and blemidi.MidiBridge(["felucca"]).controllers.MAX == 4
+    b = blemidi.MidiBridge(net=True)
+    assert b.controllers.MAX == 8 and blemidi.MidiBridge().controllers.MAX == 4
 
 
 def test_flow_walk_fixes():
@@ -656,56 +656,14 @@ def test_theme_from_file_has_tuples():
     assert all(isinstance(c, tuple) for c in t.c + t.track + [t.bg, t.hi] + t.dim + t.grey)
 
 
-def test_clipper_smk37_next_to_fm1s():
-    """the Studio's real cards (2026-10-24): two FM-1s and an SMK-37 running Clipper, which has the FM-1's name
-    and USB ID. Next to real FM-1s a Clipper is an instrument: not FM-1 A, its MIDI a USB keyboard, its sound a
-    mixer channel; alone it's the FM-1"""
-    import blemidi
-    import bridge
-    import sloop
-    cards = """ 0 [Headphones     ]: bcm2835_headpho - bcm2835 Headphones
-                      bcm2835 Headphones
- 2 [Felucca        ]: USB-Audio - Felucca
-                      Hügelton Instruments Felucca at usb-3f980000.usb-1.2, full speed
- 3 [Felucca_1      ]: USB-Audio - Felucca
-                      Hügelton Instruments Felucca at usb-3f980000.usb-1.1.3, full speed
- 4 [Clipper        ]: USB-Audio - Clipper
-                      Hügelton Instruments Clipper at usb-3f980000.usb-1.1.2, full speed
-"""
-    assert sloop.fm1_cards(cards) == [3, 2]                          # A on the hub's port 3, B: no Clipper
-    lines = cards.splitlines()
-    alone = "\n".join(lines[:2] + lines[-2:]) + "\n"
-    assert sloop.fm1_cards(alone) == [4]                             # a lone Clipper: the FM-1
-
-    def node(i, card, label):
-        return {"type": "PipeWire:Interface:Node", "id": i, "info": {"props": {
-            "media.class": "Audio/Source", "node.name": f"alsa_input.usb-H__gelton_Instruments_{label}-0{card}",
-            "node.description": "pid.codes Test PID Analog Stereo", "alsa.card_name": label,
-            "api.alsa.path": f"front:{card}"}}}
-    objects = [node(10, 2, "Felucca"), node(11, 3, "Felucca"), node(12, 4, "Clipper")]
-    a, _, b, others = bridge.pick_nodes(objects, ["felucca", "sloop"], [3, 2])
-    assert (a["card"], b["card"]) == (3, 2) and [o["label"] for o in others] == ["Clipper"]
-    names = ["Felucca:Felucca MIDI 1 24:0", "Felucca:Felucca MIDI 1 28:0", "Clipper:Clipper MIDI 1 32:0"]
-    fm1_a = blemidi.UsbMidi(["felucca"], lambda m: None)
-    assert fm1_a.pick(names, [3, 2]) == names[1]                     # card 3's port
-    assert blemidi.UsbMidi(["felucca"], lambda m: None).pick(names, [4]) == names[2]   # a lone Clipper's
-    keys = blemidi.UsbControllers(fm1_a, lambda m: None)
-    real = sloop.fm1_cards
-    sloop.fm1_cards = lambda text=None: [3, 2]
-    try:
-        assert list(keys.wanted(names)) == ["Clipper"]               # the SMK-37: a keyboard
-    finally:
-        sloop.fm1_cards = real
-
-
 def test_midi_tab_with_sampler_and_daw():
-    """the MIDI tab as the real Studio has it: two FM-1s, the sampler (SMP) and a DAW (NET). It crashed the app
-    on the Studio (2026-10-24: no label for SMP), restarting it every time MIDI was opened"""
+    """the MIDI tab with the sampler (SMP) and a DAW (NET). It crashed the app on the Studio (2026-10-24: no
+    label for SMP), restarting it every time MIDI was opened"""
     import bridge
     import deskui
 
     class Midi:
-        pads, net, mcu, usb_b, clock = True, ["MacBook"], None, "Felucca", None
+        pads, net, mcu, clock = True, ["MacBook"], None, None
         controllers = ["Clipper"]
 
         def set_routes(self, routes):
@@ -713,12 +671,12 @@ def test_midi_tab_with_sampler_and_daw():
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings, app.midi = (lambda: None), Midi()
     sources, dests = app.matrix_lists()
-    assert "SMP" in dests and "NET" in dests and "NET" in sources and "FM-1 B" in dests
+    assert "SMP" in dests and "NET" in dests and "NET" in sources and "SMP" not in sources
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.open_tab("MIDI")
     ui.render(0.0, force=True)                                       # draws: no KeyError
-    assert ("route", "USB>SMP") in [w[3] for w in ui.widgets] and ("route", "NET>FM-1") in [w[3] for w in ui.widgets]
+    assert ("route", "USB>SMP") in [w[3] for w in ui.widgets] and ("route", "NET>BT") in [w[3] for w in ui.widgets]
 
 
 def test_each_usb_midi_device_its_own_route():
@@ -727,63 +685,65 @@ def test_each_usb_midi_device_its_own_route():
     import blemidi
     import bridge
     import deskui
-    assert blemidi.route_default("U:EP-136>FM-1")["on"] and not blemidi.route_default("FM-1>U:EP-136")["on"]
+    assert blemidi.route_default("U:EP-136>SMP")["on"] and not blemidi.route_default("Box>U:EP-136")["on"]
     assert not blemidi.route_default("U:Clipper>U:EP-136")["on"]               # device to device: off at first
-    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "FM-1", "FM-1 B", "Box")
+    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "Box")
     assert blemidi.matrix()[0] == blemidi.SOURCES                               # the Pocket: USB, as one
-    cleaned = blemidi.clean_routes({"U:EP-136>FM-1": {"on": False}})
-    assert cleaned["U:EP-136>FM-1"]["on"] is False and "BT>FM-1" in cleaned
-    for bad in ({"U:EP-136>U:EP-136": {}}, {"X:y>FM-1": {}}, {"U:>FM-1": {}}):
+    cleaned = blemidi.clean_routes({"U:EP-136>SMP": {"on": False}})
+    assert cleaned["U:EP-136>SMP"]["on"] is False and "BT>SMP" in cleaned
+    for bad in ({"U:EP-136>U:EP-136": {}}, {"X:y>SMP": {}}, {"U:>SMP": {}}):
         try:
             blemidi.clean_routes(bad)
             assert False, bad
         except ValueError:
             pass
-    b = blemidi.MidiBridge(["felucca"], net=True)                              # the MIDI process, the Studio's
-    sent, to_dev = [], []
-    b.usb.send_messages = lambda m: sent.extend(m)
-    b.usb_b.send_messages = lambda m: None
+
+    class Pads:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, msg):
+            self.sent.extend(msg[1])
+    b = blemidi.MidiBridge(net=True, pads=Pads())                              # the MIDI process, the Studio's
+    to_dev = []
     b.controllers.send_to = lambda name, m: to_dev.append((name, list(m)))
     b.controllers.names = lambda: ["Clipper", "EP-136"]
     b.to_ble = lambda m: None
-    b.set_routes({"U:EP-136>FM-1": {"on": False}})
-    b.from_controllers(bytes([0x90, 60, 100]), "EP-136")                     # the Sidekick: not to FM-1 A
-    assert sent == []
-    b.from_controllers(bytes([0x90, 62, 100]), "Clipper")                    # the SMK-37: to FM-1 A
-    assert sent == [bytes([0x90, 62, 100])] or sent == [[0x90, 62, 100]]
-    b.set_routes({"FM-1>U:Clipper": {"on": True}})
-    b.from_fm1("FM-1", bytes([0x90, 64, 90]))                                 # FM-1 A back to the SMK-37 alone
+    b.set_routes({"U:EP-136>SMP": {"on": False}})
+    b.from_controllers(bytes([0x90, 60, 100]), "EP-136")                     # the Sidekick: not to the pads
+    assert b.pads.sent == []
+    b.from_controllers(bytes([0x90, 62, 100]), "Clipper")                    # the SMK-37: to the pads
+    assert b.pads.sent == [[0x90, 62, 100]]
+    b.set_routes({"NET>U:Clipper": {"on": True}})
+    b.from_net(bytes([0x90, 64, 90]))                                         # the DAW to the SMK-37 alone
     assert [n for n, _ in to_dev] == ["Clipper"]
 
     class Midi:
-        pads, net, mcu, usb_b, clock, split = True, [], None, "Felucca", None, True
+        pads, net, mcu, clock, split = True, [], None, None, True
         controllers = ["Clipper", "EP-136"]
         peer, enabled, error = None, True, None
 
         def set_routes(self, routes):
             self.last = routes
-
-        def usb_label(self):
-            return "Felucca"
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings, app.midi = (lambda: None), Midi()
     sources, dests = app.matrix_lists()
     assert "U:EP-136" in sources and "U:Clipper" in dests and "USB" not in sources + dests
-    app.set_route_of("U:EP-136>FM-1 B", on=False)
+    app.set_route_of("U:EP-136>SMP", on=False)
     app.midi.controllers = ["Clipper"]                                        # the Sidekick unplugged
-    app.set_route_of("U:Clipper>FM-1", on=False)
-    assert app.state["routes"]["U:EP-136>FM-1 B"]["on"] is False               # kept for when it's back
+    app.set_route_of("U:Clipper>SMP", on=False)
+    assert app.state["routes"]["U:EP-136>SMP"]["on"] is False                  # kept for when it's back
     app.midi.controllers = ["Clipper", "EP-136"]
-    assert app.routes()["U:EP-136>FM-1 B"]["on"] is False
-    app.route_key = "U:EP-136>FM-1 B"
-    assert app.route_title() == "EP-136 > FM-1 B"
+    assert app.routes()["U:EP-136>SMP"]["on"] is False
+    app.route_key = "U:EP-136>SMP"
+    assert app.route_title() == "EP-136 > SMP"
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.open_tab("MIDI")
     ui.render(0.0, force=True)
-    assert ("route", "U:Clipper>FM-1 B") in [w[3] for w in ui.widgets]
+    assert ("route", "U:Clipper>SMP") in [w[3] for w in ui.widgets]
     web = app.web_status()                                                    # the web app gets the same grid
-    assert "U:EP-136" in web["matrix"]["sources"] and "U:EP-136>FM-1 B" in web["routes"]
+    assert "U:EP-136" in web["matrix"]["sources"] and "U:EP-136>SMP" in web["routes"]
     app.midi.split = False                                                    # the Pocket: USB as before
     assert "USB" in app.matrix_lists()[0]
 
@@ -810,7 +770,7 @@ def test_meters_steady():
 
 
 def test_loopback_follows_a_source_back():
-    """an FM-1 off USB for a few seconds comes back as a new PipeWire node of the same name: its loopback (left
+    """a USB device off USB for a few seconds comes back as a new PipeWire node of the same name: its loopback (left
     running, unlinked) is stopped so the next ensure starts it afresh; the same for a speaker back anew"""
     import bridge
 
@@ -833,18 +793,18 @@ def test_loopback_follows_a_source_back():
 
     def node(i, name):
         return {"type": "PipeWire:Interface:Node", "id": i, "info": {"props": {"node.name": name}}}
-    fm1, jbl = "alsa_input.usb-Felucca-00.analog-stereo", "bluez_output.20_18_5B_EF_AA_B0.1"
+    ep, jbl = "alsa_input.usb-teenage_engineering_EP-136-00.analog-stereo", "bluez_output.20_18_5B_EF_AA_B0.1"
     try:
         loop = bridge.Loopback()
-        loop.ensure(fm1, jbl, "fm1-mix-a")
-        assert not loop.follow([node(87, fm1), node(110, jbl)])       # first look: its ends noted
-        assert not loop.follow([node(87, fm1), node(110, jbl)])       # the same: nothing to do
-        assert not loop.follow([node(110, jbl)])                      # the FM-1 gone just now: left to ensure
-        assert loop.follow([node(95, fm1), node(110, jbl)]) and not loop.running()   # back as a new node
-        loop.ensure(fm1, jbl, "fm1-mix-a")
+        loop.ensure(ep, jbl, "fm1-mix-u-ep136")
+        assert not loop.follow([node(87, ep), node(110, jbl)])       # first look: its ends noted
+        assert not loop.follow([node(87, ep), node(110, jbl)])       # the same: nothing to do
+        assert not loop.follow([node(110, jbl)])                      # the device gone just now: left to ensure
+        assert loop.follow([node(95, ep), node(110, jbl)]) and not loop.running()   # back as a new node
+        loop.ensure(ep, jbl, "fm1-mix-u-ep136")
         assert len(started) == 2 and loop.running()                   # started afresh
-        assert not loop.follow([node(95, fm1), node(110, jbl)])
-        assert loop.follow([node(95, fm1), node(141, jbl)])           # the speaker reconnected: the same
+        assert not loop.follow([node(95, ep), node(110, jbl)])
+        assert loop.follow([node(95, ep), node(141, jbl)])           # the speaker reconnected: the same
         copy = bridge.Loopback()                                      # a copy off the speaker's monitor
         copy.ensure("monitor:" + jbl, "alsa_output.jack", "fm1-phones")
         assert not copy.follow([node(141, jbl), node(47, "alsa_output.jack")])
@@ -1028,7 +988,7 @@ def test_daw_surface():
     import deskui
 
     class Midi:
-        enabled, error, peer, usb_b, net, notes, chans, clock = True, None, None, None, ["Mac"], [], 0, None
+        enabled, error, peer, net, notes, chans, clock = True, None, None, ["Mac"], [], 0, None
 
         def __init__(self):
             names = "".join(f"{n:<6} " for n in ["BASS", "KEYS"] + [""] * 6)
@@ -1037,9 +997,6 @@ def test_daw_surface():
 
         def mcu_send(self, messages):
             self.sent += messages
-
-        def usb_label(self):
-            return "Felucca"
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.midi = Midi()
     ui = deskui.DeskUI(app, app.display)

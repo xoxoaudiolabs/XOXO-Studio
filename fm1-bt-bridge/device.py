@@ -1,4 +1,4 @@
-"""Which FM-1 Companion this is, and what it can do.
+"""Which build of the box this is, and what it can do.
 
 Two builds share one codebase: the pocket box (a Pi Zero W with the Waveshare 1.3" OLED HAT, joystick and
 three keys) and the desk box (a Pi 3/4 with a 3.5" 480x320 SPI touchscreen). The box looks at its board and

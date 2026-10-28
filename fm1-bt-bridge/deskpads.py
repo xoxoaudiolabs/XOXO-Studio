@@ -1,7 +1,6 @@
 """The Studio's PADS tab: the MPC-style sampler (pads.py) by touch. Mixed into deskui.DeskUI.
 
-The 16 pads in four rows of SLOOP's track colours, lit while they sound (from a tap or from MIDI: notes 36-51,
-or SLOOP's drum track's notes with the SLOOP layout: its sequencer plays the pads).
+The 16 pads in four rows of SLOOP's track colours, lit while they sound (from a tap or from MIDI: notes 36-51).
 EDIT, then a pad: its own page (sample, level, pan, tune, mode, attack, release, choke, reverse; PLAY, SAMPLE
 from any source, TRIM in the touch editor, CLEAR). The kit's name (top left): KITS (load one, save this one,
 start a new one). EDITOR: the sample editor (it lives here, with the sampler), with the file last edited; its OPEN
@@ -76,16 +75,14 @@ class DeskPads:
         a, t = self.app, self.theme
         kit = a.kit()
         self.button(img, d, (4, 3, 96, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
-        sloop = kit["map"] == "sloop"
         repeat = a.state.get("repeat")
         buttons = [("RPT" if repeat is None else pads.DIVS[repeat], self.toggle_repeat, repeat is not None,
                     "pad-repeat"),
                    ("FX", self.open_fx, self.fx_on is not None, "fx-open"),
-                   ("SLOOP" if sloop else "MPC", self.toggle_map, sloop, "pad-map"),
                    ("SEQ", self.open_seq, a.seq_playing(), "seq"),
                    ("EDITOR", self.open_sample_editor, False, "editor"),
                    ("SETUP", self.toggle_pad_mode, self.pad_mode, "pad-mode")]
-        for k, (label, action, on, key) in enumerate(buttons):     # six, right to left from SETUP
+        for k, (label, action, on, key) in enumerate(buttons):     # right to left from SETUP
             x1 = W - 4 - (len(buttons) - 1 - k) * 63
             self.button(img, d, (x1 - 60, 3, x1, HDR_H - 5), label, action, on=on, key=key)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
@@ -102,7 +99,7 @@ class DeskPads:
             d.rectangle(box, fill=fill, outline=colour if pad["sample"] else t.c[0], width=2)
             st.text(img, (box[0] + 6, box[1] + 4), str(i + 1), t.bg if lit else colour)
             name = (Path(pad["sample"]).stem[:12] if pad["sample"]
-                    else f"({pads.SLOOP_DRUMS[i]})" if sloop else "TAP TO SET")   # SLOOP's drum on this key
+                    else "TAP TO SET")
             st.text(img, (box[0] + 6, box[3] - 20), name.upper(), t.bg if lit else (t.c[4] if pad["sample"] else t.c[1]))
             if self.pad_mode or not pad["sample"]:         # EDIT, or an empty pad: its page (to sample it)
                 self.widget(box, "tap", lambda i=i: self.open_pad(i), ("pad", i))
@@ -122,18 +119,6 @@ class DeskPads:
         a.save_settings()
         if a.pads:
             a.pads.send("repeat", a.state["repeat"])
-
-    def toggle_map(self):
-        """the pads as an MPC (notes 36-51) or as SLOOP's drum track: its sequencer plays them. For SLOOP the
-        FM-1 > SMP route goes on (its notes to the pads)"""
-        a = self.app
-        kit = a.kit()
-        kit["map"] = "mpc" if kit["map"] == "sloop" else "sloop"
-        a.set_kit(kit)
-        if kit["map"] == "sloop":
-            if not a.routes()["FM-1>SMP"]["on"]:
-                a.set_route_of("FM-1>SMP", on=True)
-            a.say("On SLOOP: GLO > MIDI 2 > OUT = SEQ", 4)
 
     def toggle_pad_mode(self):
         self.pad_mode = not self.pad_mode
@@ -198,10 +183,7 @@ class DeskPads:
         for k, (label, action) in enumerate(actions):
             self.button(img, d, (8 + k * bw, y, 8 + (k + 1) * bw - 6, y + 40), label, action,
                         color=(255, 112, 92) if label == "SAMPLE" else None, key=("pad-act", label))
-        if kit["map"] == "sloop":
-            tip = f"SLOOP'S {pads.SLOOP_DRUMS[i]} (DRUM KEY {i + 1}) PLAYS IT"
-        else:
-            tip = "NOTE " + __import__("meters").note_name(pads.note_of(i)) + " PLAYS IT"
+        tip = "NOTE " + __import__("meters").note_name(pads.note_of(i)) + " PLAYS IT"
         st.text(img, ((W - st.text_size(tip)[0]) // 2, H - 40), tip, t.c[2])
 
     def pad_scroll(self, step):

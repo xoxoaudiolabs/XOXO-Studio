@@ -1,4 +1,4 @@
-"""Audio meters for the bridge's OLED: the FM-1's sound as level bars, VU needles, a spectrum or a scope.
+"""Audio meters for the bridge's OLED: what plays as level bars, VU needles, a spectrum or a scope.
 
 From the status screen, joystick left opens the meters; up/down picks one (remembered); right goes back;
 press starts and stops a recording (Recorder: a WAV in the library's recordings folder).
@@ -607,7 +607,7 @@ class MeterScreens:
         if clipped_parts:                     # the source turned down at the source (its own volume or USB level)
             self.say(f"{', '.join(clipped_parts)} clipped: turn it down", 6)
         elif bad:                             # set FM-1 USB to master and turn it down, or lower its tracks
-            self.say(f"Clipped {count}x: turn the FM-1 down", 6)
+            self.say(f"Clipped {count}x: turn the source down", 6)
 
     def toggle_recording(self):
         if self.recorder.recording():
@@ -1002,7 +1002,7 @@ class MeterScreens:
         if flash:                             # the beat: the number flashes
             d.rectangle((60 - w / 2, 12, 68 + w / 2, 42), fill=1)
         d.text((64 - w / 2, 13), text, font=self.f_big, fill=0 if flash else 1)
-        source = {"box": "box", "FM-1": "FM-1", "BT": "BT"}.get(clock.get("source"), "")
+        source = {"box": "box", "BT": "BT", "USB": "USB", "NET": "NET"}.get(clock.get("source"), "")
         d.text((0, 30), "BPM", font=self.f_small, fill=1)
         d.text((128 - d.textlength(source, font=self.f_small), 30), source, font=self.f_small, fill=1)
         for i in range(4):

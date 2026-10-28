@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""FM-1 Bluetooth bridge for a Raspberry Pi Zero W with a Waveshare 1.3" OLED HAT.
+"""XOXO Studio: a portable studio on a Raspberry Pi 3/4 with a 3.5" touchscreen (deskui.py draws its screens),
+and the pocket build, a Pi Zero W with a Waveshare 1.3" OLED HAT, that this app began as.
 
 Sends the FM-1's USB audio (any firmware that shows up as a USB audio input, such as
 Sloop's "Felucca") to Bluetooth headphones through PipeWire, passes MIDI both ways between
@@ -29,7 +30,6 @@ from PIL import Image, ImageDraw, ImageFont
 import battery
 import device
 import iocard
-import sloop
 from libui import LIBRARY_KEYS, LibraryScreens
 import meters
 from meters import MeterScreens
@@ -46,14 +46,14 @@ DEFAULTS = {
     "flip_joystick": None,  # None: match the screen; true/false to force
     "midi_enabled": True,
     "ble_keys": [],         # Bluetooth MIDI keyboards the box connects to whenever they're on: [[address, name]]
-    "audio_rate": 48000,    # PipeWire's rate (Hz), 48000 or 44100: the FM-1 is opened at this rate
+    "audio_rate": 48000,    # PipeWire's rate (Hz), 48000 or 44100: the USB sources are opened at this rate
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
-    "routes": None,         # the MIDI matrix: {"BT>FM-1": {...}, ...}; None = every route on, unchanged
+    "routes": None,         # the MIDI matrix: {"BT>SMP": {...}, ...}; None = every route as it starts
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
     "metronome": False,     # a click on the speaker in time with the clock
     "click": "mid",         # its level: "low", "mid", "high"
-    "mix": {"a": 100, "b": 100, "usb": 100},   # the mixer's levels (%, to 200): FM-1 A, FM-1 B, USB keyboards' sound
+    "mix": {},              # the mixer's levels (%, to 200), by source key ("u-ep136"): 100 when not set
     "rec_parts": False,     # while mixing, recordings also keep each source on its own ("..._fm1-a.wav" etc.)
     "inputs": {},           # a multichannel USB source's first channel taken (0: 1-2, 2: 3-4 ...), by mixer key
     "build": "auto",        # "pocket" (Zero + OLED HAT), "desk" (Pi 3/4 + 3.5" touchscreen) or "auto" (device.py)
@@ -69,7 +69,6 @@ DEFAULTS = {
     "editor_last": None,    # the Studio's sample editor: the file last opened, [name, folder], opened again
     "repeat": None,         # the pads' note repeat: a division (pads.DIVS index 0-5) or None: off
     "kit": None,            # the Studio's pads: the kit in use (pads.clean_kit), kept here between kit saves
-    "source_match": ["felucca", "sloop", "fm-1", "fm1", "m-vave"],
 }
 GPIO_CHIP = "/dev/gpiochip0"
 PIN_DC, PIN_RST = 24, 25
@@ -242,12 +241,11 @@ def device_keys(nodes):
     return keys
 
 
-def pick_nodes(objects, source_match, cards=()):
-    """From pw-dump's objects: (FM-1 A's USB input, the Bluetooth headphones, FM-1 B's input, [other USB inputs:
-    a keyboard's own synth, an audio interface]), each a dict or None, with its capture ports ("ports"). cards:
-    the FM-1s' sound card numbers, A first (sloop.fm1_cards); B only with two of them. An FM-1 whose name couldn't
-    be read is known by its USB ID."""
-    sources, fallbacks, sink = [], [], None
+def pick_nodes(objects):
+    """From pw-dump's objects: (the Bluetooth speaker or headphones, [the sound sources: every USB audio input (a
+    keyboard's own synth, an audio interface, a mic) and the Studio's pads]), each a dict, the sources with their
+    capture ports ("ports")"""
+    sources, sink = [], None
     ports = capture_ports(objects)
     for o in objects:
         if o.get("type") != "PipeWire:Interface:Node":
@@ -256,34 +254,18 @@ def pick_nodes(objects, source_match, cards=()):
         cls, name = props.get("media.class", ""), props.get("node.name", "")
         label = props.get("node.description") or props.get("node.nick") or name
         node = {"id": o.get("id"), "name": name, "label": label}
-        if cls == "Audio/Source" and name.startswith("alsa_input."):
-            # the USB card name ("Felucca"), not the description ("pid.codes Test PID Analog Stereo")
+        if cls == "Audio/Source" and name.startswith("alsa_input.") and ".usb-" in name:
+            # the USB card's own name ("EP-136"), not the description ("... Analog Stereo")
             node["label"] = props.get("alsa.card_name") or props.get("node.nick") or label
-            text = " ".join(str(props.get(k, "")) for k in
-                            ("node.name", "node.description", "node.nick", "alsa.card_name", "alsa.long_card_name"))
             path = re.search(r":(\d+)", str(props.get("api.alsa.path", "")))   # "front:3": sound card 3
             node["card"] = int(path.group(1)) if path else None
             node["ports"] = ports.get(o.get("id"), [])
-            clipper_keys = "clipper" in text.lower() and cards and node["card"] not in cards
-            if any(m in text.lower() for m in source_match):
-                sources.append(node)
-            elif clipper_keys:                # Clipper next to a real FM-1: a keyboard's sound (sloop.fm1_cards)
-                fallbacks.append((False, node))
-            elif ".usb-" in name:
-                fallbacks.append((any(i in text.lower() for i in ("1209", "pid.codes")), node))
+            sources.append(node)
         elif cls == "Audio/Source" and name == "fm1-sampler":     # the Studio's pads (pads.py): a source too
-            fallbacks.append((False, dict(node, label="SAMPLER", ports=ports.get(o.get("id"), []))))
+            sources.append(dict(node, label="SAMPLER", ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Sink" and name.startswith("bluez_output."):
             sink = sink or node
-    # no name matched: the FM-1's USB ID (1209:0001); anything else is a USB keyboard's own sound
-    fallback = next((n for fm1, n in fallbacks if fm1), None)
-    others = [n for fm1, n in fallbacks if not fm1]
-    cards = list(cards)
-    if len(cards) > 1:                        # two FM-1s: A and B by the hub port they're on
-        by_card = {n["card"]: n for n in sources}
-        a, b = by_card.get(cards[0]), by_card.get(cards[1])
-        return a or (sources[0] if sources else fallback), sink, b, others
-    return (sources[0] if sources else fallback), sink, None, others
+    return sink, sources
 
 
 class PwWatch:
@@ -367,12 +349,12 @@ def jack_node(objects):
     return None
 
 
-def pw_nodes(source_match, watch):
+def pw_nodes(watch):
     """-> (pick_nodes' answer, the objects), or None before PipeWire's picture is in (not "all unplugged")"""
     objects = watch.snapshot()
     if not objects:
         return None
-    return pick_nodes(objects, source_match, sloop.fm1_cards()), objects
+    return pick_nodes(objects), objects
 
 
 def get_volume(node_id):
@@ -813,7 +795,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.desk = None                      # the desk box's touch screens (deskui.DeskUI), from main()
         self.pads = None                      # the Studio's sampler (pads.PadProcess), from main()
         self.metro_sent = None                # what the MIDI process was last told about the metronome
-        self.source = self.sink = self.source_b = None
+        self.sink = None
         self.others = []                      # other USB sound: a keyboard's own synth
         self.scan_now = False                 # a mixer level changed: apply it within a second
         self.pw = PwWatch()                   # PipeWire's objects, without a new connection each scan
@@ -871,7 +853,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                 self.scan_now = False
                 self.pw.changed.clear()
                 self.scan_devices()
-                settled = self.source and self.sink and (not self.midi or self.midi.usb_label())
+                settled = self.others and self.sink
                 next_scan = now + (2 if now < fast_until else 15 if settled else 6)
             if (not self.sink and self.auto and self.state["last_mac"] and self.screen == "status"
                     and now >= next_reconnect and self.bt_lock.acquire(blocking=False)):
@@ -891,10 +873,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def scan_devices(self):
         if self.midi:
             self.midi.poll()
-        found = pw_nodes(self.state["source_match"], self.pw)
+        found = pw_nodes(self.pw)
         if found is None:
             return                            # couldn't look: keep everything as it is
-        (source, sink, source_b, others), objects = found
+        (sink, others), objects = found
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
@@ -912,11 +894,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             volume = get_volume(sink["id"])
         if sink == self.sink and time.monotonic() - self.volume_at < 3:
             volume = self.volume              # a reading from before the last press landed
-        changed = (source, sink, source_b, others) != (self.source, self.sink, self.source_b, self.others)
+        changed = (sink, others) != (self.sink, self.others)
         if sink and (not self.sink or self.sink["name"] != sink["name"]):
             self.speaker_appeared(sink)
         if changed or volume != self.volume:
-            self.source, self.sink, self.source_b, self.others, self.volume = source, sink, source_b, others, volume
+            self.sink, self.others, self.volume = sink, others, volume
             self.post("status", changed)
         channels = self.mix_channels()
         loops = [self.loop, self.jack_loop, self.card_loop]
@@ -1015,17 +997,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.scan_now = True
 
     def mix_channels(self):
-        """[(key, node)] of the sound sources there are: "a", "b" (the FM-1s), then any other USB audio (a
-        keyboard's synth, an audio interface, a mic), each by its own key ("u-ep136": device_keys)"""
-        found = [("a", self.source), ("b", self.source_b)] + list(zip(device_keys(self.others), self.others))
-        return [(key, node) for key, node in found if node]
+        """[(key, node)] of the sound sources there are: USB audio (a keyboard's synth, an audio interface, a mic)
+        and the pads, each by its own key ("u-ep136": device_keys)"""
+        return list(zip(device_keys(self.others), self.others))
 
     def channel_name(self, key, node=None):
-        """"FM-1 A", "FM-1 B", or the device's own name ("SMK-37+VA", "EP-136")"""
-        if key == "a":
-            return "FM-1 A" if self.source_b else "FM-1"
-        if key == "b":
-            return "FM-1 B"
+        """the device's own name ("SMK-37+VA", "EP-136")"""
         if node is None:
             node = dict(self.mix_channels()).get(key) or {}
         label = str(node.get("label") or "USB")
@@ -1600,7 +1577,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     self.recorder.recording())
         return (self.screen, self.busy and (self.busy, int(now * 2) % 4),
                 self.message if now < self.message_until else None, self.live(),
-                self.source and self.source["label"], self.sink and self.sink["label"], self.connecting,
+                tuple(n["name"] for n in self.others), self.sink and self.sink["label"], self.connecting,
                 self.state["last_name"], self.auto, self.volume, now < self.volume_shown,
                 self.battery and (self.battery["percent"], self.battery["plugged"]),
                 self.midi_text(), bool(self.midi and now - self.midi.activity() < 0.4), self.clock_text(),
@@ -1643,7 +1620,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
 
     def draw_status(self, d):
         live = self.live()
-        d.text((0, 0), "FM-1 > BT", font=self.f_title, fill=1)
+        d.text((0, 0), "XOXO > BT", font=self.f_title, fill=1)
         tag = "LIVE" if live else "idle"
         if self.recorder.recording():
             tag, live = "REC " + meters.clock(self.recorder.seconds()), True
@@ -1662,8 +1639,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             out = self.state["last_name"] + (" (off)" if self.auto else " (paused)")
         else:
             out = "none: press KEY1"
-        fm1 = short_label(self.source["label"]) if self.source else "FM-1 not found"
-        rows = (("IN", fm1 + (" + B" if self.source and self.source_b else "")),
+        ins = self.mix_channels()
+        source = self.channel_name(*ins[0]) + (f" + {len(ins) - 1}" if len(ins) > 1 else "") if ins else "none"
+        rows = (("IN", source),
                 ("OUT", out),
                 ("MIDI", self.midi_text()))
         for i, (name, value) in enumerate(rows):
@@ -1684,7 +1662,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         b = self.battery
         text = str(b["percent"])
         left = right - d.textlength(text, font=self.f_small) - 12
-        if left < 70:                          # "FM-1 > BT" ends at 68
+        if left < 70:                          # "XOXO > BT" ends before 70
             return
         x, y = int(left), 3
         d.rectangle((x, y, x + 9, y + 6), outline=1)
@@ -1697,8 +1675,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         d.text((x + 12, 1), text, font=self.f_small, fill=1)
 
     def draw_saver(self, d, now):
-        """After OFF_AFTER idle: "FM-1 LIVE" (or idle) in small type, moving every 20 s."""
-        text = "FM-1 " + ("LIVE" if self.live() else "idle")
+        """After OFF_AFTER idle: "XOXO LIVE" (or idle) in small type, moving every 20 s."""
+        text = "XOXO " + ("LIVE" if self.live() else "idle")
         if self.midi and self.midi.peer:
             text += " +MIDI"
         if self.recorder.recording():
@@ -1715,12 +1693,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return "BT error"
         if not self.midi.enabled:
             return "off"
-        usb = "" if self.midi.usb_label() else " (no FM-1)"
         keys = getattr(self.midi, "controllers", None) or []
-        if keys and not self.midi.peer:                   # USB keyboards play the FM-1 without Bluetooth
-            return (keys[0] if len(keys) == 1 else f"{len(keys)} USB keys") + usb
+        if keys and not self.midi.peer:                   # USB keyboards, no Bluetooth
+            return keys[0] if len(keys) == 1 else f"{len(keys)} USB keys"
         both = f"{len(keys)} USB + " if keys else ""      # first: a long Bluetooth name gets cut short on the right
-        return (both + self.midi.peer + usb) if self.midi.peer else "waiting" + usb
+        return (both + self.midi.peer) if self.midi.peer else "waiting"
 
     def draw_volume(self, d):
         """the volume, big, over the home screen for a moment after up/down"""
@@ -1863,7 +1840,7 @@ def splash(display):
     """Drawn as soon as the OLED is open: at boot the rest of start-up takes a while on a Zero W."""
     img = Image.new("1", (128, 64))
     d = ImageDraw.Draw(img)
-    for y, text, f in ((16, "FM-1 Companion", font(12, True)), (38, "Starting...", font(11))):
+    for y, text, f in ((16, "XOXO Studio", font(12, True)), (38, "Starting...", font(11))):
         d.text(((128 - d.textlength(text, font=f)) / 2, y), text, font=f, fill=1)
     display.show(img)
 
@@ -1901,7 +1878,7 @@ def main():
             pad_process = pads.PadProcess(state["audio_rate"])
             pad_process.start()
             deskboot.show(display, boot, 1)
-        midi = blemidi.MidiProcess(state["source_match"], state["midi_enabled"],
+        midi = blemidi.MidiProcess(state["midi_enabled"],
                                    net=box["build"] == "desk",          # network MIDI (a DAW): the Studio
                                    pads=pad_process and pad_process.midi_conn)
         midi.start()

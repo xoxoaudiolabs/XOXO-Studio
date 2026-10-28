@@ -1,7 +1,5 @@
-"""The Studio's MPC-style sampler: 16 pads in a kit, played from MIDI (notes 36-51, as an MPC: pad 1 is C1) and
-from the PADS tab. Or laid out as SLOOP's drum track (map "sloop"): pad 1 is SLOOP's drum key 1 (KICK), pad 3 its
-SNARE ... pad 16 its COWBELL, played by the GM notes SLOOP sends on channel 10 (GLO > MIDI 2 > OUT = SEQ sends
-what its sequencer plays), so a SLOOP drum pattern plays the kit's samples.
+"""The Studio's MPC-style sampler: 16 pads in a kit, played from MIDI (notes 36-51 on any channel, as an MPC:
+pad 1 is C1) and from the PADS tab.
 
 Each pad: a sample, its level, pan and tuning, one-shot (plays to its end), gate (stops when the note is let
 go) or loop (loops while held), an attack and a release, a choke group (a pad cuts the others in its group: an
@@ -38,12 +36,7 @@ import wave
 from pathlib import Path
 
 PADS, FIRST_NOTE = 16, 36
-MAPS = ("mpc", "sloop")
-# SLOOP's 16 drum sounds, keys 1-16, and the GM notes its drum track sends for them (GUIDE.md: DR MAP GM)
-SLOOP_DRUMS = ("KICK", "KICK 2", "SNARE", "CLAP", "HAT", "OPEN HAT", "PEDAL HAT", "RIM", "SNARE 2", "LOW TOM",
-               "HI TOM", "CRASH", "RIDE", "SHAKER", "CONGA", "COWBELL")
-SLOOP_NOTES = (36, 35, 38, 39, 42, 46, 44, 37, 40, 43, 48, 49, 51, 70, 63, 56)
-SLOOP_CHANNEL = 9                           # channel 10: SLOOP's drum track (GLO > MIDI > CH4)
+MAPS = ("mpc",)                             # how notes reach the pads (a kit saved with SLOOP's layout: as an MPC)
 VOICES, BLOCK = 16, 512                     # voices at once (an MPC 2000: 32); frames a block (11 ms at 48 kHz:
                                             # numpy's cost a call, not a sample, is what a Pi 3 feels)
 SOURCE, SINK = "fm1-sampler", "fm1-sampler-in"
@@ -158,17 +151,16 @@ def list_kits():
 
 FACTORY = Path(__file__).resolve().parent / "kits"   # the ready-made kits' sounds (kits/make_kits.py made them)
 DRUM_FILES = ("KICK", "KICK-2", "SNARE", "CLAP", "HAT", "OPEN-HAT", "PEDAL-HAT", "RIM", "SNARE-2", "LOW-TOM",
-              "HI-TOM", "CRASH", "RIDE", "SHAKER", "CONGA", "COWBELL")       # SLOOP_DRUMS, as files are named
+              "HI-TOM", "CRASH", "RIDE", "SHAKER", "CONGA", "COWBELL")       # pads 1-16, as files are named
 FACTORY_KITS = (("808", "808 KIT"),)
 OLD = 946684800                                # 2000-01-01: the ready-made sounds listed after the user's own
 _factory_checked = False
 
 
 def factory_kit(key, name, samples):
-    """one ready-made kit, its pads' samples in the samples folder: the drums on SLOOP's drum keys, its hats in
-    one choke group"""
+    """one ready-made kit, its pads' samples in the samples folder (DRUM_FILES' order), its hats in one choke
+    group"""
     kit = empty_kit(name)
-    kit["map"] = "sloop"
     for i, sound in enumerate(DRUM_FILES):
         kit["pads"][i].update(sample=str(samples / f"{key}-{sound}.wav"), choke=1 if sound.endswith("HAT") else 0)
     return clean_kit(kit)
@@ -212,16 +204,13 @@ def factory_kits(source=FACTORY):
 
 
 def pad_of(note, channel=None, mapping="mpc"):
-    """a MIDI note -> its pad (0-15), or None. "mpc": notes 36-51 on any channel; "sloop": the GM note of a
-    SLOOP drum key on its drum channel"""
-    if mapping == "sloop":
-        return SLOOP_NOTES.index(note) if channel == SLOOP_CHANNEL and note in SLOOP_NOTES else None
+    """a MIDI note -> its pad (0-15), or None: notes 36-51 on any channel"""
     return note - FIRST_NOTE if FIRST_NOTE <= note < FIRST_NOTE + PADS else None
 
 
 def note_of(index, mapping="mpc"):
     """a pad -> the note that plays it"""
-    return SLOOP_NOTES[index] if mapping == "sloop" else FIRST_NOTE + index
+    return FIRST_NOTE + index
 
 
 # ---------------------------------------------------------------- the sequencer
