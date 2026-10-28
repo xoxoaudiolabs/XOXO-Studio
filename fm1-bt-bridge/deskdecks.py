@@ -1,5 +1,6 @@
 """The Studio's DECKS screen: two DJ decks (decks.py, run as a program of its own: DeckProcess) by touch, and what
-the Hercules DJControl Inpulse 200 MK2 plays on them shown. Mixed into deskui.DeskUI; opened from MORE > DJ DECKS.
+the Hercules DJControl Inpulse 200 MK2 plays on them shown. Mixed into deskui.DeskUI; opened from the DECKS tab
+(full screen: the music list needs the height the tab bar takes).
 
 Each deck: its track (title, artist), its BPM as it plays, its key (and Camelot), the time left, the tempo, SYNC /
 LOOP; its overview (the whole track, where it's at, a loop, its hot cues: a line in the cue's colour with its pad's
@@ -7,7 +8,7 @@ number, tap the number to go there, hold it to delete the cue; drag along it to 
 screen, tap again to come back); CUE (held), PLAY, SYNC, PFL. Between them, the crossfader. Underneath, the music: the Studio DJ Music folder, or a USB drive (plugged
 in: shown; the button at the top goes between them): title, BPM, Camelot key, the one the browser knob is on lit
 (tap a row for it); LOAD A, LOAD B; SCAN reads the new tracks (their BPM and key; a drive's are listed before).
- < HOME back to the Companion with the decks playing on; OFF (held) stops them."""
+ < HOME back to HOME with the decks playing on; OFF (held) stops them and goes HOME."""
 
 import json
 
@@ -32,7 +33,7 @@ def fit(text, width):
 
 class DeskDecks:
     def decks_init(self):
-        self.decks_proc = None                  # decks.DeckProcess, once DJ DECKS has been opened
+        self.decks_proc = None                  # decks.DeckProcess, once the DECKS tab has been opened
         self.decks_top = 0                      # the list's first row shown
         self.decks_full = None                  # the deck whose overview fills the screen
         self.decks_down = None                  # (deck, x where the finger came down, dragging)
@@ -41,7 +42,7 @@ class DeskDecks:
         self.decks_learn_top = 0                # a map's list: its first row shown
 
     def open_decks(self):
-        """MORE > DJ DECKS: the decks started (once) and their screen shown"""
+        """the DECKS tab: the decks started (once) and their screen shown"""
         import decks
         if self.decks_proc is None:
             self.decks_proc = decks.DeckProcess(on_change=self.decks_changed)
@@ -60,7 +61,7 @@ class DeskDecks:
         if self.decks_proc:
             self.decks_proc.stop()
         self.decks_full = None
-        self.open_tab("MORE")
+        self.open_tab("HOME")
 
     def decks_view(self):
         p = self.decks_proc
@@ -102,7 +103,7 @@ class DeskDecks:
         self.widget((392, 0, 476, HDR_H + 4), "hold", self.decks_off, "decks-off")
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         if not p or not p.running():
-            self.centre(img, (0, HDR_H, W, H), "the decks aren't running: MORE > DJ DECKS", t.c[3])
+            self.centre(img, (0, HDR_H, W, H), "the decks aren't running: tap DECKS again", t.c[3])
             return
         decks = s.get("decks") or [{}, {}]
         for i, deck in enumerate(decks[:2]):

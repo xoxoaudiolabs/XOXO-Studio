@@ -29,7 +29,7 @@ from deskpages import HOLD, DeskPages
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
-TABS = ("HOME", "MIX", "PADS", "REC", "MIDI", "MORE")
+TABS = ("HOME", "MIX", "PADS", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "REC": "RECORDER"}   # what a tab says, if not its name
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
@@ -37,7 +37,7 @@ DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "pla
             ("LOOP", "loop")]
 MORE = [("PLAYING", ("menu", "play")),
         ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")), ("WI-FI", ("wifi", None)),
-        ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)), ("DJ DECKS", ("decks", None)),
+        ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)),
         ("SHUT DOWN", ("off", None))]
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
@@ -452,6 +452,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         if a.screen == "meter" and name not in METER_TABS:
             a.screen = "status"
             a.levels.stop()
+        if name == "DECKS":                         # the DJ decks: started (once) and their screen shown
+            self.open_decks()
+            return
         self.tab, self.classic = name, False
         if name in METER_TABS:
             a.screen = "meter"
@@ -523,7 +526,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         parts = "ON" if a.state.get("rec_parts") else "OFF"
         self.header(img, d, "MIXER", self.status_right())
         cols = [(key, label, k, a.mix_level(key), 200) for key, label, _, k in self.sources()][:6]
-        if self.decks_proc and self.decks_proc.running():   # the DJ decks (MORE > DJ DECKS), while they run
+        if self.decks_proc and self.decks_proc.running():   # the DJ decks (the DECKS tab), while they run
             cols.append(("decks", "DECKS", 0, a.mix_level("decks"), 200))
         cols.append(("spk", "SPKR", 3, a.volume or 0, 100))
         if a.jack:                           # the 3.5 mm jack
@@ -838,9 +841,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
             return
         if kind == "calibrate":
             self.calibrate()
-            return
-        if kind == "decks":
-            self.open_decks()
             return
         if kind == "off":                          # the Studio has no power key: shut down, held to confirm
             a.ask("Shut down?", ["The Studio switches off.", "Recordings are finished first."], a.shutdown,
