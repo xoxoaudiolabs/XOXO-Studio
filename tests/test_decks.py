@@ -529,6 +529,60 @@ def test_decks_out():
     assert D.out_to == "hercules"
 
 
+def test_deck_fx():
+    """a deck's FX: ECHO repeats three quarters of a beat later, fading; REVERB leaves a tail that rings out after
+    it's off; FLANGER changes the sound and stays in bounds; BRAKE slows the deck to a stand over a beat, and off it
+    plays on; the screen's commands switch it and step through them; the status shows it"""
+    import math
+    import numpy as np
+    R, n = decks.RATE, decks.BLOCK
+    click = np.zeros((n, 2), np.float32)
+    click[0] = 1.0
+    silence = np.zeros((n, 2), np.float32)
+    fx = decks.DeckFX()
+    fx.on, fx.kind = True, "ECHO"
+    y = np.concatenate([fx.process(click, 120)] + [fx.process(silence, 120) for _ in range(80)])[:, 0]
+    beat = int(0.75 * 0.5 * R)                                       # three quarters of a beat at 120 BPM
+    assert abs(y[beat] - 0.5) < 1e-6 and abs(y[2 * beat] - 0.5 * 0.45) < 1e-6
+    assert np.abs(y[1:beat]).max() < 1e-6                           # nothing in between
+    fx.on = False
+    for _ in range(int(12 * beat / n) + 2):                          # off: it rings out, then costs nothing
+        fx.process(silence, 120)
+    assert fx.echo_left <= 0 and fx.process(click, 120) is click     # (the sound passed straight through)
+    assert decks.DeckFX().process(click) is click                    # never on: straight through
+    verb = decks.DeckFX()
+    verb.on, verb.kind = True, "REVERB"
+    tail = np.concatenate([verb.process(click)] + [verb.process(silence) for _ in range(20)])[n:, 0]
+    verb.on = False
+    after = np.concatenate([verb.process(silence) for _ in range(10)])[:, 0]
+    assert np.abs(tail).sum() > 1.0 and np.abs(after).sum() > 0.1  # a tail, still ringing once off
+    flange = decks.DeckFX()
+    flange.on, flange.kind = True, "FLANGER"
+    t = np.arange(n * 40) / R
+    sine = np.repeat((0.5 * np.sin(2 * math.pi * 2000 * t)).astype(np.float32)[:, None], 2, axis=1)
+    out = np.concatenate([flange.process(sine[k * n:(k + 1) * n]) for k in range(40)])
+    assert np.abs(out).max() <= 0.51 and np.abs(out - sine).max() > 0.05
+    e = decks.Engine()
+    d = e.decks[0]
+    d.load(Track(120.0))
+    d.playing, d.volume = True, 1.0
+    d.fx.on, d.fx.kind = True, "BRAKE"
+    start = d.pos
+    for _ in range(int(0.5 * R / n) + 2):                            # a beat at 120 BPM, and a little
+        e.render(n)
+    moved = d.pos - start
+    still = d.pos
+    e.render(n)
+    assert 0 < moved < 0.5 * R * 0.6 and d.pos == still              # slowed (not a beat's worth), then stood
+    d.fx.on = False
+    e.render(n)
+    assert d.pos > still and d.brake_at is None                      # BRAKE off: it plays on
+    D = decks.Decks.__new__(decks.Decks)
+    D.engine, D.out_to, D.hercules, D.maps = e, "studio", decks.Hercules(e), {}
+    D.command(["fx", 1, "next"], lambda m: None)
+    D.command(["fx", 1, "toggle"], lambda m: None)
+    assert e.decks[1].fx.kind == "REVERB" and e.decks[1].fx.on
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

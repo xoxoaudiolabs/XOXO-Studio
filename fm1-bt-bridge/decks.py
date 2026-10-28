@@ -7,8 +7,9 @@ playing, it goes back to the cue and stops), the tempo fader (+-8 %), the jog wh
 in vinyl mode, its edge nudges the tempo), 4 hot cues (the track's Serato ones when it has them; SHIFT + pad clears
 one), loops (4 beats on LOOP IN, LOOP OUT leaves it or goes back in, SHIFT halves or doubles), loop rolls on the pads
 (1, 2, 4 or 8 beats while held, then on as if it had played through), SYNC (the other deck's tempo, and its beat
-when both have a grid), gain, LOW and HIGH EQ, a filter (left low-pass, right high-pass, off in the middle), the
-volume fader, PFL to the headphones, the crossfader.
+when both have a grid), gain, LOW and HIGH EQ, a filter (left low-pass, right high-pass, off in the middle), an FX
+(DeckFX: ECHO, REVERB, FLANGER, BRAKE; after the EQ, before the volume fader), the volume fader, PFL to the
+headphones, the crossfader.
 
 The sound: the Hercules has its own sound card, 4 channels: the master on its first pair, the headphones on the
 second. Its MASTER and HEADPHONES knobs work in its own hardware. Without it, the master goes to the Studio's speaker.
@@ -36,6 +37,7 @@ HERCULES = "DJControl Inpulse 200"
 CUE_COLORS = ("#cc0000", "#cc8800", "#3399ff", "#33cc33")   # a hot cue set here, by pad (Serato's keep their own)
 MEMORY = ".studio-dj-memory.json"             # beside the music: each track's cues as set here, and the session
 OVERVIEW = 220                                # a track's overview: this many columns (the DECKS screen's)
+FX_NAMES = ("ECHO", "REVERB", "FLANGER", "BRAKE")   # a deck's FX, in the order FX (held) steps through
 
 
 def np():
@@ -151,6 +153,134 @@ class Tone:
         return result
 
 
+class DeckFX:
+    """A deck's FX, one at a time, on or off. Every sum runs over a whole block (numpy, no loop a frame): ECHO and
+    REVERB feed back through delays longer than a block, so a block's output needs only what came before it, read
+    and written as slices of ring buffers.
+
+      ECHO     three quarters of a beat (the deck's tempo), repeats fading (feedback 0.45)
+      REVERB   four combs (32-37 ms, feedback 0.8) into two all-passes (13 ms): a room's tail, the right channel's
+               delays a little longer than the left's (width)
+      FLANGER  a delay of 1-4 ms swept by a slow sine (a 4 s round), mixed with the dry sound
+      BRAKE    a turntable stopping: the deck slows to a stand over a beat (Deck.render); off, it plays on
+
+    Off, ECHO and REVERB stop taking sound in but ring out (their tails fade as on a DJ mixer), and once a tail has
+    faded (ECHO_TAIL repeats, VERB_TAIL seconds) they cost nothing: the sound passes straight through."""
+
+    ECHO_FB, ECHO_WET, ECHO_TAIL = 0.45, 0.5, 12     # (0.45 ** 12: 70 dB down)
+    COMBS, COMB_FB, ALLPASSES, AP_G, VERB_WET, SPREAD = (1557, 1617, 1491, 1422), 0.8, (556, 579), 0.5, 0.35, 23
+    VERB_TAIL = 2.0                             # s: a comb's 0.8 feedback, 70 dB down
+    RING = 4 * RATE                             # the echo's memory: 4 s (three quarters of a beat down to 12 BPM)
+    VRING = 4096                                # the reverb's delay lines (the longest, 1640 frames, and a block)
+
+    def __init__(self):
+        nm = np()
+        self.kind, self.on = FX_NAMES[0], False
+        self.echo, self.ew, self.echo_left = nm.zeros((self.RING, 2), nm.float32), 0, 0
+        self.combs = [[nm.zeros(self.VRING, nm.float32) for _ in range(2)] for _ in self.COMBS]
+        self.aps = [[(nm.zeros(self.VRING, nm.float32), nm.zeros(self.VRING, nm.float32)) for _ in range(2)]
+                    for _ in self.ALLPASSES]
+        self.vw, self.verb_left = 0, 0
+        self.flange = nm.zeros((256, 2), nm.float32)     # the frames before this block (the sweep reaches back 4 ms)
+        self.phase = 0.0
+
+    def next_kind(self):
+        self.kind = FX_NAMES[(FX_NAMES.index(self.kind) + 1) % len(FX_NAMES)]
+
+    def braking(self):
+        return self.on and self.kind == "BRAKE"
+
+    @staticmethod
+    def read(ring, w, delay, n):
+        """n frames of ring, delay frames behind write position w (delay >= n: all written before)"""
+        nm = np()
+        size = len(ring)
+        s = (w - delay) % size
+        if s + n <= size:
+            return ring[s:s + n].copy()
+        return nm.concatenate((ring[s:], ring[:n - (size - s)]))
+
+    @staticmethod
+    def write(ring, w, block):
+        size, n = len(ring), len(block)
+        if w + n <= size:
+            ring[w:w + n] = block
+        else:
+            k = size - w
+            ring[w:] = block[:k]
+            ring[:n - k] = block[k:]
+
+    def process(self, x, bpm=None):
+        """a block [n, 2] float32 -> the same through the FX (and the tail of one just turned off)"""
+        n = len(x)
+        out = x
+        if self.on and self.kind == "ECHO":
+            delay = max(n, min(self.RING - n, int(0.75 * 60.0 / (bpm or 120.0) * RATE)))
+            self.echo_delay, self.echo_left = delay, self.ECHO_TAIL * delay
+        if self.echo_left > 0:
+            feed = self.on and self.kind == "ECHO"
+            wet = self.read(self.echo, self.ew, self.echo_delay, n)
+            self.write(self.echo, self.ew, (x if feed else 0 * x) + wet * self.ECHO_FB)
+            self.ew = (self.ew + n) % self.RING
+            out = out + wet * self.ECHO_WET
+            if not feed:
+                self.echo_left -= n
+                if self.echo_left <= 0:
+                    self.echo[:] = 0.0          # faded: quiet memory for the next time
+        if self.on and self.kind == "REVERB":
+            self.verb_left = int(self.VERB_TAIL * RATE)
+        if self.verb_left > 0:
+            feed = self.on and self.kind == "REVERB"
+            out = out + self.reverb(x if feed else 0 * x) * self.VERB_WET
+            if not feed:
+                self.verb_left -= n
+                if self.verb_left <= 0:
+                    for ring in self.combs + [list(p) for pair in self.aps for p in pair]:
+                        for r in ring:
+                            r[:] = 0.0
+        if self.on and self.kind == "FLANGER":
+            out = self.flanger(out)
+        else:
+            self.flange = x[-len(self.flange):].copy()   # (its memory kept current: no jump when it comes on)
+        return out if out is x else out.astype(np().float32)
+
+    def reverb(self, x):
+        nm = np()
+        n = len(x)
+        y = nm.empty_like(x)
+        for ch in (0, 1):
+            spread = self.SPREAD if ch else 0
+            xin, acc = x[:, ch], nm.zeros(n, nm.float32)
+            for rings, d in zip(self.combs, self.COMBS):
+                past = self.read(rings[ch], self.vw, d + spread, n)
+                self.write(rings[ch], self.vw, xin + past * self.COMB_FB)
+                acc += past
+            v = acc / len(self.COMBS)
+            for pairs, d in zip(self.aps, self.ALLPASSES):   # v[i] = -g v_in[i] + v_in[i-d] + g v[i-d]
+                xs, ys = pairs[ch]
+                z = -self.AP_G * v + self.read(xs, self.vw, d + spread, n) + self.AP_G * self.read(ys, self.vw, d + spread, n)
+                self.write(xs, self.vw, v)
+                self.write(ys, self.vw, z)
+                v = z
+            y[:, ch] = v
+        self.vw = (self.vw + n) % self.VRING
+        return y
+
+    def flanger(self, x):
+        nm = np()
+        n = len(x)
+        hist = nm.concatenate([self.flange, x])
+        t = self.phase + nm.arange(n) / RATE
+        d = (0.001 + 0.003 * (0.5 + 0.5 * nm.sin(2 * math.pi * 0.25 * t))) * RATE   # 1-4 ms, in frames
+        pos = len(self.flange) + nm.arange(n) - d
+        i0 = pos.astype(nm.int64)
+        frac = (pos - i0).astype(nm.float32)[:, None]
+        swept = hist[i0] * (1 - frac) + hist[i0 + 1] * frac
+        self.flange = hist[-len(self.flange):]
+        self.phase = (self.phase + n / RATE) % 4.0
+        return (x + swept) * 0.5
+
+
 class Deck:
     def __init__(self, name):
         self.name = name
@@ -173,6 +303,8 @@ class Deck:
         self.fader = 0.0                         # where the tempo fader is (-1 .. 1): the pitch when not synced
         self.lock_fix = 0.0                      # synced and both playing: a hair faster or slower, beats locked
         self.lock_offset = 0.0                   # where its beat sits from the other's, in beats (a nudge kept)
+        self.fx = DeckFX()
+        self.brake_at = None                     # BRAKE: the frames slowed so far (None: not braking)
 
     # ---- tempo
     def speed(self):
@@ -353,7 +485,17 @@ class Deck:
             step = self.scratch_ticks * SAMPLES_PER_TICK * t.rate / RATE / n
             self.scratch_ticks = 0
             positions = self.pos + step * nm.arange(n)
+        elif self.playing and self.fx.braking():   # BRAKE: the speed falls to nothing over a beat
+            length = (60.0 / (self.bpm_now() or 120.0)) * RATE
+            self.brake_at = self.brake_at or 0
+            ramp = nm.clip(1.0 - (self.brake_at + nm.arange(n)) / length, 0.0, 1.0)
+            self.brake_at += n
+            steps = self.speed() * ramp
+            positions = self.pos + nm.concatenate([[0.0], nm.cumsum(steps)[:-1]])
+            if not ramp.any():                   # stood still: silence until BRAKE lets go
+                return self.tone.process(nm.zeros((n, 2), nm.float32))
         elif self.playing:
+            self.brake_at = None
             positions = self.pos + self.speed() * nm.arange(n)
         else:
             return self.tone.process(silent)
@@ -432,7 +574,7 @@ class Engine:
             else:
                 da.follow(db)
                 db.follow(da)
-            a, b = (d.render(n) for d in self.decks)
+            a, b = (d.fx.process(d.render(n), d.bpm_now()) for d in self.decks)
             ga = math.cos(self.xfade * math.pi / 2)     # constant power
             gb = math.sin(self.xfade * math.pi / 2)
             da, db = self.decks
@@ -1290,7 +1432,8 @@ class Decks:
                          "cues": sorted([k, round(v / t.frames, 4), t.cue_colors.get(k) or CUE_COLORS[k]]
                                         for k, v in t.cues.items()) if t else [],
                          "loop_at": [round(v / t.frames, 4) for v in d.loop] if t and d.loop else None,
-                         "pfl": d.pfl, "volume": d.volume, "loading": d.loading, "error": d.error})
+                         "pfl": d.pfl, "volume": d.volume, "loading": d.loading, "error": d.error,
+                         "fx": d.fx.kind, "fx_on": d.fx.on})
         sel = self.library[self.cursor] if self.library else None
         return {"decks": rows, "xfade": self.engine.xfade, "cursor": self.cursor, "count": len(self.library),
                 "scanning": self.scanning, "source": self.browsed()["name"],
@@ -1380,6 +1523,11 @@ class Decks:
                 d.toggle_sync(e.decks[1 - args[0]])
             elif name == "pfl" and d:
                 d.pfl = not d.pfl
+            elif name == "fx" and d and len(args) > 1:     # ("fx", deck, "toggle" / "next")
+                if args[1] == "toggle":
+                    d.fx.on = not d.fx.on
+                elif args[1] == "next":
+                    d.fx.next_kind()
             elif name == "gotocue" and d and d.track and int(args[1]) in d.track.cues:   # a cue's tag tapped
                 d.pos = d.track.cues[int(args[1])]
             elif name == "clearcue" and d and d.track:        # a cue's tag held: gone
