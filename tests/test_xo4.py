@@ -1,0 +1,158 @@
+"""Tests for XO-4's engine (xo4.py): songs cleaned, steps on the grid, tracks of their own lengths, swing, pattern
+changes on the bar, the synths played on their frame, the drums' hits for the pads, the MIDI track's notes.
+
+  python tests/test_xo4.py
+"""
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
+
+import xo4  # noqa: E402
+
+RATE = 48000
+PER = 60.0 / (120 * 24)                     # a clock tick at 120 BPM
+U = PER * 6                                 # a 16th: 0.125 s
+
+
+def song_with(track, steps, length=16, pattern="A"):
+    song = xo4.empty_song()
+    song["patterns"][pattern][track]["len"] = length
+    for i, step in steps.items():
+        song["patterns"][pattern][track]["steps"][i] = step
+    return xo4.clean_song(song)
+
+
+def playing(seq, origin=10.0):
+    seq.grid = (PER, origin, True)
+    return seq
+
+
+def test_clean_song():
+    """anything -> a whole song: eight patterns of four tracks, steps cleaned, values in range"""
+    s = xo4.clean_song({"patterns": {"A": [{"len": 99, "steps": [{"notes": [3, 3, 20, "x"], "vel": 300}]}]},
+                        "pattern": "Q", "swing": 500, "levels": [5, -1], "midi_channel": 40,
+                        "patches": [{"ratio": 99}, "nonsense"]})
+    assert sorted(s["patterns"]) == list(xo4.PATTERNS) and all(len(t) == 4 for t in s["patterns"].values())
+    drums = s["patterns"]["A"][xo4.DRUMS]
+    assert drums["len"] == 64 and drums["steps"][0] == {"notes": [3], "vel": 127, "len": 1.0}   # pad 20: no pad
+    assert s["pattern"] == "A" and s["swing"] == 100 and s["levels"][:2] == [2.0, 0.0] and s["midi_channel"] == 15
+    assert s["patches"][0]["ratio"] == 16.0 and s["patches"][1]["ratio"] == xo4.SYNTH_PATCHES[1]["ratio"]
+    synth = xo4.clean_step({"notes": [60, 64, 67, 71, 74]}, xo4.SYNTH1)
+    assert synth["notes"] == [60, 64, 67, 71]                           # four at most: a chord
+    assert xo4.clean_step({"notes": []}, xo4.SYNTH1) is None and xo4.clean_song(None) == xo4.empty_song()
+
+
+def test_steps_on_the_grid():
+    """a step sounds at tick 0 + its number of 16ths, its note off at GATE of its length"""
+    song = song_with(xo4.SYNTH1, {0: {"notes": [60]}, 4: {"notes": [64], "len": 2}})
+    seq = playing(xo4.Sequencer())
+    notes = seq.due(song, seq.now, 10.0, 10.0 + 16 * U)
+    assert [(round(t - 10.0, 4), kind, note) for t, _, kind, note, _ in notes] == [
+        (0.0, "on", 60), (round(U * xo4.GATE, 4), "off", 60), (round(4 * U, 4), "on", 64),
+        (round(4 * U + 2 * U * xo4.GATE, 4), "off", 64)]
+
+
+def test_own_lengths_and_swing():
+    """a 3-step track comes round every 3 steps, a 16-step one every 16; swing delays the odd 16ths"""
+    song = song_with(xo4.SYNTH1, {0: {"notes": [60]}}, length=3)
+    seq = playing(xo4.Sequencer())
+    ons = [round((t - 10.0) / U, 3) for t, _, kind, _, _ in seq.due(song, seq.now, 10.0, 10.0 + 12 * U)
+           if kind == "on"]
+    assert ons == [0, 3, 6, 9]
+    song = song_with(xo4.SYNTH1, {0: {"notes": [60]}, 1: {"notes": [62]}})
+    song["swing"] = 50
+    seq = playing(xo4.Sequencer())
+    ons = [round((t - 10.0) / U, 3) for t, _, kind, _, _ in seq.due(song, seq.now, 10.0, 10.0 + 2 * U)
+           if kind == "on"]
+    assert ons == [0, 1.25]                                              # 50: a quarter of a 16th late
+
+
+def test_pattern_changes_on_the_bar():
+    """a pattern picked while playing starts on the next bar, for every track; stopped, at once"""
+    song = song_with(xo4.SYNTH1, {0: {"notes": [60]}})
+    song["patterns"]["B"][xo4.SYNTH1]["steps"][0] = {"notes": [72], "vel": 100, "len": 1.0}
+    seq = playing(xo4.Sequencer())
+    seq.due(song, seq.now, 10.0, 10.0 + 4 * U)                          # into the first bar
+    seq.pick(song, "B")
+    assert seq.queued == "B" and song["pattern"] == "A"
+    notes = seq.due(song, seq.now, 10.0 + 4 * U, 10.0 + 17 * U)
+    assert [n for _, _, k, n, _ in notes if k == "on"] == [72] and song["pattern"] == "B" and seq.queued is None
+    stopped = xo4.Sequencer()
+    stopped.pick(song, "C")
+    assert song["pattern"] == "C"
+
+
+def test_stop_lets_go():
+    """stopping ends what's held: the synths' notes and the drums' and MIDI's"""
+    song = song_with(xo4.MIDI, {0: {"notes": [48], "len": 8}})
+    seq = playing(xo4.Sequencer())
+    assert [k for _, _, k, _, _ in seq.due(song, seq.ahead, 10.0, 10.0 + U)] == ["on"]
+    seq.grid = (PER, None, False)
+    assert [(k, n) for _, _, k, n, _ in seq.due(song, seq.ahead, 11.0, 11.1)] == [("off", 48)]
+    assert seq.due(song, seq.ahead, 11.1, 11.2) == []
+
+
+def test_engine_plays_the_synths_on_their_frame():
+    """a synth step starts on its own frame within a block: silence before it, sound from it"""
+    import numpy as np
+    engine = xo4.Engine(RATE)
+    engine.set_song(song_with(xo4.SYNTH1, {1: {"notes": [69], "vel": 127}}))
+    engine.seq.grid = (PER, 10.0, True)
+    t0 = 10.0 + U - 256 / RATE                                           # step 1 falls 256 frames into the block
+    out, ahead = engine.render(512, t0)
+    assert out.shape == (512, 2) and np.abs(out[:255]).max() == 0 and np.abs(out[256:]).max() > 0
+    assert ahead == [] and engine.sounding()[0] == [69]
+
+
+def test_drums_and_midi_go_out_ahead():
+    """the drums' and MIDI's notes are handed out LOOKAHEAD early, with the time each is to sound"""
+    song = song_with(xo4.DRUMS, {0: {"notes": [0, 4], "vel": 100}})
+    song["patterns"]["A"][xo4.MIDI]["steps"][0] = {"notes": [36], "vel": 90, "len": 1.0}
+    song["midi_channel"], song["levels"][xo4.DRUMS] = 9, 0.5
+    engine = xo4.Engine(RATE)
+    engine.set_song(song)
+    engine.seq.grid = (PER, 10.0, True)
+    _, ahead = engine.render(512, 10.0 - xo4.LOOKAHEAD)                  # the block before step 0 is heard
+    hits = xo4.drum_hits(ahead, engine.song["levels"])
+    assert [(round(t, 4), k, pad, v) for t, k, pad, v in hits if k == "on"] == [(10.0, "on", 0, 50),
+                                                                              (10.0, "on", 4, 50)]
+    midi = xo4.midi_notes(ahead, engine.song["midi_channel"], engine.song["levels"][xo4.MIDI])
+    assert midi == [(10.0, [0x99, 36, 90])]
+
+
+def test_pads_take_the_hits():
+    """the pad process plays XO-4's drums: queued while playing (each at its time), dropped when stopped"""
+    import pads
+    seq = pads.Sequencer()
+    seq.queue([(10.5, "on", 2, 100)])
+    assert seq.pending == []                                             # stopped: nothing kept
+    seq.grid = (PER, 10.0, True)
+    seq.queue([(10.5, "on", 2, 100), (10.6, "off", 2, 0), (10.5, "on", 99, 100)])
+    kit = pads.empty_kit()
+    assert seq.events(kit["seq"], 10.4, 10.55) == [(10.5, "on", 2, 100)]
+    seq.grid = (PER, None, False)
+    assert seq.events(kit["seq"], 11.0, 11.1) == [(11.0, "off", 2, 0)] and seq.pending == []
+
+
+def test_midi_track_through_the_routes():
+    """XO4 is a source in the MIDI routes: on to the USB gear, off to Bluetooth, the network and the pads"""
+    import blemidi
+    assert "XO4" in blemidi.SOURCES
+    for dest, on in (("USB", True), ("BT", False), ("NET", False), ("SMP", False)):
+        assert blemidi.route_default(f"XO4>{dest}")["on"] is on, dest
+    bridge = blemidi.MidiBridge()
+    sent = []
+    bridge.deliver = lambda key, messages: sent.append((key, messages))
+    bridge.route_from("XO4", bytes([0x90, 36, 90]))
+    assert ("USB", [bytes([0x90, 36, 90])]) in [(k.split(">")[1], m) for k, m in sent if m]
+    assert bridge.source_label("XO4") == "XO-4"
+
+
+if __name__ == "__main__":
+    tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
+    for name, fn in tests:
+        fn()
+        print("ok", name)
+    print(f"all {len(tests)} passed")

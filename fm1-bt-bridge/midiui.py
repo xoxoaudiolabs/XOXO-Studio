@@ -12,8 +12,8 @@ import time
 
 import blemidi
 
-SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "Box": "Box clock"}
-SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "Box": "Clock"}
+SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "XO4": "XO-4", "Box": "Box clock"}
+SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "XO4": "XO-4", "Box": "Clock"}
 SHORT_DESTS = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
 KEYBOARDS = ("BT", "USB")                               # where a keyboard plays from (and each USB device: U:...)
 VELOCITY = ["normal", "soft", "hard"] + [f"fixed {v}" for v in (40, 64, 80, 100, 127)]
@@ -71,6 +71,8 @@ class MidiScreens:
             hide.add("NET")
         if not getattr(self.midi, "pads", False):          # the sampler: the Studio's
             hide.add("SMP")
+        if not getattr(self.midi, "xo4", False):           # XO-4's MIDI track: the Studio's
+            hide.add("XO4")
         sources, dests = blemidi.matrix(self.usb_devices())     # (the Studio: each USB device, by name)
         return [s for s in sources if s not in hide], [d for d in dests if d not in hide]
 

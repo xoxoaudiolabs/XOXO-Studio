@@ -779,7 +779,8 @@ class UsbControllers:
 
 # ---------------------------------------------------------------- the MIDI matrix
 
-SOURCES, DESTINATIONS = ("BT", "USB", "NET", "Box"), ("BT", "USB", "NET", "SMP")
+SOURCES, DESTINATIONS = ("BT", "USB", "NET", "XO4", "Box"), ("BT", "USB", "NET", "SMP")
+# XO4: XO-4's MIDI track (xo4.py), on the Studio
 # SMP: the Studio's MPC-style sampler (pads.py): notes 36-51 play its 16 pads
 # NET: network MIDI (netmidi.py: a DAW on a computer, such as Kraken), on the desk box
 ROUTES = tuple(f"{s}>{d}" for s in SOURCES for d in DESTINATIONS if s != d)    # "Box": its clock, Start/Stop
@@ -796,7 +797,8 @@ ARP_RATES = {"1/4": 24, "1/8": 12, "1/8T": 8, "1/16": 6}  # clock ticks (24 a qu
 
 # the keyboards (Bluetooth, USB) and a DAW play the pads, and the box's clock goes out on Bluetooth; the rest is a
 # choice
-OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "NET>USB", "Box>NET", "Box>SMP")
+OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "NET>USB", "Box>NET", "Box>SMP",
+                "XO4>BT", "XO4>NET", "XO4>SMP")      # XO-4's MIDI track plays the USB gear
 
 
 # The Studio gives each USB MIDI device its own row and column ("U:" + its name: "U:EP-136"), where the Pocket
@@ -1074,8 +1076,9 @@ class MidiBridge:
     """Joins USB MIDI, the BLE MIDI service, network MIDI and the pads through the routes. Status for the screen:
     peer, enabled, pairing_until, activity()."""
 
-    def __init__(self, enabled=True, net=False, pads=None):
+    def __init__(self, enabled=True, net=False, pads=None, xo4=None, xo4_notes=None):
         self.enabled = enabled
+        self.xo4, self.xo4_notes = xo4, xo4_notes   # XO-4 (the Studio): the grid to it, its MIDI track's notes from it
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         if net:
@@ -1172,8 +1175,10 @@ class MidiBridge:
 
         threading.Thread(target=body, daemon=True).start()
         threading.Thread(target=self.clock_loop, daemon=True).start()
-        if self.pads is not None:
+        if self.pads is not None or self.xo4 is not None:
             threading.Thread(target=self.grid_loop, daemon=True).start()
+        if self.xo4_notes is not None:
+            threading.Thread(target=self.xo4_loop, daemon=True).start()
         for session in (self.net, self.mcu):
             if session:
                 session.start()
@@ -1223,21 +1228,49 @@ class MidiBridge:
         return 60.0 / (self.bpm * 24), None, False
 
     def grid_loop(self):
-        """the beat grid to the sampler (its sequencer plays on it): when it starts or stops at once, else
-        every half second while it plays (a followed clock's fitted line moves a little)"""
+        """the beat grid to the sampler and XO-4 (their sequencers play on it): when it starts or stops at once,
+        else every half second while it plays (a followed clock's fitted line moves a little)"""
         sent, sent_at = None, 0.0
         while True:
             now = time.monotonic()
             grid = self.grid(now)
             if (sent is None or grid[2] != sent[2] or (grid[1] is None) != (sent[1] is None)
                     or (grid[2] and now - sent_at >= 0.5)):
-                with self.pads_lock:
+                if self.pads is not None:
+                    with self.pads_lock:
+                        try:
+                            self.pads.send(("grid",) + tuple(grid))
+                        except (BrokenPipeError, OSError):
+                            self.pads = None
+                if self.xo4 is not None:
                     try:
-                        self.pads.send(("grid",) + tuple(grid))
+                        self.xo4.send(("grid",) + tuple(grid))
                     except (BrokenPipeError, OSError):
-                        return
+                        self.xo4 = None
+                if self.pads is None and self.xo4 is None:
+                    return
                 sent, sent_at = grid, now
             time.sleep(0.02)
+
+    def xo4_loop(self):
+        """XO-4's MIDI track: ("xo4", [(time, MIDI bytes)]) arrives LOOKAHEAD early; each goes out through the
+        routes (source XO4) when its time comes"""
+        import heapq
+        waiting = []
+        while True:
+            wait = max(0.0, waiting[0][0] - time.monotonic()) if waiting else 1.0
+            try:
+                ready = self.xo4_notes.poll(wait)
+                msg = self.xo4_notes.recv() if ready else None
+            except (EOFError, OSError):
+                return
+            if msg and msg[0] == "xo4":
+                for n, (t, message) in enumerate(msg[1]):
+                    heapq.heappush(waiting, (float(t), n, bytes(message)))
+            now = time.monotonic()
+            while waiting and waiting[0][0] <= now:
+                _, _, message = heapq.heappop(waiting)
+                self.route_from("XO4", message)
 
     def transport(self, command):
         """Start or Stop out to everything"""
@@ -1346,7 +1379,7 @@ class MidiBridge:
 
     def source_label(self, source):
         """a track's name: a USB keyboard's own name, Bluetooth MIDI, Network MIDI"""
-        return {"BT": "Bluetooth MIDI", "NET": "Network MIDI",
+        return {"BT": "Bluetooth MIDI", "NET": "Network MIDI", "XO4": "XO-4",
                 "USB": "USB keys"}.get(source) or self.source_names.get(source) or source
 
     # USB devices -> their routes; called on rtmidi's thread
@@ -1474,12 +1507,12 @@ class MidiBridge:
 
 # ---------------------------------------------------------------- in a process of its own
 
-def run_child(conn, enabled, net=False, pads=None):
+def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
     """The MIDI process: MidiBridge, sending its status up the pipe when it changes and taking
     ("enabled", bool) and ("pair",) commands. Exits when the app's end of the pipe closes."""
     import os
     import metronome
-    bridge = MidiBridge(enabled, net, pads)
+    bridge = MidiBridge(enabled, net, pads, xo4, xo4_notes)
     bridge.start()
     metro = metronome.Metronome(lambda: bridge.clock_status(time.monotonic()), on_start=make_realtime)
     wanted = [False, None, "mid", 48000]    # the metronome: on, the speaker, the click's level, the rate
@@ -1533,6 +1566,7 @@ def run_child(conn, enabled, net=False, pads=None):
         status["notes"], status["chans"] = bridge.notes_status(now)
         status.update(bridge.net_status())
         status["pads"] = bridge.pads is not None
+        status["xo4"] = bridge.xo4 is not None
         status["split"] = bridge.split
         status.update(ble_keys=bridge.keyboard_list() if bridge.ble_loaded else None, ble_found=bridge.ble_found,
                       ble_scanning=bridge.ble_scanning, ble_note=bridge.ble_note)
@@ -1595,13 +1629,14 @@ class MidiProcess:
     one thread at a time, and drawing a screen frame takes ~75 ms on a Zero W: in the app's process
     that held notes back, unevenly. In its own process the kernel switches to it as a note arrives."""
 
-    def __init__(self, enabled=True, net=False, pads=None):
+    def __init__(self, enabled=True, net=False, pads=None, xo4=None, xo4_notes=None):
         import multiprocessing
         ctx = multiprocessing.get_context("fork")
         self.conn, child = ctx.Pipe()
-        self.proc = ctx.Process(target=run_child, args=(child, enabled, net, pads), daemon=True,
+        self.proc = ctx.Process(target=run_child, args=(child, enabled, net, pads, xo4, xo4_notes), daemon=True,
                                 name="fm1-midi")
         self.pads = pads is not None          # the Studio's sampler takes notes (the routes' SMP)
+        self.xo4 = xo4 is not None            # XO-4's MIDI track plays through the routes (their XO4)
         self.net, self.mcu = [], None        # network MIDI: computers connected; the control surface's state
         self.enabled, self.peer, self.error = enabled, None, None
         self.pairing_until = 0.0

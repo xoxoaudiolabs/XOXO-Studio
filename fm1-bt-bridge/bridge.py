@@ -69,6 +69,7 @@ DEFAULTS = {
     "editor_last": None,    # the Studio's sample editor: the file last opened, [name, folder], opened again
     "repeat": None,         # the pads' note repeat: a division (pads.DIVS index 0-5) or None: off
     "kit": None,            # the Studio's pads: the kit in use (pads.clean_kit), kept here between kit saves
+    "xo4": None,            # XO-4's song (xo4.clean_song): its patterns, patches, levels
 }
 GPIO_CHIP = "/dev/gpiochip0"
 PIN_DC, PIN_RST = 24, 25
@@ -263,6 +264,8 @@ def pick_nodes(objects):
             sources.append(node)
         elif cls == "Audio/Source" and name == "fm1-sampler":     # the Studio's pads (pads.py): a source too
             sources.append(dict(node, label="SAMPLER", ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4's synths (xo4.py): a source too
+            sources.append(dict(node, label="XO-4", ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Sink" and name.startswith("bluez_output."):
             sink = sink or node
     return sink, sources
@@ -794,6 +797,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.box = {"build": "pocket", "board": "", "screen": None, "can": set()}   # main() fills it in
         self.desk = None                      # the desk box's touch screens (deskui.DeskUI), from main()
         self.pads = None                      # the Studio's sampler (pads.PadProcess), from main()
+        self.xo4 = None                       # XO-4 (xo4.XO4Process), from main()
         self.metro_sent = None                # what the MIDI process was last told about the metronome
         self.sink = None
         self.others = []                      # other USB sound: a keyboard's own synth
@@ -1013,9 +1017,26 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         return label.upper()[:10]
 
     def kit(self):
-        """the Studio's kit in use"""
+        """the Studio's kit in use; none yet (a first start): the ready-made 808 KIT, so the pads and XO-4's drums
+        play out of the box"""
         import pads
-        return pads.clean_kit(self.state.get("kit") or pads.empty_kit())
+        if not self.state.get("kit"):
+            pads.factory_kits()
+            self.state["kit"] = pads.load_kit(pads.kit_path(pads.FACTORY_KITS[0][1])) or pads.empty_kit()
+        return pads.clean_kit(self.state["kit"])
+
+    def song(self):
+        """XO-4's song"""
+        import xo4
+        return xo4.clean_song(self.state.get("xo4"))
+
+    def set_song(self, song):
+        """XO-4's song changed: kept, and sent to XO-4"""
+        import xo4
+        self.state["xo4"] = xo4.clean_song(song)
+        self.save_settings()
+        if self.xo4:
+            self.xo4.send("song", self.state["xo4"])
 
     def set_kit(self, kit):
         import pads
@@ -1872,15 +1893,20 @@ def main():
         # MIDI gets its own process, forked before any thread exists (App.run lowers the drawing
         # thread's priority so the kernel runs MIDI and audio first)
         import blemidi
-        pad_process = None
-        if box["build"] == "desk":            # the Studio's sampler, in a process of its own (pads.py)
+        pad_process = xo4_process = None
+        if box["build"] == "desk":            # the Studio's sampler and XO-4, each in a process of its own
             import pads
+            import xo4
             pad_process = pads.PadProcess(state["audio_rate"])
             pad_process.start()
+            xo4_process = xo4.XO4Process(state["audio_rate"], pads_conn=pad_process.xo4_conn)
+            xo4_process.start()
             deskboot.show(display, boot, 1)
         midi = blemidi.MidiProcess(state["midi_enabled"],
                                    net=box["build"] == "desk",          # network MIDI (a DAW): the Studio
-                                   pads=pad_process and pad_process.midi_conn)
+                                   pads=pad_process and pad_process.midi_conn,
+                                   xo4=xo4_process and xo4_process.midi_conn,
+                                   xo4_notes=xo4_process and xo4_process.notes_in)
         midi.start()
         midi.set_ble_saved(state["ble_keys"])
         midi.set_clock(state["clock_mode"], state["bpm"])
@@ -1899,6 +1925,8 @@ def main():
         app.pads.send("repeat", state["repeat"])
         app.pads.on_seq = lambda seq: app.post("pad_seq", seq)
         app.pads.on_step = lambda step: app.post("pad_step", step)     # (wakes the screen: the playhead)
+        app.xo4 = xo4_process
+        app.xo4.send("song", app.song())
     if not sim and box["build"] == "desk":    # its own touch screens; the classic ones' on-screen keys
         import deskui
         app.desk = deskui.DeskUI(app, display)

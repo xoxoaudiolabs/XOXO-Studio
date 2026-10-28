@@ -372,6 +372,24 @@ def test_factory_kits():
     assert "808-KIT" not in pads.list_kits()                                 # deleted: stays deleted
 
 
+def test_first_kit_is_the_808():
+    """a first start (no kit chosen yet): the pads have the 808 KIT, so they and XO-4's drums play out of the box;
+    a kit chosen later stays"""
+    import bridge
+    import library
+    was = library.LIBRARY
+    library.LIBRARY, pads._factory_checked = TMP / "fresh-library", False
+    try:
+        app = bridge.App(None, dict(bridge.DEFAULTS))
+        kit = app.kit()
+        assert kit["name"] == "808 KIT" and Path(kit["pads"][0]["sample"]).name == "808-KICK.wav"
+        assert app.state["kit"]["name"] == "808 KIT"                         # kept: made once
+        app.state["kit"] = dict(pads.empty_kit("MINE"))
+        assert app.kit()["name"] == "MINE"
+    finally:
+        library.LIBRARY, pads._factory_checked = was, False
+
+
 def test_pads_tab():
     """the PADS tab: a tap plays a pad (held: until let go), EDIT opens its page, - / + and choices change it,
     a sample picked goes on it, kits save, load and start afresh"""

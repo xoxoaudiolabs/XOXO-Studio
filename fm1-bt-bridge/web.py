@@ -527,14 +527,14 @@ function toggleRec() { cmd({cmd:"record", value: st && st.recording != null ? "s
 
 // ---------------------------------------------------------------- MIDI tab
 // NET (network MIDI: a DAW on a computer, the desk box) only while a computer is connected
-const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "Box":"Box clock"}, ALL_DESTS = ["BT", "USB", "NET", "SMP"];
-let netOn = false, padsOn = false, SOURCES = {}, DESTS = [];
+const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "XO4":"XO-4", "Box":"Box clock"}, ALL_DESTS = ["BT", "USB", "NET", "SMP"];
+let netOn = false, padsOn = false, xo4On = false, SOURCES = {}, DESTS = [];
 // the Studio: each USB MIDI device its own row and column ("U:" + its name), as st.matrix lists them
 let matrixKey = "";
 const devName = (k) => k.startsWith("U:") ? k.slice(2) : null;
-function setMatrix(net = netOn, pads = padsOn, matrix = null) {
-  netOn = net; padsOn = pads;
-  const shown = (k) => (net || k !== "NET") && (pads || k !== "SMP");
+function setMatrix(net = netOn, pads = padsOn, matrix = null, xo4 = xo4On) {
+  netOn = net; padsOn = pads; xo4On = xo4;
+  const shown = (k) => (net || k !== "NET") && (pads || k !== "SMP") && (xo4 || k !== "XO4");
   const label = (k) => devName(k) || ALL_SOURCES[k] || k;
   const srcs = matrix ? matrix.sources : Object.keys(ALL_SOURCES).filter(shown);
   SOURCES = Object.fromEntries(srcs.map((k) => [k, label(k)]));
@@ -750,7 +750,7 @@ async function status() {
   const r = JSON.stringify(st.routes), p = JSON.stringify(st.presets || {});
   const net = !!(st.midi.net && st.midi.net.length);
   const mk = JSON.stringify(st.matrix || null);
-  if (net !== netOn || !!st.midi.pads !== padsOn || mk !== matrixKey) { matrixKey = mk; setMatrix(net, !!st.midi.pads, st.matrix || null); shownRoutes = ""; }
+  if (net !== netOn || !!st.midi.pads !== padsOn || !!st.midi.xo4 !== xo4On || mk !== matrixKey) { matrixKey = mk; setMatrix(net, !!st.midi.pads, st.matrix || null, !!st.midi.xo4); shownRoutes = ""; }
   if (r !== shownRoutes && Date.now() > routesDirtyUntil) { routes = JSON.parse(r); shownRoutes = r; renderMatrix(); renderEditor(); }
   if (p !== shownPresets && !String(document.activeElement && document.activeElement.id).startsWith("pn")) { shownPresets = p; renderPresets(); }
 }
