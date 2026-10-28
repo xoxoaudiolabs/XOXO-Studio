@@ -112,6 +112,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         rec = a.recording_tick(now) if hasattr(a, "recording_tick") else None
         base = (self.tab, self.held and self.held[0], self.theme.name, id(self.theme), rec, a.live(), a.volume,
                 json.dumps(a.state.get("mix")), a.state.get("rec_parts"), str(a.battery), a.clock_text(),
+                getattr(a, "spk_battery", None),
                 a.jack and a.jack["name"], a.state.get("phones"), tuple(a.cued()), a.state.get("cue_mix"),
                 tuple(sorted(getattr(a, "app_here", ()))),
                 a.message if now < a.message_until else None, tuple(self.sources()),
@@ -521,6 +522,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             rows.append(("decks", "DECKS", "", len(rows) % 3, a.mix_level("decks") / 200,   # (not the speaker's colour)
                          f"{a.mix_level('decks')}%"))
         speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
+        if a.sink and getattr(a, "spk_battery", None) is not None:   # the speaker reports its battery
+            speaker = f"{speaker}  BAT {a.spk_battery}%"
         volume = f"{a.volume}%" if a.volume is not None else ""
         return rows + [("spk", "SPEAKER", speaker, 3, (a.volume or 0) / 100, volume)]
 

@@ -485,7 +485,8 @@ function renderStatus() {
   const bat = !st.offline && st.battery;
   $("s-batline").hidden = !bat;
   if (bat) $("s-bat").textContent = `${bat.percent}%` + (bat.plugged ? " · charging" : "");
-  $("s-spk").textContent = st.speaker || (st.connecting ? "connecting…" : (st.speaker_name ? st.speaker_name + " (off)" : "none"));
+  $("s-spk").textContent = (st.speaker || (st.connecting ? "connecting…" : (st.speaker_name ? st.speaker_name + " (off)" : "none")))
+    + (st.speaker && st.speaker_battery != null ? ` · battery ${st.speaker_battery}%` : "");
   if (Date.now() > editingUntil) { if (st.volume != null) $("s-vol").value = st.volume; $("s-tempo").value = s.bpm; }
   $("s-volv").textContent = st.volume != null ? st.volume + "%" : "–"; $("s-vol").disabled = st.volume == null;
   renderMixer(st);

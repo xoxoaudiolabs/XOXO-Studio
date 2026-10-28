@@ -144,7 +144,20 @@ def parse_info(mac, text):
             info["uuids"].append(value)
         elif key in ("Name", "Alias", "Icon", "Paired", "Connected", "Trusted"):
             info[key.lower()] = value
+        elif key == "Battery Percentage":     # "0x55 (85)": a device that reports its battery (BlueZ's Battery1)
+            m = re.search(r"\((\d+)\)", value)
+            if m:
+                info["battery"] = min(100, int(m.group(1)))
     return info
+
+
+def speaker_battery(mac):
+    """the connected speaker's battery (%) as it reports it to BlueZ, or None: many don't (some only over the
+    hands-free profile, which the box doesn't use)"""
+    if not mac:
+        return None
+    code, out = bt("info", mac, timeout=5)
+    return parse_info(mac, out).get("battery") if code == 0 else None
 
 
 def is_audio(info):
@@ -818,6 +831,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.midi = None                      # blemidi.MidiBridge, when BlueZ and mido are there
         self.wifi, self.next_wifi = None, 0.0
         self.battery, self.next_battery = None, 0.0   # the PiSugar's {"percent", "mv", "plugged"}, or None
+        self.spk_battery, self.next_spk_battery = None, 0.0   # the speaker's own battery (%), when it reports it
         self.battery_warned, self.battery_empty = False, 0
         self.setting = 0                      # cursor on the settings page
         self.settings_menu = None             # None: the top list of sections; else a section (GROUPS)
@@ -865,6 +879,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                 threading.Thread(target=self.reconnect_quietly, daemon=True).start()
             if now >= self.next_battery:
                 self.battery, self.next_battery = battery.read(), now + 10
+            if now >= self.next_spk_battery:      # the speaker's battery: once a minute while it's connected
+                self.next_spk_battery = now + 60
+                level = speaker_battery(self.state["last_mac"]) if self.sink else None
+                if level != self.spk_battery:
+                    self.spk_battery = level
+                    self.post("status", False)
                 self.battery_check()
             self.web_publish()
             metro = (self.state["metronome"], self.cue_target(), self.state["click"],
