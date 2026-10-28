@@ -4,7 +4,7 @@
            pads' own sequencer) and ratchet (x1-x4: that many hits in the step); its hits go to the pad process,
            each with the time it's to be heard, sent LOOKAHEAD early so the pads never get one late
   SYNTH 1  an FM synth (xo4synth.py), rendered here: up to four notes a step (a chord)
-  SYNTH 2  another, with its own patch
+  SYNTH 2  another, with its own patch (both through XO-4's own punch-in FX, padfx.py: the pads have theirs)
   MIDI     notes out through the MIDI routes (their source "XO4"), sent by the MIDI process when they're due
 
 Each track has its own length (1-64 steps of a 16th), so tracks of different lengths drift and meet again; a
@@ -357,6 +357,8 @@ class Engine:
         self.seq = Sequencer()
         self.synths = [xo4synth.Synth(rate, p) for p in self.song["patches"]]
         self.master = 1.0
+        import padfx
+        self.fx = padfx.PunchFX(rate)           # XO-4's own punch-in FX, on the synths (the pads have theirs)
 
     def set_song(self, song):
         """a new song (from the app): what plays and where it is carry on"""
@@ -387,7 +389,7 @@ class Engine:
             synth.note_on(note, vel) if kind == "on" else synth.note_off(note)
         if done < n:
             out[done:] = self.mix(n - done)
-        return out, ahead
+        return self.fx.process(out, self.seq.grid, t0), ahead
 
     def mix(self, n):
         levels = self.song["levels"]
@@ -471,6 +473,8 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
                         engine.seq.grid = tuple(msg[1:4])
                     elif msg[0] == "master":
                         engine.master = float(msg[1])
+                    elif msg[0] == "fx":                  # ("fx", a punch-in FX 0-15, or None: let go)
+                        engine.fx.press(msg[1])
                     elif msg[0] == "rec":                 # ("rec", on): live REC
                         engine.seq.rec = bool(msg[1])
                     elif msg[0] == "played":              # ("played", pad, velocity, time): a pad played live

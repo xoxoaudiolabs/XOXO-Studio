@@ -72,6 +72,7 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
     - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4 as on an MPC, full screen, with KIT, RPT, FX, REC and EDIT above them. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
   - **SYN 1, SYN 2, MIDI:**
     - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
+    - **FX:** XO-4's own sixteen punch-in FX on the two synths' sound (hold one, or LATCH it), apart from the pads' FX.
     - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.
     - **Emptying a step:** tap the selected step again.
   - **SOUND** (SYN 1, SYN 2): the synth's page. Six starting sounds (KEYS, BASS, BELL, PLUCK, PAD, LEAD) and its

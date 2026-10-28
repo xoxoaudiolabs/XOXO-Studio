@@ -11,12 +11,13 @@ the decks are: the step grid and the keys need the height the tab bar takes.
   step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +.
               DRUMS: the hit last put on (the pad picked, on that step): its LEVEL (NORM, GHOST, SOFT, HARD), its
               ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
-  below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the punch-in FX), PADS (the 16 pads big,
+  below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the pads' punch-in FX), PADS (the 16 pads big,
               4x4 as on an MPC, full screen: KIT, RPT, FX, REC, EDIT above them), EDIT, and the 16 pads:
               played (they sound while held, playing or not; with REC on, recorded) and picked for the steps; EDIT on,
               a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling, trimming). These
               are the pads' own pages (deskpads.py), back to XO-4 when closed. The rest: OCT - / +, KEY and SCALE (the note keys
-              offer the scale's notes), and 14 note keys from the octave: a tap adds the note to the selected step
+              offer the scale's notes), FX (XO-4's own punch-in FX, on the two synths' sound), and 14 note keys
+              from the octave: a tap adds the note to the selected step
               or takes it off (four at most: a chord); stopped, it sounds. SYN 1 and SYN 2: SOUND opens the synth's
               page (below)
 
@@ -65,7 +66,7 @@ class DeskXO4:
         x = getattr(a, "xo4", None)
         return (self.xo4_rev, self.xo4_track, self.xo4_edit, self.xo4_step, self.xo4_page, self.xo4_pad,
                 tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
-                self.xo4_sound, self.xo4_rec, self.pads_view() if self.xo4_track == 0 else None)
+                self.xo4_sound, self.xo4_rec, self.pads_view() if self.xo4_track == 0 or self.fx_open else None)
 
     # ---- drawing
 
@@ -73,6 +74,8 @@ class DeskXO4:
         import xo4
         a, t = self.app, self.theme
         song = self.xo4_song()
+        if self.fx_open and self.fx_dest == "xo4":
+            return self.draw_fx(img, d, now)    # XO-4's synths' FX
         if self.xo4_track == xo4.DRUMS and self.xo4_pad_page():
             return self.draw_pads(img, d, now)  # a pad's page, the kits, sampling, FX: the pads' own
         if self.xo4_sound and self.xo4_track in (xo4.SYNTH1, xo4.SYNTH2):
@@ -240,13 +243,15 @@ class DeskXO4:
         self.button(img, d, (4, y, 36, y + 30), "-", lambda: self.xo4_octave(-1), key="xo4-oct-")
         self.centre(img, (36, y, 100, y + 30), f"OCT {octave}", t.hi)
         self.button(img, d, (100, y, 132, y + 30), "+", lambda: self.xo4_octave(1), key="xo4-oct+")
-        self.button(img, d, (140, y, 240, y + 30), "KEY " + xo4.NOTE_NAMES[song["root"]], self.xo4_root,
+        self.button(img, d, (140, y, 228, y + 30), "KEY " + xo4.NOTE_NAMES[song["root"]], self.xo4_root,
                     key="xo4-root")
-        self.button(img, d, (246, y, 380, y + 30), song["scale"], self.xo4_scale, key="xo4-scale")
+        self.button(img, d, (232, y, 338, y + 30), song["scale"], self.xo4_scale, key="xo4-scale")
         if self.xo4_track == xo4.MIDI:
             st.text(img, (388, y + 8), f"CH {song['midi_channel'] + 1}", t.c[3])
-        else:                                   # a synth: its SOUND page
-            self.button(img, d, (386, y, W - 4, y + 30), "SOUND", self.xo4_sound_open, color=t.track[self.xo4_track],
+        else:                                   # a synth: XO-4's synths' FX, and its SOUND page
+            self.button(img, d, (342, y, 402, y + 30), "FX", lambda: self.open_fx("xo4"),
+                        on=self.xo4_fx[0] is not None, key="xo4-synth-fx")
+            self.button(img, d, (406, y, W - 4, y + 30), "SOUND", self.xo4_sound_open, color=t.track[self.xo4_track],
                         key="xo4-sound")
         step = track["steps"][self.xo4_step] if self.xo4_step is not None else None
         held = set(step["notes"]) if step else set()

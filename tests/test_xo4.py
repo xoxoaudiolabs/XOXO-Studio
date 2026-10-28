@@ -202,6 +202,33 @@ def test_live_rec():
     engine.seq.grid, engine.seq.rec = (PER, 10.0, True), True
     assert engine.played(9, 100, 10.0) and engine.song["patterns"]["A"][xo4.DRUMS]["steps"][0]["notes"] == [9]
 
+
+def test_synth_fx():
+    """XO-4's own punch-in FX on its synths: GATE chops a held chord into 16ths, let go it's whole again"""
+    import numpy as np
+    import padfx
+    engine = xo4.Engine(RATE)
+    engine.set_song(song_with(xo4.SYNTH1, {0: {"notes": [60, 64, 67], "vel": 127, "len": 16}}))
+    engine.seq.grid = (PER, 10.0, True)
+    t, blocks = 10.0, []
+    for _ in range(int(0.3 * RATE / 512)):                         # into the chord's sustain
+        engine.render(512, t)
+        t += 512 / RATE
+    engine.fx.press(padfx.GATE)
+    for _ in range(int(0.5 * RATE / 512)):
+        out, _ = engine.render(512, t)
+        blocks.append(np.abs(out[:, 0]))
+        t += 512 / RATE
+    gated = np.concatenate(blocks)[RATE // 20:]
+    gated = gated[:len(gated) // 240 * 240]
+    quiet = (gated.reshape(-1, 240).max(axis=1) < 0.01).mean()     # 5 ms windows that are silent
+    assert 0.2 < quiet < 0.8, quiet                                 # chopped: on and off
+    engine.fx.press(None)
+    for _ in range(20):
+        out, _ = engine.render(512, t)
+        t += 512 / RATE
+    assert (np.abs(out[:, 0]).reshape(-1, 256).max(axis=1) > 0.01).all()   # whole again
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:
