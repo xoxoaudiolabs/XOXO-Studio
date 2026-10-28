@@ -92,6 +92,7 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - the XO-4 tab, used by hand on the Studio's screen: works well (the user's report, 2026-10-28)
 - "< HOME" at the top left of MIXER, SAMPLER, RECORD, MIDI and MORE looks right on the Studio's screen (the user's report)
 - SAMPLER and RECORD full screen (no tab bar) look right on the Studio's screen (the user's report)
+- HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
 
 **Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, recording, the pads' own sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
