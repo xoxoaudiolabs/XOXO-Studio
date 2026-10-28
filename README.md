@@ -103,6 +103,7 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - SAMPLER and RECORD full screen (no tab bar) look right on the Studio's screen (the user's report)
 - HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
 - HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
+- the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
 
 **Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, recording, XO-4's DRUMS by hand (finger drumming, levels, ratchets, nudge, live REC, RPT, FX, the kit pages from XO-4), the EDITOR tab, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
