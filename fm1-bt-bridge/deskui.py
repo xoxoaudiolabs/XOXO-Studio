@@ -549,7 +549,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
                 tx, bar = x0 + 12, y + rh - 9
             st.text(img, (tx, y + 2), label, t.hi)
             if detail:
-                st.text(img, (tx + st.text_size(label)[0] + 10, y + 2), detail.upper()[:16], t.track[k])
+                st.text(img, (tx + st.text_size(label)[0] + 10, y + 2), detail.upper()[:24], t.track[k])
             st.text(img, (x1 - st.text_size(value)[0], y + 2), value, t.c[3])
             d.rectangle((tx, bar, x1, bar + 3), fill=t.c[0])
             d.rectangle((tx, bar, tx + int((x1 - tx) * max(0.0, min(1.0, level))), bar + 3), fill=t.track[k])
