@@ -244,18 +244,19 @@ class RgbCapture:
 
 def desk_screens(state, out):
     """The Studio's touch screens (desk-ui-NAME.png), in GREEN and in a custom theme (desk-ui-NAME-theme.png),
-    as a Studio might run: an SMK-37 running Clipper, a K.O. Sidekick (EP-136), the sampler with a kit and a beat,
-    the headphone jack, a speaker. The tabs, then the sampler's pages
-    (SEQ, FX, the sample editor), the recorder and the boot screen"""
+    as a Studio might run: an SMK-37 running Clipper, a K.O. Sidekick (EP-136), the sampler with a kit and a beat
+    (the kit's old pattern, XO-4's now), the headphone jack, a speaker. The tabs, the pads in XO-4's DRUMS, a pad's
+    page and FX over it, the EDITOR tab, the recorder and the boot screen"""
     import deskboot
     import sloopstyle
     meters.load_numpy()
     custom = sloopstyle.Theme("MY THEME", [(8, 36, 48), (24, 76, 96), (40, 124, 168), (56, 180, 240),
                                            (144, 212, 248)], None, (40, 60, 64), (248, 252, 248))
     samples = studio_samples()
-    pages = [("home", "HOME", {}), ("mix", "MIX", {}), ("pads", "PADS", {}), ("rec", "REC", {}),
-             ("midi", "MIDI", {}), ("more", "MORE", {}), ("seq", "PADS", {"seq_open": True}),
-             ("fx", "PADS", {"fx_open": True, "fx_on": 1, "fx_latch": True}), ("editor", "PADS", {"editor": True})]
+    pages = [("home", "HOME", {}), ("mix", "MIX", {}), ("pads", "XO4", {"xo4_track": 0}), ("rec", "REC", {}),
+             ("midi", "MIDI", {}), ("more", "MORE", {}), ("pad", "XO4", {"xo4_track": 0, "pad_edit": 0}),
+             ("fx", "XO4", {"xo4_track": 0, "fx_open": True, "fx_on": 1, "fx_latch": True}),
+             ("editor", "EDITOR", {"editor": True})]   # (the pads: XO-4's DRUMS, their pages over it)
     for suffix, theme in (("", sloopstyle.Theme("GREEN")), ("-theme", custom)):
         for name, tab, attrs in pages:
             attrs = dict(attrs)                       # (each theme's pass: its own copy)
@@ -337,6 +338,8 @@ def studio_app(state, display, theme, samples):
         seq["steps"][i].append([2, 0, 1])
     seq["steps"][14] = sorted(seq["steps"][14] + [[0, 1, 2]])
     app.state["kit"] = kit
+    app.kit()                                     # (its pattern: XO-4's A now, as a Studio's would be)
+    app.message, app.message_until = None, 0.0    # (and no word of it on the pictures)
     app.state["routes"] = {"U:EP-136>SMP": {"on": False}, "U:EP-136>U:Clipper": {"on": True, "transpose": 12}}
     ui = deskui.DeskUI(app, display)
     ui.current_theme = lambda now, theme=theme: setattr(ui, "theme", theme) or theme

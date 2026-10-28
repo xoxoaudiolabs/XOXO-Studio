@@ -1,5 +1,5 @@
 """The sampler's punch-in FX (SLOOP's sixteen): what each does to the pads' sound, on the beat, the crossfades,
-and their page in the sampler (PADS > FX). numpy only."""
+and their page over XO-4's DRUMS (XO-4 > DRUMS > FX). numpy only."""
 
 import os
 import sys
@@ -149,13 +149,14 @@ def test_in_the_engine_and_the_fx_page():
     app.save_settings, app.pads = (lambda: None), Pads()
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
-    ui.open_tab("PADS")
+    ui.open_tab("XO4")
+    ui.xo4_track = 0                                                        # DRUMS: the pads
     ui.render(0.0, force=True)
-    fx_button = next(w[0] for w in ui.widgets if w[3] == "fx-open")        # PADS > FX: the sampler's own
+    fx_button = next(w[0] for w in ui.widgets if w[3] == "xo4-fx")         # DRUMS > FX: the pads' own
     ui.touch("down", fx_button[0] + 4, fx_button[1] + 4, 0.0)
     ui.touch("up", fx_button[0] + 4, fx_button[1] + 4, 0.0)
     ui.render(0.0, force=True)
-    assert ui.fx_open and ui.pads_screen() and "FX" not in deskui.TABS
+    assert ui.fx_open and ui.xo4_pad_page() and ui.tab == "XO4" and "FX" not in deskui.TABS
     box = next(w[0] for w in ui.widgets if w[3] == ("fx", padfx.ECHO))
     ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
     assert app.pads.sent[-1] == ("fx", padfx.ECHO)                          # held: on
@@ -172,6 +173,11 @@ def test_in_the_engine_and_the_fx_page():
         ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
         ui.render(0.0, force=True)
         assert app.pads.sent[-1] == ("fx", want) and ui.fx_on == want
+    back = next(w[0] for w in ui.widgets if w[3] == "fx-back")             # BACK: the pads again
+    ui.touch("down", back[0] + 4, back[1] + 4, 0.0)
+    ui.touch("up", back[0] + 4, back[1] + 4, 0.0)
+    ui.render(0.0, force=True)
+    assert not ui.fx_open and ui.tab == "XO4" and any(w[3] == "xo4-fx" for w in ui.widgets)
 
 
 if __name__ == "__main__":

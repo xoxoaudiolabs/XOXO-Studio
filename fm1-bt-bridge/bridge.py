@@ -1023,7 +1023,35 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if not self.state.get("kit"):
             pads.factory_kits()
             self.state["kit"] = pads.load_kit(pads.kit_path(pads.FACTORY_KITS[0][1])) or pads.empty_kit()
-        return pads.clean_kit(self.state["kit"])
+        kit = pads.clean_kit(self.state["kit"])
+        if any(kit["seq"]["steps"]):               # a pattern from the pads' own sequencer: XO-4's now
+            kit = self.absorb_pad_seq(kit)
+            self.state["kit"] = kit
+            self.save_settings()
+        return kit
+
+    def absorb_pad_seq(self, kit):
+        """the kit's pattern from the pads' own sequencer (before XO-4 took the drums over) -> the drums of XO-4's
+        first pattern whose drums are empty (its length, steps, levels, ratchets, nudges; the swing too if XO-4
+        has none); the kit keeps no pattern. Its division isn't kept: XO-4 steps in 16ths"""
+        import pads
+        import xo4
+        seq = kit["seq"]
+        song = self.song()
+        free = next((p for p in xo4.PATTERNS if not any(song["patterns"][p][xo4.DRUMS]["steps"])), None)
+        if free:
+            track = song["patterns"][free][xo4.DRUMS]
+            track["len"] = seq["len"]
+            for i, hits in enumerate(seq["steps"][:xo4.NSTEP]):
+                if hits:
+                    track["steps"][i] = {"notes": [h[0] for h in hits], "levels": [h[1] for h in hits],
+                                         "ratchets": [h[2] for h in hits], "nudge": seq["micro"][i], "vel": 100,
+                                         "len": 1.0}
+            if not song["swing"]:
+                song["swing"] = seq["swing"]
+            self.set_song(song)
+            self.say(f"The kit's pattern is XO-4's {free} now", 3)
+        return dict(kit, seq=pads.empty_seq())
 
     def song(self):
         """XO-4's song"""
@@ -1040,7 +1068,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
 
     def set_kit(self, kit):
         import pads
-        self.state["kit"] = pads.clean_kit(kit)
+        kit = pads.clean_kit(kit)
+        if any(kit["seq"]["steps"]):               # (a kit saved with the pads' own pattern: XO-4's now)
+            kit = self.absorb_pad_seq(kit)
+        self.state["kit"] = kit
         self.save_settings()
         if self.pads:
             self.pads.send("kit", self.state["kit"])
