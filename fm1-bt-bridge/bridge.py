@@ -58,7 +58,6 @@ DEFAULTS = {
     "click": "mid",         # its level: "low", "mid", "high"
     "sample_level": "-6 dB",  # how loud samples go into the FM-1: "-6 dB", "-3 dB", "full" (SLOOP's own)
     "library_fm1": "A",     # with two FM-1s on a hub, the one backups, restores and loads go to (library.py reads it)
-    "library_target": "fm1",  # Settings > Sloop works on: "fm1" (an FM-1), or on the Studio "sloop" or "x0x"
     "mix": {"a": 100, "b": 100, "usb": 100},   # the mixer's levels (%, to 200): FM-1 A, FM-1 B, USB keyboards' sound
     "rec_parts": False,     # while mixing, recordings also keep each source on its own ("..._fm1-a.wav" etc.)
     "inputs": {},           # a multichannel USB source's first channel taken (0: 1-2, 2: 3-4 ...), by mixer key
@@ -541,9 +540,8 @@ class Loopback:
 
 
 MIX_MAX = 200                           # the levels go to 200%: some keyboards' synths are much quieter
-APP_NODES = {"sloop": "sloop-remote-out",          # the Studio apps' sound (deskui.APPS): mixer key -> its
-             "x0x": "x0x-companion-studio",           # PipeWire node, its level set there; the DJ decks' too
-             "decks": "fm1-decks"}                    # (decks.py, DJ decks out: STUDIO)
+APP_NODES = {"decks": "fm1-decks"}      # sound the Studio's own programs play (the DJ decks: decks.py, DJ decks
+                                        # out: STUDIO): mixer key -> its PipeWire node, its level set there
 
 
 def link_ports(links):
@@ -1360,19 +1358,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         tempo = f"{self.state['bpm']} BPM"
         onoff = lambda on: "on" if on else "off"      # noqa: E731
         if self.settings_menu == "sloop":     # SLOOP 2.3+'s editor protocol
-            targets = self.library_targets()
-            target = ([("library_target", "For", dict(targets)[self.library_target()])] if len(targets) > 1 else [])
-            if self.library_target() == "x0x":    # X0X on the Studio: its project, in X0X's own backups
-                return target + [("x0x_backup", "Back up now", ""), ("x0x_restore", "Restore", "›"),
-                                 ("sd", "Import SD card", "")]
             which = ([("library_fm1", "FM-1", self.state["library_fm1"])]       # only with two FM-1s plugged in
                      if self.midi and getattr(self.midi, "usb_b", None) else [])
-            which = target + which
-            if self.library_target() == "sloop":  # SLOOP on the Studio: the FM-1's jobs, through its FIFOs
-                return target + [("backup", "Back up now", ""), ("restore", "Restore", "›"),
-                                 ("project", "Load project", "›"), ("sample", "Load sample", "›"),
-                                 ("sample_level", "Sample level", self.state["sample_level"]),
-                                 ("sd", "Import SD card", "")]
             return which + [("backup", "Back up now", ""), ("restore", "Restore", "›"),
                             ("project", "Load project", "›"), ("sample", "Load sample", "›"),
                             ("sample_level", "Sample level", self.state["sample_level"]),
@@ -1461,16 +1448,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.state["rec_parts"] = not self.state["rec_parts"]
             self.save_settings()
             self.say("Recordings keep each source too" if self.state["rec_parts"] else "Recordings: the mix only", 2)
-        elif key == "library_target":
-            keys = [k for k, _ in self.library_targets()]
-            now = self.library_target()
-            self.state["library_target"] = keys[(keys.index(now) + 1) % len(keys)]
-            self.save_settings()
-            self.say(f"Sloop page: {dict(self.library_targets())[self.library_target()]}", 2)
-        elif key == "x0x_backup":
-            self.x0x_backup()
-        elif key == "x0x_restore":
-            self.x0x_pick_restore()
         elif key == "library_fm1":
             self.state["library_fm1"] = "B" if self.state["library_fm1"] == "A" else "A"
             self.save_settings()

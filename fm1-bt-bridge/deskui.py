@@ -16,8 +16,6 @@ the finger: action(fraction from the bottom)); key: which one is lit while held.
 """
 
 import json
-import os
-import signal
 import time
 from pathlib import Path
 
@@ -27,7 +25,6 @@ import blemidi
 import library
 import sloopstyle as st
 from deskdecks import DeskDecks
-from deskfm1 import DeskFM1
 from deskpads import DeskPads
 from deskpages import HOLD, DeskPages
 
@@ -36,51 +33,31 @@ TAB_H, HDR_H = 44, 34
 TABS = ("HOME", "MIX", "PADS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "REC": "RECORDER"}   # what a tab says, if not its name
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
-PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "FM1": "MORE", "FM1MAP": "MORE"}   # pages opened from a
-                                                # tab: it stays lit under them
+PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
             ("LOOP", "loop")]
-MORE = [("SLOOP", ("menu", "sloop")), ("FM-1", ("menu", "fm1")), ("FM-1 ON STUDIO", ("fm1studio", None)),
+MORE = [("SLOOP", ("menu", "sloop")), ("FM-1", ("menu", "fm1")),
         ("PLAYING", ("menu", "play")),
         ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")), ("WI-FI", ("wifi", None)),
         ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)), ("DJ DECKS", ("decks", None)),
         ("SHUT DOWN", ("off", None))]
 THEMES = ["FOLLOW FM-1 A"] + st.ALL
-APPS = {                                        # FM-1 firmwares running on the Studio itself, played from FM-1 A's
-    "sloop": ("SLOOP", Path.home() / ".local/share/sloop-remote-out/sloop-remote-out"),       # REMOTE OUT (SLOOP
-    "x0x": ("X0X", Path.home() / ".local/share/x0x-companion-studio/x0x-companion-studio"),   # Remote Out): key ->
-}                                               # (name, program); the key is its mixer key, bridge.APP_NODES its sound
-APP_CH = 16                                     # the MIDI channel of FM-1 A's REMOTE OUT
-HOME_CORNER = (0, 0, 80, 64)                    # while an app shows: back to the Companion, the app still running
-APP_OFF = (0, H - 64, 80, H)                    # ... and, held APP_HOLD s, the app off (what it saves, saved first)
-APP_HOLD = 1.0                                  # (its MORE tile may sit right there: a second tap mustn't stop it)
-APP_SETTLE = 0.8                                # taps in the first moment after an app shows: ignored
-APP_MARGIN = (400, 0, W, H)                     # ... and here its level: + and - (its mixer key)
-APP_UP, APP_DOWN = (406, 58, 474, 118), (406, 160, 474, 220)
-APP_HIDE = getattr(signal, "SIGUSR1", 10)       # the app: stop drawing (it keeps running); draw again
-APP_SHOW = getattr(signal, "SIGUSR2", 12)       # (Linux's numbers where there are none: tests on a PC)
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
-class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
+class DeskUI(DeskPages, DeskPads, DeskDecks):
     def __init__(self, app, display):
         self.app, self.display = app, display
         self.tab, self.classic = "HOME", False      # (classic: never, now; desk.Touch still asks)
         self.page_init()
         self.pads_init()
         self.decks_init()
-        self.fm1_init()
         self.widgets, self.held, self.shown = [], None, None
         self.theme, self.theme_seen, self.theme_check = st.Theme(), None, 0.0
         self.more_top = 0
         self.cal = None                           # calibrating the touch: the raw readings so far (desk.Touch)
         self.daw_local = {}                       # strip -> (fader value, when): ours, until the DAW's catches up
         self.ed_view, self.ed_wave, self.ed_drag = None, None, None   # the editor's zoom, its waveform, a marker
-        self.app_procs = {}                       # the Studio apps running (start_app): APPS key -> its process
-        self.app_key = None                       # the one with the screen (or behind the Companion's: app_hidden)
-        self.app_hidden = False                   # ... running behind the Companion's screens (HOME)
-        self.app_shown_at, self.app_down = 0.0, None   # when it showed; a finger down on its margins (when, x, y)
-        self.app_poke = 0.0                       # until then, look for its sound often (its level set soon)
         import deskmeters
         self.meters = deskmeters.DeskMeters()     # the meters' own pictures and smoothing
 
@@ -162,8 +139,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
                      json.dumps(sorted(self.daw_local.items())))
         if self.tab == "DECKS":
             base += self.decks_view()
-        if self.tab in ("FM1", "FM1MAP"):
-            base += self.fm1_view()
         return base
 
     def settle(self):
@@ -177,19 +152,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
             a.screen = "status"
             self.open_tab(self.tab if self.tab == "PADS" else "MORE")   # back where the list was opened from
 
-    @property
-    def app_proc(self):
-        """the process of the app with the screen (app_key), or None"""
-        return self.app_procs.get(self.app_key)
-
     def render(self, now, force=False):
-        for key, proc in list(self.app_procs.items()):
-            if proc.poll() is not None:             # stopped (HOLD OFF, or it ended): gone
-                self.end_app(key)
-        if self.app_procs and now < self.app_poke:  # a sound shows up a moment after it starts: its level
-            self.app.scan_now = True
-        if self.app_proc is not None and not self.app_hidden:   # a Studio app has the screen
-            return
         self.current_theme(now)
         self.settle()
         if self.held and self.held[1] == "hold" and now - self.held[5] >= HOLD:   # held long enough: confirmed
@@ -210,8 +173,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
             self.draw_page(img, ImageDraw.Draw(img), now)
         else:
             getattr(self, "draw_" + self.tab.lower())(img, ImageDraw.Draw(img), now)
-            if not self.pads_screen() and self.tab not in ("DECKS", "FM1MAP"):   # a pad's page, kits, sampling,
-                                                                              # the decks, the FM-1: full screen
+            if not self.pads_screen() and self.tab != "DECKS":   # a pad's page, kits, sampling, the decks:
+                                                                  # full screen
                 self.draw_tabs(img)
         a = self.app
         if a.busy:
@@ -580,9 +543,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
         parts = "ON" if a.state.get("rec_parts") else "OFF"
         self.header(img, d, "MIXER", self.status_right())
         cols = [(key, label, k, a.mix_level(key), 200) for key, label, _, k in self.sources()][:6]
-        for key, (name, program) in APPS.items():   # a Studio app: its level, set before or while it plays
-            if program.exists():
-                cols.append((key, name, 1, a.mix_level(key), 200))
         if self.decks_proc and self.decks_proc.running():   # the DJ decks (MORE > DJ DECKS), while they run
             cols.append(("decks", "DECKS", 0, a.mix_level("decks"), 200))
         cols.append(("spk", "SPKR", 3, a.volume or 0, 100))
@@ -624,9 +584,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
             self.widget((x0, top_k - 10, x0 + width - 1, bottom + 10), "slide",
                         lambda f, key=key, most=most: self.slide(key, f, most), ("slide", key))
             box = (x0 + 6, H - TAB_H - 36, x0 + width - 7, H - TAB_H - 6)
-            if a.jack and (key in nodes or key in APPS or key == "decks"):   # a DJ mixer's cue: this source on
-                                             # the jack, before its fader (a Studio app's or the decks': after it,
-                                             # its level set on its sound; lit while it's off, heard once it plays)
+            if a.jack and (key in nodes or key == "decks"):   # a DJ mixer's cue: this source on the jack,
+                                             # before its fader (the decks': after it, its level set on its sound;
+                                             # lit while they're off, heard once they play)
                 self.button(img, d, box, "CUE", lambda key=key: a.toggle_cue(key), color=t.track[k],
                             on=key in a.cued() or (key not in nodes and key in (a.state.get("cues") or [])),
                             key=("cue", key))
@@ -829,7 +789,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
     def draw_more(self, img, d, now):
         t = self.theme
         self.header(img, d, "MORE", self.status_right())
-        items = MORE                               # (PLAY SLOOP / X0X: in FM-1 ON STUDIO)
+        items = MORE
         cols = 3                                   # tiles, three a row: everything on one screen, no scrolling
         rows = (len(items) + cols - 1) // cols
         top, bottom = HDR_H + 4, H - TAB_H - 4
@@ -843,10 +803,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
                         width=2 if off else 0)
             value = (self.theme_label() if what[0] == "theme" else
                      ("ON" if self.app.wifi else "OFF") if what[0] == "wifi" else
-                     ("ON" if what[1] in self.app_procs else "OFF")
-                     if what[0] == "studio_app" else
-                     ("ON" if self.decks_proc and self.decks_proc.running() else "OFF") if what[0] == "decks" else
-                     ("ON" if self.app_procs else "OFF") if what[0] == "fm1studio" else "")
+                     ("ON" if self.decks_proc and self.decks_proc.running() else "OFF") if what[0] == "decks" else "")
             dy = -8 if value else 0
             self.centre(img, (box[0], box[1] + dy, box[2], box[3] + dy), label,
                         t.bg if hot else (255, 112, 92) if off else t.c[4])
@@ -912,14 +869,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
         if kind == "calibrate":
             self.calibrate()
             return
-        if kind == "studio_app":
-            self.start_app(arg)
-            return
         if kind == "decks":
             self.open_decks()
-            return
-        if kind == "fm1studio":                    # SLOOP and X0X, and the FM-1 controls to map
-            self.open_tab("FM1")
             return
         if kind == "off":                          # the Studio has no power key: shut down, held to confirm
             a.ask("Shut down?", ["The Studio switches off.", "Recordings are finished first."], a.shutdown,
@@ -935,150 +886,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskFM1):
             a.setting = keys.index(key)
             a.change_setting()
 
-    # ---- Studio apps: FM-1 firmwares running on the Studio (APPS), played from FM-1 A's REMOTE OUT
-
-    def start_app(self, key):
-        """an app's picture in the middle of the screen, its sound into PipeWire, FM-1 A's panel playing it: the
-        MIDI process passes FM-1 A's MIDI on through a FIFO (set FM-1 A's GLO > MIDI 3 > REMOTE to OUT APP_CH). The
-        margins are ours: the "< HOME" corner hides it (hide_app), and this shows it again as it was. Several run
-        at once, one on the screen, the others playing behind; each app's MIDI clock goes into the others' FIFOs
-        (--clock-out), so one can follow another as two FM-1s cabled together do. Each keeps what it saves in a
-        file of its own and dies with the Companion (PR_SET_PDEATHSIG)"""
-        import ctypes
-        import subprocess
-        name, program = APPS[key]
-        run = Path(os.environ.get("XDG_RUNTIME_DIR") or "/tmp")
-        fifo = run / f"fm1-{key}-midi"
-        proc = self.app_procs.get(key)
-        if proc is not None and proc.poll() is None:   # running behind: shown again
-            self.app_key, self.app_hidden = key, False
-            self.draw_app_margins()
-            proc.send_signal(APP_SHOW)
-            if hasattr(self.app.midi, "set_tap"):
-                self.app.midi.set_tap(str(fifo))
-            return
-        clocks = []
-        for other in APPS:
-            if other != key:
-                clocks += ["--clock-out", str(run / f"fm1-{other}-midi")]
-        if key == "sloop":                      # its editor protocol's replies (library.py --studio reads them)
-            clocks += ["--sysex-out", str(run / "fm1-sloop-sysex")]
-        try:
-            if not fifo.exists():
-                os.mkfifo(fifo, 0o600)
-            log = open(run / f"{key}-studio.log", "w")
-        except OSError as e:
-            self.app.say(f"{name}: {e.strerror}", 3)
-            return
-        self.app_key, self.app_hidden = key, False
-        self.draw_app_margins()
-        self.app_poke = time.monotonic() + 8
-        libc = ctypes.CDLL(None)
-        try:
-            self.app_procs[key] = subprocess.Popen(
-                [str(program), "--fb", self.display.device, "--midi", str(fifo), "--ch", str(APP_CH)] + clocks,
-                stdin=subprocess.DEVNULL, stdout=log, stderr=log, preexec_fn=lambda: libc.prctl(1, signal.SIGTERM))
-        except OSError as e:
-            self.app.say(f"{name}: {e.strerror}", 3)
-            self.end_app(key)
-            return
-        finally:
-            log.close()
-        if hasattr(self.app.midi, "set_tap"):
-            self.app.midi.set_tap(str(fifo))
-
-    def app_margins(self):
-        """the screen around the app's 320x320 picture (x 80..399): the way home and off on the left; on the
-        right its level (+ / -) and what plays it"""
-        t, key = self.theme, self.app_key
-        img = Image.new("RGB", (W, H), (0, 0, 0))
-        d = ImageDraw.Draw(img)
-        d.rectangle((HOME_CORNER[0] + 4, HOME_CORNER[1] + 4, HOME_CORNER[2] - 6, HOME_CORNER[3] - 6), fill=t.grey[0])
-        self.centre(img, HOME_CORNER, "< HOME", t.c[4])
-        d.rectangle((APP_OFF[0] + 4, APP_OFF[1] + 6, APP_OFF[2] - 6, APP_OFF[3] - 4), outline=(255, 112, 92), width=2)
-        self.centre(img, (APP_OFF[0], APP_OFF[1] + 8, APP_OFF[2], APP_OFF[3] - 22), "HOLD", t.c[3])
-        self.centre(img, (APP_OFF[0], APP_OFF[1] + 22, APP_OFF[2], APP_OFF[3]), "OFF", (255, 112, 92))
-        self.centre(img, (400, 14, W, 44), APPS[key][0], t.hi)
-        for box, sign in ((APP_UP, "+"), (APP_DOWN, "-")):
-            d.rectangle(box, fill=t.grey[0])
-            self.centre(img, box, sign, t.c[4], 2)
-        self.centre(img, (400, APP_UP[3], W, APP_DOWN[1]), f"{self.app.mix_level(key)}%", t.hi)
-        self.centre(img, (400, 250, W, 274), "FM-1 A", t.c[3])
-        self.centre(img, (400, 274, W, 298), f"OUT {APP_CH}", t.c[3])
-        return img
-
-    def draw_app_margins(self):
-        self.app_shown_at, self.app_down = time.monotonic(), None
-        self.display.last = None                  # (everything written, not just what changed)
-        self.display.show_rgb(self.app_margins())
-
-    def app_level(self, step):
-        """the margin's + / -: the app's level in 10s (its MIXER channel), shown at once, set on its sound"""
-        a = self.app
-        a.set_mix_level(self.app_key, a.mix_level(self.app_key) + step)
-        self.display.show_region(self.app_margins(), APP_MARGIN)
-
-    def hide_app(self):
-        """the "< HOME" corner: back to the Companion, the app still running (and playing, if it plays) behind it.
-        FM-1 A's panel is the FM-1's own again meanwhile: nothing changes in the app until it's shown"""
-        self.app_proc.send_signal(APP_HIDE)
-        self.app_hidden = True
-        if hasattr(self.app.midi, "set_tap"):
-            self.app.midi.set_tap(None)
-        self.display.last = None                  # the app drew over it: the next frame is written whole
-        self.shown = None
-        self.open_tab("HOME")
-
-    def stop_app(self, key):
-        """an app stopped and waited for (it saves as it stops: SIGTERM), as HOLD OFF does; nothing if it's off"""
-        import subprocess
-        proc = self.app_procs.get(key)
-        if proc is None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(5)
-        self.end_app(key)
-
-    def end_app(self, key):
-        """an app gone (HOLD OFF, or it stopped): if it had the screen, the Companion's again"""
-        self.app_procs.pop(key, None)
-        if key != self.app_key:                   # (one playing behind: nothing else changes)
-            return
-        if hasattr(self.app.midi, "set_tap"):
-            self.app.midi.set_tap(None)
-        self.app_key, self.app_hidden = None, False
-        self.display.last = None                  # the app drew over it: the next frame is written whole
-        self.shown = None
-
     # ---- touch
 
     def touch(self, kind, x, y, now):
         """a finger down, moving or up at (x, y) (screen pixels); calibrating: "raw" (the chip's own reading)"""
-        if self.app_proc is not None and not self.app_hidden:     # an app's screen: only its margins are ours
-            inside = lambda box: box[0] <= x < box[2] and box[1] <= y < box[3]   # noqa: E731
-            if now - self.app_shown_at < APP_SETTLE:
-                return                              # (the tap that opened it, or a second one: not for the margins)
-            if kind == "down":
-                self.app_down = (now, x, y)
-            if kind != "up":                        # (a resistive screen sends moves all through a tap)
-                return
-            down, self.app_down = self.app_down, None
-            if down is None:                        # a lift whose touch began before the app showed: nothing
-                return
-            started = lambda box: box[0] <= down[1] < box[2] and box[1] <= down[2] < box[3]   # noqa: E731
-            if inside(HOME_CORNER) and started(HOME_CORNER):
-                self.hide_app()
-            elif inside(APP_OFF) and started(APP_OFF) and now - down[0] >= APP_HOLD:
-                self.app_proc.terminate()           # SIGTERM: it saves and stops; render sees it go
-            elif inside(APP_UP) and started(APP_UP):
-                self.app_level(10)
-            elif inside(APP_DOWN) and started(APP_DOWN):
-                self.app_level(-10)
-            return
         if self.cal is not None:
             if kind == "raw":
                 self.calibrated(x, y)
