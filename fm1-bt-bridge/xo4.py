@@ -1,13 +1,16 @@
 """XO-4, the Studio's own groovebox: four tracks on the box's beat grid, patterns A-H.
 
-  DRUMS    the pads' kit (pads.py): a step holds pads 1-16; its hits go to the pad process, each with the time
-           it's to be heard, sent LOOKAHEAD early so the pads never get one late
+  DRUMS    the pads' kit (pads.py): a step holds pads 1-16, each hit with its level (NORM, GHOST, SOFT, HARD, as the
+           pads' own sequencer) and ratchet (x1-x4: that many hits in the step); its hits go to the pad process,
+           each with the time it's to be heard, sent LOOKAHEAD early so the pads never get one late
   SYNTH 1  an FM synth (xo4synth.py), rendered here: up to four notes a step (a chord)
   SYNTH 2  another, with its own patch
   MIDI     notes out through the MIDI routes (their source "XO4"), sent by the MIDI process when they're due
 
 Each track has its own length (1-64 steps of a 16th), so tracks of different lengths drift and meet again; a
-step: its notes, a velocity and a length in steps. The pattern playing changes on the next bar (16 steps) after
+step: its notes, a velocity, a length in steps, and a nudge (in 64ths of a step, early or late of the grid).
+Live REC: with REC on and playing, pads played (a tap, a note into the pads) go onto the drums' nearest step, at
+the level they were hit; QUANT off keeps the nudge they were played with. The pattern playing changes on the next bar (16 steps) after
 another is picked, for every track at once. SWING delays every second 16th, as the pads' sequencer does.
 
 The process (XO4Process) renders BLOCK frames at a time into a virtual speaker whose other side is the source
@@ -36,6 +39,9 @@ SCALES = {"MAJOR": (0, 2, 4, 5, 7, 9, 11), "MINOR": (0, 2, 3, 5, 7, 8, 10), "DOR
           "CHROMATIC": tuple(range(12))}         # the note keys on XO-4's screen offer these, from the root up
 NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 AUDITION = 0.4                              # s: a note tapped on the screen sounds this long
+LEVELS = ("NORM", "GHOST", "SOFT", "HARD")  # a drum hit's level, as the pads' sequencer has it (pads.LEVELS)
+LEVEL_VEL = (100, 42, 72, 127)              # ... its velocity
+DRUM_GATE = 0.5                             # a drum hit's note-off at half its share of the step (the pads' GATE)
 SYNTH_PATCHES = ({"ratio": 1.0, "index": 2.0, "mod_decay": 0.6, "attack": 0.005, "release": 0.3},   # keys
                  {"ratio": 0.5, "index": 4.0, "mod_decay": 0.15, "mod_sustain": 0.1, "sustain": 0.4,
                   "release": 0.08, "level": 0.3})                                                     # bass
@@ -102,7 +108,7 @@ def empty_song():
     swing, each track's level, and the key and scale the screen's note keys offer"""
     return {"patterns": {p: [empty_track() for _ in TRACKS] for p in PATTERNS}, "pattern": "A",
             "patches": [xo4synth.clean_patch(p) for p in SYNTH_PATCHES], "midi_channel": 0, "swing": 0,
-            "levels": [1.0, 1.0, 1.0, 1.0], "root": 0, "scale": "MAJOR"}
+            "levels": [1.0, 1.0, 1.0, 1.0], "root": 0, "scale": "MAJOR", "quant": True}
 
 
 def scale_notes(song, low, count):
@@ -119,20 +125,29 @@ def note_name(note):
     return f"{NOTE_NAMES[note % 12]}{note // 12 - 1}"
 
 
+def vel_level(vel):
+    """a velocity -> the level a drum hit records as (the pads' vel_level)"""
+    return 1 if vel < 56 else 2 if vel < 88 else 0 if vel < 116 else 3
+
+
 def clean_step(step, track):
-    """a step from anywhere -> {"notes", "vel", "len"} or None (empty). Drums: pads 0-15; the rest: notes
-    0-127; at most NOTES, no repeats"""
+    """a step from anywhere -> {"notes", "vel", "len", "nudge"} (drums also "levels" and "ratchets", one each
+    note) or None (empty). Drums: pads 0-15; the rest: notes 0-127, at most NOTES; no repeats"""
     if not isinstance(step, dict):
         return None
     hi = 15 if track == DRUMS else 127
-    notes = []
-    for n in step.get("notes") or []:
+    notes, levels, ratchets = [], [], []
+    given_levels = step.get("levels") if isinstance(step.get("levels"), list) else []
+    given_ratchets = step.get("ratchets") if isinstance(step.get("ratchets"), list) else []
+    for k, n in enumerate(step.get("notes") or []):
         try:
             n = int(n)
         except (TypeError, ValueError):
             continue
         if 0 <= n <= hi and n not in notes:
             notes.append(n)
+            levels.append(clamp_int(given_levels[k] if k < len(given_levels) else 0, 0, 3, 0))
+            ratchets.append(clamp_int(given_ratchets[k] if k < len(given_ratchets) else 1, 1, 4, 1))
     if not notes:
         return None
     try:
@@ -143,7 +158,19 @@ def clean_step(step, track):
         length = max(0.25, min(16.0, float(step.get("len", 1.0))))
     except (TypeError, ValueError):
         length = 1.0
-    return {"notes": sorted(notes[:NOTES] if track != DRUMS else notes[:16]), "vel": vel, "len": length}
+    out = {"vel": vel, "len": length, "nudge": clamp_int(step.get("nudge", 0), -32, 31, 0)}
+    if track != DRUMS:
+        return dict(out, notes=sorted(notes[:NOTES]))
+    order = sorted(range(len(notes)), key=lambda k: notes[k])
+    return dict(out, notes=[notes[k] for k in order], levels=[levels[k] for k in order],
+                ratchets=[ratchets[k] for k in order])
+
+
+def clamp_int(value, lo, hi, default):
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def clean_song(song):
@@ -170,6 +197,7 @@ def clean_song(song):
     out["patches"] = [xo4synth.clean_patch(p) for p in out["patches"]]
     if song.get("scale") in SCALES:
         out["scale"] = song["scale"]
+    out["quant"] = bool(song.get("quant", True))
     for key, lo, hi in (("midi_channel", 0, 15), ("swing", 0, 100), ("root", 0, 11)):
         try:
             out[key] = max(lo, min(hi, int(song.get(key, out[key]))))
@@ -194,6 +222,7 @@ class Lane:
         self.next = None                        # the absolute step (since tick 0) to fire next
         self.pending = []                       # (time, track, "on" / "off", note, velocity) not yet due
         self.held = set()                       # (track, note) sounding: let go when it stops
+        self.skip = set()                       # (absolute step, pad): recorded live, already heard: not again
 
 
 class Sequencer:
@@ -207,6 +236,7 @@ class Sequencer:
         self.switches = {}                      # absolute step -> the pattern from there on
         self.queued = None                      # a pattern picked, waiting for the next bar
         self.step = None                        # the absolute step heard last (the playhead)
+        self.rec = False                        # live REC: pads played go onto the drums' steps
 
     def playing(self):
         return bool(self.grid and self.grid[2] and self.grid[1] is not None)
@@ -267,15 +297,53 @@ class Sequencer:
                 song["pattern"], self.queued = name, None
                 self.switches = {k: v for k, v in self.switches.items() if k > a}
         tracks = song["patterns"][name]
-        t, u = self.time(song, a), self.unit()
+        u = self.unit()
         for i in lane.tracks:
             track = tracks[i]
             step = track["steps"][a % track["len"]]
             if not step:
                 continue
+            t = self.time(song, a) + step.get("nudge", 0) * u / 64
+            if i == DRUMS:                      # each hit its level, and its ratchets: its share of the step
+                n = len(step["notes"])
+                for pad, level, rat in zip(step["notes"], step.get("levels") or [0] * n, step.get("ratchets") or [1] * n):
+                    if (a, pad) in lane.skip:
+                        continue
+                    for h in range(rat):
+                        at = t + h * u / rat
+                        lane.pending += [(at, i, "on", pad, LEVEL_VEL[level]),
+                                         (at + max(0.01, u * DRUM_GATE / rat), i, "off", pad, 0)]
+                continue
             off = t + max(0.01, step["len"] * u * GATE)
             for note in step["notes"]:
                 lane.pending += [(t, i, "on", note, step["vel"]), (off, i, "off", note, 0)]
+        lane.skip = {k for k in lane.skip if k[0] > a}
+
+    def record(self, song, pad, vel, t):
+        """live REC: a pad played at time t onto the drums' nearest step, at the level it was hit (QUANT off:
+        with the nudge it was played at) -> True if the song changed"""
+        if not (self.rec and self.playing()) or not 0 <= pad < 16:
+            return False
+        u = self.unit()
+        a0 = round((t - self.grid[1]) / u)
+        a = min((x for x in (a0 - 1, a0, a0 + 1) if x >= 0), key=lambda x: abs(t - self.time(song, x)), default=None)
+        if a is None:
+            return False
+        track = song["patterns"][self.pattern_at(song, a)][DRUMS]
+        idx = a % track["len"]
+        step = track["steps"][idx] or {"notes": [], "vel": 100, "len": 1.0, "nudge": 0, "levels": [], "ratchets": []}
+        n = len(step["notes"])
+        hits = {p: (lv, r) for p, lv, r in zip(step["notes"], step.get("levels") or [0] * n,
+                                               step.get("ratchets") or [1] * n) if p != pad}
+        hits[pad] = (vel_level(vel), 1)
+        step = dict(step, notes=sorted(hits), levels=[hits[n][0] for n in sorted(hits)],
+                    ratchets=[hits[n][1] for n in sorted(hits)])
+        if not song["quant"]:                   # QUANT off: where it was played, kept as the step's nudge
+            step["nudge"] = max(-32, min(31, round((t - self.time(song, a)) / u * 64)))
+        track["steps"][idx] = step
+        if self.ahead.next is None or a >= self.ahead.next:
+            self.ahead.skip.add((a, pad))       # heard as it was played: not again when its step comes
+        return True
 
 
 # ---------------------------------------------------------------- the engine
@@ -327,6 +395,10 @@ class Engine:
 
     def sounding(self):
         return [s.sounding() for s in self.synths]
+
+    def played(self, pad, vel, t):
+        """a pad played live (from the pad process) -> True if live REC put it on a step"""
+        return self.seq.record(self.song, pad, vel, t)
 
 
 def to_pcm(block):
@@ -399,6 +471,11 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
                         engine.seq.grid = tuple(msg[1:4])
                     elif msg[0] == "master":
                         engine.master = float(msg[1])
+                    elif msg[0] == "rec":                 # ("rec", on): live REC
+                        engine.seq.rec = bool(msg[1])
+                    elif msg[0] == "played":              # ("played", pad, velocity, time): a pad played live
+                        if engine.played(int(msg[1]), int(msg[2]), float(msg[3])):
+                            app_conn.send(("song", engine.song))
                     elif msg[0] == "audition":          # ("audition", track, [notes], velocity): heard now
                         if msg[1] in (SYNTH1, SYNTH2):
                             synth = engine.synths[msg[1] - SYNTH1]
@@ -451,6 +528,7 @@ class XO4Process:
                                 name="fm1-xo4")
         self.step = self.pattern = self.queued = None
         self.on_step = None
+        self.on_song = None                         # called with the song live REC changed (from this thread)
 
     def start(self):
         import threading
@@ -469,6 +547,8 @@ class XO4Process:
                     self.on_step()
             elif msg[0] == "pattern":
                 self.pattern = msg[1]
+            elif msg[0] == "song" and self.on_song:   # live REC changed the song
+                self.on_song(msg[1])
 
     def send(self, *msg):
         try:

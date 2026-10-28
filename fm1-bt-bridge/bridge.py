@@ -1816,6 +1816,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.web_commands()                       # the web page's settings (a file check: cheap)
             if event and event[0] in KEYS:
                 self.on_key(event[0], len(event) > 1 and event[1])
+            elif event and event[0] == "xo4_song":      # XO-4's live REC changed the song (XO-4 has it)
+                import xo4
+                self.state["xo4"] = xo4.clean_song(event[1])
+                self.save_settings()
+                if self.desk:
+                    self.desk.xo4_rev += 1
             elif event and event[0] == "pad_seq":       # live REC changed the pattern (the pad process has it)
                 kit = self.kit()
                 kit["seq"] = event[1]
@@ -1928,6 +1934,8 @@ def main():
         app.xo4 = xo4_process
         app.xo4.send("song", app.song())
         app.xo4.on_step = lambda: app.post("xo4_step")                  # (the XO-4 tab's playhead)
+        app.xo4.on_song = lambda song: app.post("xo4_song", song)       # live REC changed it
+        app.pads.on_played = lambda pad, vel, at: app.xo4.send("played", pad, vel, at)   # (XO-4's live REC)
     if not sim and box["build"] == "desk":    # its own touch screens; the classic ones' on-screen keys
         import deskui
         app.desk = deskui.DeskUI(app, display)

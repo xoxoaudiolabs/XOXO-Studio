@@ -358,6 +358,7 @@ class Engine:
         self.kit = empty_kit()
         self.samples = {}                       # path -> (float32 stereo frames, its rate)
         self.voices = []                        # dicts: pad, data, pos, step, gl, gr, env, target, rate_env
+        self.played = []                        # (pad, velocity, time) played live since the app was told
         self.master = 1.0
         self.seq = Sequencer()
         import padfx
@@ -430,6 +431,7 @@ class Engine:
         """a pad played (a tap, a MIDI note): heard, and recorded while live REC runs -> True if recorded"""
         now = time.monotonic() if now is None else now
         self.trigger(index, velocity)
+        self.played.append((index, velocity, now))     # (for XO-4's live REC: the app passes it on)
         self.seq.hold(index, velocity, now)
         return self.seq.record(self.kit["seq"], index, velocity, now)
 
@@ -611,6 +613,10 @@ def run(app_conn, midi_conn, rate, xo4_conn=None):
             if engine.seq.dirty:                    # note repeat recorded (taps and notes report at once)
                 engine.seq.dirty = False
                 app_conn.send(("seq", engine.kit["seq"]))
+            if engine.played:                       # pads played live: to the app (XO-4's live REC)
+                for pad, vel, at in engine.played:
+                    app_conn.send(("played", pad, vel, at))
+                engine.played = []
             if engine.seq.step != step_shown:
                 step_shown = engine.seq.step
                 app_conn.send(("step", step_shown))
@@ -640,6 +646,7 @@ class PadProcess:
         self.step = None                        # the sequencer's playhead
         self.on_seq = None                      # called with the pattern live REC changed (from this thread)
         self.on_step = None                     # called as the playhead moves
+        self.on_played = None                   # called with (pad, velocity, time) as a pad is played live
 
     def start(self):
         import threading
@@ -660,6 +667,8 @@ class PadProcess:
                     self.on_step(msg[1])
             elif msg[0] == "seq" and self.on_seq:
                 self.on_seq(msg[1])
+            elif msg[0] == "played" and self.on_played:
+                self.on_played(*msg[1:4])
 
     def send(self, *msg):
         try:

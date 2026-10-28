@@ -2,12 +2,15 @@
 the decks are: the step grid and the keys need the height the tab bar takes.
 
   header      < HOME, the patterns A-H (tap: edit it and play it from the next bar; the one playing underlined, one
-              waiting outlined), the tempo, PLAY / STOP (the box's transport, as the pads' SEQ)
+              waiting outlined), REC (live REC: pads played go onto DRUMS while it plays), PLAY / STOP (the box's
+              transport, as the pads' SEQ)
   tracks      DRUMS, SYN 1, SYN 2, MIDI; the track's length (LEN - / +, 1-64); HOLD CLR empties the track here
   steps       16 a page, the playhead lit. DRUMS: a tap puts the pad picked below on the step or takes it off.
               The rest: a tap on an empty step places the last notes there and selects it; a tap on the selected
               step empties it; on another, selects it
-  step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +
+  step row    the pages (1-4, as many as the length needs); the selected step's VEL and LEN (in steps) - / +.
+              DRUMS: the hit last put on (the pad picked, on that step): its LEVEL (NORM, GHOST, SOFT, HARD), its
+              ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
   below       DRUMS: the 16 pads (pick one; stopped, it sounds). The rest: OCT - / +, KEY and SCALE (the note keys
               offer the scale's notes), and 14 note keys from the octave: a tap adds the note to the selected step
               or takes it off (four at most: a chord); stopped, it sounds. SYN 1 and SYN 2: SOUND opens the synth's
@@ -39,6 +42,7 @@ class DeskXO4:
         self.xo4_brush = [[], [60], [36], [48]]  # the notes a new step gets, a track
         self.xo4_rev = 0                         # bumped with each change: what's drawn follows
         self.xo4_sound = False                   # the SOUND page (SYN 1, SYN 2) open
+        self.xo4_rec = False                     # live REC
 
     # ---- the song
 
@@ -57,7 +61,7 @@ class DeskXO4:
         x = getattr(a, "xo4", None)
         return (self.xo4_rev, self.xo4_track, self.xo4_edit, self.xo4_step, self.xo4_page, self.xo4_pad,
                 tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
-                self.xo4_sound)
+                self.xo4_sound, self.xo4_rec)
 
     # ---- drawing
 
@@ -79,7 +83,8 @@ class DeskXO4:
                 d.rectangle((box[0], box[3] + 1, box[2], box[3] + 3), fill=t.track[1])
             if x and p == x.queued:
                 d.rectangle(box, outline=RED, width=2)
-        st.text(img, (346, 9), (a.clock_text() or "")[:8], t.c[3])
+        self.button(img, d, (348, 3, W - 70, HDR_H - 5), "REC", self.xo4_toggle_rec, color=RED, on=self.xo4_rec,
+                    key="xo4-rec")
         self.button(img, d, (W - 64, 3, W - 4, HDR_H - 5), "STOP" if playing else "PLAY", a.seq_play, on=playing,
                     key="xo4-play")
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
@@ -115,13 +120,24 @@ class DeskXO4:
                 d.rectangle(box, outline=t.c[0])
                 continue
             step = track["steps"][idx]
+            hit = None
             if self.xo4_track == 0:
                 mine = bool(step and self.xo4_pad in step["notes"])
+                hit = self.xo4_hit_of(step) if mine else None
             else:
                 mine = bool(step)
             fill = t.hi if idx == here else colour if mine else t.grey[1] if k % 4 == 0 else t.grey[0]
+            if hit and hit[0] in (1, 2) and idx != here:     # a ghost or soft hit: dimmer
+                fill = t.dim[self.xo4_track]
             d.rectangle(box, fill=fill)
-            if idx == self.xo4_step and self.xo4_track:
+            if hit and hit[0] == 3:             # a HARD hit, as the pads' sequencer marks it
+                st.text(img, (box[2] - 10, box[1] + 3), "!", t.bg if idx != here else t.c[0])
+            if hit and hit[1] > 1:              # ratchet notches
+                for r in range(hit[1]):
+                    d.rectangle((box[2] - 6 - r * 6, box[1] + 18, box[2] - 3 - r * 6, box[1] + 22), fill=t.bg)
+            if step and step.get("nudge"):      # nudged off the grid: a line along the top
+                d.line((box[0] + 2, box[1] + 1, box[2] - 2, box[1] + 1), fill=t.track[2], width=2)
+            if idx == self.xo4_step:
                 d.rectangle(box, outline=t.hi if idx != here else RED, width=2)
             st.text(img, (box[0] + 3, box[1] + 3), str(idx + 1), t.bg if (mine or idx == here) else t.c[2])
             others = len(step["notes"]) - (1 if mine and self.xo4_track == 0 else 0) if step else 0
@@ -147,7 +163,31 @@ class DeskXO4:
         elif self.xo4_track:
             st.text(img, (164, y + 9), "TAP A STEP, THEN KEYS FOR ITS NOTES", t.c[2])
         else:
-            st.text(img, (164, y + 9), f"STEPS PUT PAD {self.xo4_pad + 1} ON OR OFF", t.c[2])
+            self.draw_xo4_hit(img, d, song, track, y)
+
+    def xo4_hit_of(self, step):
+        """(level, ratchet) of the pad picked on this drum step, or None"""
+        if not step or self.xo4_pad not in step["notes"]:
+            return None
+        k = step["notes"].index(self.xo4_pad)
+        return (step.get("levels") or [0] * len(step["notes"]))[k], (step.get("ratchets") or [1] * len(step["notes"]))[k]
+
+    def draw_xo4_hit(self, img, d, song, track, y):
+        """DRUMS' step row: the selected hit's LEVEL, ratchet and the step's NUDGE; QUANT"""
+        import xo4
+        t = self.theme
+        step = track["steps"][self.xo4_step] if self.xo4_step is not None else None
+        hit = self.xo4_hit_of(step)
+        if hit:
+            self.button(img, d, (158, y, 228, y + 32), xo4.LEVELS[hit[0]], self.xo4_hit_level, key="xo4-level")
+            self.button(img, d, (234, y, 280, y + 32), f"X{hit[1]}", self.xo4_hit_ratchet, key="xo4-ratchet")
+            self.button(img, d, (286, y, 316, y + 32), "-", lambda: self.xo4_nudge(-4), key="xo4-nudge-")
+            self.centre(img, (316, y, 372, y + 32), f"{step.get('nudge', 0):+d}", t.hi)
+            self.button(img, d, (372, y, 402, y + 32), "+", lambda: self.xo4_nudge(4), key="xo4-nudge+")
+        else:
+            st.text(img, (164, y + 9), f"STEPS PUT PAD {self.xo4_pad + 1} ON / OFF", t.c[2])
+        self.button(img, d, (408, y, W - 4, y + 32), "Q ON" if song["quant"] else "Q OFF", self.xo4_quant,
+                    on=song["quant"], key="xo4-quant")
 
     def draw_xo4_pads(self, img, d):
         t, kit = self.theme, self.app.kit()
@@ -229,10 +269,20 @@ class DeskXO4:
         song = self.xo4_song()
         track = self.xo4_track_of(song)
         step = track["steps"][idx]
-        if self.xo4_track == 0:                 # DRUMS: the pad picked, on or off
-            notes = list(step["notes"]) if step else []
-            notes = [n for n in notes if n != self.xo4_pad] if self.xo4_pad in notes else notes + [self.xo4_pad]
-            track["steps"][idx] = {"notes": notes, "vel": step["vel"] if step else 100, "len": 1.0} if notes else None
+        if self.xo4_track == 0:                 # DRUMS: the pad picked, on or off (the others' hits kept)
+            n = len(step["notes"]) if step else 0
+            hits = {p: (lv, r) for p, lv, r in zip(step["notes"] if step else [], (step or {}).get("levels") or [0] * n,
+                                                   (step or {}).get("ratchets") or [1] * n)}
+            if self.xo4_pad in hits:
+                del hits[self.xo4_pad]
+                self.xo4_step = None if self.xo4_step == idx else self.xo4_step
+            else:
+                hits[self.xo4_pad] = (0, 1)
+                self.xo4_step = idx             # the hit just put on: its LEVEL, ratchet, NUDGE below
+            pads = sorted(hits)
+            track["steps"][idx] = dict(step or {"vel": 100, "len": 1.0, "nudge": 0}, notes=pads,
+                                       levels=[hits[p][0] for p in pads], ratchets=[hits[p][1] for p in pads]) \
+                if pads else None
         elif not step:                          # an empty step: the last notes, selected
             track["steps"][idx] = {"notes": list(self.xo4_brush[self.xo4_track] or [60]), "vel": 100, "len": 1.0}
             self.xo4_step = idx
@@ -243,6 +293,45 @@ class DeskXO4:
             self.xo4_step = idx
             self.xo4_audition(step["notes"])
         self.xo4_save(song)
+
+    def xo4_hit_change(self, change):
+        """the selected drum hit (the pad picked, on the selected step) changed by change(levels, ratchets, k)"""
+        song = self.xo4_song()
+        step = self.xo4_track_of(song)["steps"][self.xo4_step] if self.xo4_step is not None else None
+        if not step or self.xo4_pad not in step["notes"]:
+            return
+        n = len(step["notes"])
+        step["levels"] = list(step.get("levels") or [0] * n)
+        step["ratchets"] = list(step.get("ratchets") or [1] * n)
+        change(step["levels"], step["ratchets"], step["notes"].index(self.xo4_pad))
+        self.xo4_save(song)
+
+    def xo4_hit_level(self):
+        """NORM, HARD, GHOST, SOFT round (the pads' order: louder first, then the quiet ones)"""
+        order = [0, 3, 1, 2]
+        self.xo4_hit_change(lambda lv, r, k: lv.__setitem__(k, order[(order.index(lv[k]) + 1) % 4]))
+
+    def xo4_hit_ratchet(self):
+        self.xo4_hit_change(lambda lv, r, k: r.__setitem__(k, r[k] % 4 + 1))
+
+    def xo4_nudge(self, amount):
+        song = self.xo4_song()
+        step = self.xo4_track_of(song)["steps"][self.xo4_step] if self.xo4_step is not None else None
+        if step:
+            step["nudge"] = max(-32, min(31, step.get("nudge", 0) + amount))
+            self.xo4_save(song)
+
+    def xo4_quant(self):
+        song = self.xo4_song()
+        song["quant"] = not song["quant"]
+        self.xo4_save(song)
+
+    def xo4_toggle_rec(self):
+        self.xo4_rec = not self.xo4_rec
+        x = getattr(self.app, "xo4", None)
+        if x:
+            x.send("rec", self.xo4_rec)
+        self.xo4_rev += 1
 
     def xo4_clear_step(self, idx):
         """a step held: emptied (DRUMS: every pad on it)"""
