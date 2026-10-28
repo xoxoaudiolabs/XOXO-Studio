@@ -69,7 +69,7 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
   - **DRUMS:**
     - **The pads:** played (they sound while held, playing or not) and picked for the steps: the steps put the picked pad on or off.
     - **The hit just put on:** its LEVEL, ratchet and the step's NUDGE − / +. QUANT: live REC on the grid, or where it was played.
-    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
+    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4 as on an MPC, full screen, with KIT, RPT, FX, REC and EDIT above them. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
   - **SYN 1, SYN 2, MIDI:**
     - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
     - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.

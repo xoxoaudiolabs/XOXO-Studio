@@ -1407,3 +1407,49 @@ def test_speaker_battery():
     assert ui.home_rows()[-1][2] == "JBL GO 3  BAT 85%" and app.web_status()["speaker_battery"] == 85
     app.spk_battery = None
     assert ui.home_rows()[-1][2] == "JBL GO 3"
+
+
+def test_xo4_big_pads():
+    """XO-4's DRUMS > PADS: the 16 pads big, MPC style; a pad sounds while held and is picked for the steps; REC
+    reaches XO-4; FX opened from here comes back here; < XO-4 back to the steps"""
+    import bridge
+    import deskui
+
+    class Sink:
+        sounding, step, pattern, queued = [], None, None, None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.pads, app.xo4 = Sink(), Sink()
+    app.state["kit"] = {"name": "K", "pads": [{"sample": "x.wav"}] * 16}
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if not hold:
+            ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+    ui.open_tab("XO4")
+    press("xo4-mpc")
+    assert ui.mpc_open
+    press(("pad", 9), hold=True)                                    # sounding while held, picked for the steps
+    assert app.pads.sent[-1] == ("tap", 9, 110) and ui.xo4_pad == 9
+    ui.touch("up", 0, 0, 0.0)
+    assert app.pads.sent[-1] == ("untap", 9)
+    press("mpc-rec")
+    assert ui.xo4_rec and ("rec", True) in app.xo4.sent
+    press("fx-open")
+    assert ui.fx_open
+    press("fx-back")
+    ui.render(0.0, force=True)
+    assert ui.mpc_open and ("pad", 0) in {w[3] for w in ui.widgets}  # back on the big pads
+    press("mpc-back")
+    ui.render(0.0, force=True)
+    assert not ui.mpc_open and ("xo4-step", 0) in {w[3] for w in ui.widgets}
