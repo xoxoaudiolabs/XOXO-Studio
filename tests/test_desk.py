@@ -581,7 +581,13 @@ def test_tab_bar():
     press("rec-takes")
     assert app.screen == "pick" or app.message == "No recordings yet"   # the takes (a Studio page), or none
     assert "RECORDINGS" not in [m[0] for m in deskui.MORE]
+    for tab in ("REC", "PADS"):                                     # RECORD and SAMPLER: full screen, as DECKS
+        app.screen = "status"
+        ui.open_tab(tab)
+        ui.render(0.0, force=True)
+        assert not any(isinstance(w[3], tuple) and w[3][0] == "tab" for w in ui.widgets), tab
     app.screen = "status"
+    ui.open_tab("HOME")
     ui.render(0.0, force=True)
     opened = []
     ui.open_decks = lambda: opened.append(True) or setattr(ui, "tab", "DECKS")   # (no decks program here)

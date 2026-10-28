@@ -32,7 +32,7 @@ W, H = 480, 320
 TAB_H, HDR_H = 44, 34
 TABS = ("HOME", "MIX", "PADS", "XO4", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
-FULL_TABS = ("DECKS", "XO4")                    # screens of their own: no tab bar under them
+FULL_TABS = ("PADS", "XO4", "DECKS", "REC")      # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
@@ -524,8 +524,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         right = f"{a.battery['percent']}%" if a.battery else ""
         st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        self.meters.draw(a, img, (0, HDR_H + 1, W, H - TAB_H - 58), t, now, style="Tape")
-        top = H - TAB_H - 54
+        self.meters.draw(a, img, (0, HDR_H + 1, W, H - 62), t, now, style="Tape")
+        top = H - 56
         self.button(img, d, (8, top, 236, top + 48), "STOP" if rec else "REC", a.toggle_recording,
                     color=(255, 112, 92), on=rec, key="rec-go")
         self.button(img, d, (244, top, 472, top + 48), "TAKES", lambda: self.open_more(("pick", "recording")),
