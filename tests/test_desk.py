@@ -1117,9 +1117,9 @@ def test_xo4_tab():
     keys = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "xo4-key"]
     assert len(keys) == 14
     assert keys == xo4.scale_notes(song(), 4 * 12 + 1, 14)         # C#3 minor, from the octave's root up
-    press(("xo4-track", 0))                                         # DRUMS: a pad picked (heard), steps toggle it
+    press(("xo4-track", 0))                                         # DRUMS: a pad played (and picked), steps toggle it
     press(("xo4-pad", 3))
-    assert ui.xo4_pad == 3 and app.pads.sent[-1] == ("tap", 3, 100)
+    assert ui.xo4_pad == 3 and app.pads.sent[-2:] == [("tap", 3, 110), ("untap", 3)]   # sounds while held
     press(("xo4-step", 2))
     press(("xo4-pad", 5))
     press(("xo4-step", 2))
@@ -1329,3 +1329,48 @@ def test_xo4_drum_hits():
     press("xo4-rec")
     assert ui.xo4_rec and ("rec", True) in app.xo4.sent
     ui.render(0.0, force=True)
+
+
+def test_xo4_pads_in_drums():
+    """the pads in XO-4's DRUMS: KIT opens the kits, RPT steps note repeat, FX the punch-in FX, EDIT makes a tap
+    open a pad's page; their back buttons lead to XO-4 again"""
+    import bridge
+    import deskui
+
+    class Pads:
+        sounding, step = [], None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.pads, app.xo4 = Pads(), None
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+    ui.open_tab("XO4")
+    press("xo4-rpt")
+    assert app.state["repeat"] is not None and app.pads.sent[-1][0] == "repeat"
+    press("xo4-kits")
+    assert ui.kits_open and ui.tab == "XO4"
+    press("kits-back")
+    press("xo4-fx")
+    assert ui.fx_open
+    press("fx-back")
+    press("xo4-edit")
+    press(("xo4-pad", 6))                                           # EDIT: its page, not a hit
+    assert ui.pad_edit == 6 and not any(m[0] == "tap" for m in app.pads.sent)
+    ui.render(0.0, force=True)
+    assert "pad-back" in {w[3] for w in ui.widgets}
+    press("pad-back")
+    ui.render(0.0, force=True)
+    assert ui.tab == "XO4" and ui.pad_edit is None and ("xo4-pad", 6) in {w[3] for w in ui.widgets}
