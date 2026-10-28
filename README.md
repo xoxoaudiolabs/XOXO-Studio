@@ -58,8 +58,9 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - after the reboot the app, its sampler and the web page start; the screen and the touch are found; the settings hold a touch calibration and a theme picked on the screen
 - the battery's charge is read
 - the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
+- the tab bar with DECKS on it looks right on the Studio's screen
 
-**Not yet tried on hardware:** sound out (a Bluetooth speaker, the jack), USB sound sources, the mixer and CUE, recording, the pads playing and their sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks (the DECKS tab, MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
+**Not yet tried on hardware:** sound out (a Bluetooth speaker, the jack), USB sound sources, the mixer and CUE, recording, the pads playing and their sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
 **On a PC:** the test suite passes (each `tests/test_*.py` with its own runner; `tests/test_desk.py` through pytest).
 
