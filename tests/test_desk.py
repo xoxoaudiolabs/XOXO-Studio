@@ -490,9 +490,11 @@ def test_decks_in_the_mixer():
     assert app.state["decks_out"] == "hercules" and sent[-1] == ("output", "hercules")
     app.screen = "status"
     app.sink, app.source = {"id": 2, "name": "bluez_output.jbl", "label": "JBL"}, {"id": 1, "name": "fm1-in"}
-    assert app.capture_target() == "fm1-in"                         # the FM-1 alone: its input
+    assert app.capture_target() == "monitor:bluez_output.jbl"       # one source: what the speaker plays
     app.app_here = {"decks"}
-    assert app.capture_target() == "monitor:bluez_output.jbl"       # the decks playing too: the speaker
+    assert app.capture_target() == "monitor:bluez_output.jbl"       # the decks playing too: the same
+    app.sink = app.jack = app.card = None
+    assert app.capture_target() == "fm1-in"                         # nothing to play on: the source itself
 
 
 def test_hdmi_mirror():
@@ -1036,6 +1038,9 @@ def test_every_meter_draws():
 
     class App:
         source, midi, tape_done, last_activity = {"name": "x"}, Clock(), 0.4, 0.0
+
+        def capture_target(self):
+            return "monitor:x"
         recorder = type("R", (), {"recording": lambda self: True})()
 
         def __init__(self, i, x):

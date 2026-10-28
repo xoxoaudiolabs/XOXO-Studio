@@ -613,8 +613,8 @@ class MeterScreens:
         if self.recorder.recording():
             self.finish_recording("Saved: {} recorded")
             return
-        if not self.source:
-            self.say("FM-1 not found")
+        if not self.capture_target():
+            self.say("Nothing to record")
             return
         folder = library.folder("recordings")
         if shutil.disk_usage(folder).free < MIN_FREE:
@@ -685,7 +685,7 @@ class MeterScreens:
                 return (self.meter_index(), clock and clock.get("bpm"), step), rec
             return (self.meter_index(), tuple(getattr(midi, "notes", ()) or ()),
                     getattr(midi, "chans", 0)), rec
-        want = (self.screen == "meter" and self.mode != "saver" and self.source and numpy()
+        want = (self.screen == "meter" and self.mode != "saver" and numpy()
                 and self.capture_target())
         if not want:
             if self.levels.proc:
@@ -710,7 +710,7 @@ class MeterScreens:
         if style == "Beat":
             self.draw_beat(d, now)
             return img
-        problem = ("FM-1 not found" if not self.source else None if numpy() else
+        problem = ("Nothing to listen to" if not self.capture_target() else None if numpy() else
                    "Needs python3-numpy" if _np_state == "missing" else "Loading meters...")
         if problem:
             d.text(((128 - d.textlength(problem, font=self.f_body)) / 2, 30), problem, font=self.f_body, fill=1)

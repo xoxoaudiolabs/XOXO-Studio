@@ -52,7 +52,7 @@ class DeskMeters:
             return self.draw_midi(app, img, d, box, t, now)
         if style == "Beat":
             return self.draw_beat(app, img, d, box, t, now)
-        problem = ("FM-1 NOT FOUND" if not app.source else None if m.numpy() else
+        problem = ("NOTHING TO LISTEN TO" if not app.capture_target() else None if m.numpy() else
                    "NEEDS PYTHON3-NUMPY" if m._np_state == "missing" else "LOADING METERS...")
         if problem:
             self.centre(img, box, problem, t.c[3], 1)

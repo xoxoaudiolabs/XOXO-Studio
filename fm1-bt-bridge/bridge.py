@@ -1139,14 +1139,15 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         return self.loop.running() or self.mixer.running()
 
     def capture_target(self):
-        """what recordings and the meters listen to: the FM-1, or while mixing (or a Studio app or the DJ decks
-        play: they go to the speaker themselves), what plays on the speaker"""
+        """what recordings and the meters listen to: what plays on the speaker (the sources, the pads, the DJ
+        decks, whatever plays there), or, with nothing to play on, the one source straight; None: neither"""
         if self.mixer.running() and self.mixer.sink:
             return "monitor:" + self.mixer.sink
         main = self.outputs()[0]
-        if self.app_here and main:
+        if main:
             return "monitor:" + main
-        return self.source and self.source["name"]
+        channels = self.mix_channels()
+        return channels[0][1]["name"] if channels else None
 
     def heal_pipewire(self, source):
         """WirePlumber can lose the FM-1 when it reconnects quickly under another identity (as after a
