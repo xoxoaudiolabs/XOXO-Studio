@@ -87,6 +87,7 @@ Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-lib
 - the tab bar with DECKS on it looks right on the Studio's screen
 - XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
 - XO-4's engine, with a demo pattern put in by hand and the box clock started from the web page: the XO-4 source and the pads (the 808 KIT, played by XO-4's drum track) both carry sound, measured by recording each source on the Pi (peaks 0.66 and 0.81); XO-4 takes about 30% of one core while it plays, the pads about 20%
+- the XO-4 tab, used by hand on the Studio's screen: works well (the user's report, 2026-10-28)
 
 **Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, recording, the pads' own sequencer and FX, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks playing (MIDI learn, a Hercules, music from a USB drive), shutting down from the screen.
 
