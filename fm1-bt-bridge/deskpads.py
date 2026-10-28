@@ -39,6 +39,8 @@ class DeskPads:
         self.seq_edit, self.seq_rec = None, False      # the step whose hit is being edited; live REC
         self.fx_open = False                           # the FX page
         self.mpc_open = False                          # the big 4x4 pads (XO-4's DRUMS > PADS)
+        self.fx_dest = "pads"                          # the FX page's: the pads' FX, or XO-4's synths' ("xo4")
+        self.xo4_fx = [None, False]                    # XO-4's: the FX on, LATCH
         self.fx_on, self.fx_latch = None, False        # the punch-in FX on; LATCH (a tap holds it)
 
     def pads_view(self):
@@ -47,7 +49,7 @@ class DeskPads:
         rec = self.pad_rec and (self.pad_rec["pad"], int(self.pad_rec["rec"].seconds()))
         seq = (self.seq_pad, self.seq_page, self.seq_edit, self.seq_rec, a.seq_playing(),
                a.pads and a.pads.step, a.clock_text()) if self.seq_open else None
-        seq = (seq, self.fx_open, self.fx_on, self.fx_latch, self.mpc_open)
+        seq = (seq, self.fx_open, self.fx_on, self.fx_latch, self.mpc_open, self.fx_dest, tuple(self.xo4_fx))
         return (str(a.state.get("kit")), sounding, self.pad_edit, self.pad_mode, self.pad_top,
                 self.kits_open and self.kits_top, self.kits_open,
                 self.browse, self.browse_top,
@@ -514,8 +516,13 @@ class DeskPads:
 
     # ---- FX: the punch-in FX (padfx.py) on the pads' sound, held (or latched: one finger on this screen)
 
-    def open_fx(self):
-        self.fx_open = True
+    def open_fx(self, dest="pads"):
+        """the FX page, for the pads' own FX or XO-4's synths' ("xo4"): each its own FX on and LATCH"""
+        self.fx_open, self.fx_dest = True, dest
+
+    def fx_state(self):
+        """(the FX on, LATCH) of the FX page's destination"""
+        return tuple(self.xo4_fx) if self.fx_dest == "xo4" else (self.fx_on, self.fx_latch)
 
     def close_fx(self):
         self.fx_open = False                           # (a latched FX stays on: play the pads under it)
@@ -523,10 +530,11 @@ class DeskPads:
     def draw_fx(self, img, d, now):
         import padfx
         a, t = self.app, self.theme
+        fx_on, latch = self.fx_state()
         self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", self.close_fx, key="fx-back")
-        st.text(img, (96, 9), "PUNCH-IN FX", t.hi)
-        st.text(img, (210, 9), self.tempo_text()[:12], t.c[2])
-        self.button(img, d, (W - 104, 3, W - 4, HDR_H - 5), "LATCH", self.toggle_fx_latch, on=self.fx_latch,
+        st.text(img, (96, 9), "XO-4 SYNTH FX" if self.fx_dest == "xo4" else "PADS FX", t.hi)
+        st.text(img, (230, 9), self.tempo_text()[:12], t.c[2])
+        self.button(img, d, (W - 104, 3, W - 4, HDR_H - 5), "LATCH", self.toggle_fx_latch, on=latch,
                     key="fx-latch")
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         gw, gh = (W - 10) // 4, (H - HDR_H - 8) // 4
@@ -535,16 +543,21 @@ class DeskPads:
             x0, y0 = 5 + col * gw, HDR_H + 4 + row * gh
             box = (x0 + 2, y0 + 2, x0 + gw - 3, y0 + gh - 3)
             colour = t.track[row % 4]
-            on = self.fx_on == i
+            on = fx_on == i
             d.rectangle(box, fill=colour if on else t.dim[row % 4], outline=colour, width=2)
             st.text(img, (box[0] + 6, box[1] + 4), str(i + 1), t.bg if on else colour)
             st.text(img, (box[0] + 6, box[3] - 20), name, t.bg if on else t.c[4])
-            if self.fx_latch:
+            if latch:
                 self.widget(box, "tap", lambda i=i: self.fx_tap(i), ("fx", i))
             else:
                 self.widget(box, "gate", lambda down, i=i: self.fx_hold(i, down), ("fx", i))
 
     def fx_send(self, fx):
+        if self.fx_dest == "xo4":                      # XO-4's synths' own FX (xo4.py)
+            self.xo4_fx[0] = fx
+            if getattr(self.app, "xo4", None):
+                self.app.xo4.send("fx", fx)
+            return
         self.fx_on = fx
         if self.app.pads:
             self.app.pads.send("fx", fx)
@@ -554,11 +567,15 @@ class DeskPads:
 
     def fx_tap(self, i):
         """LATCH: a tap holds it on, a tap on it again (or another) lets go / changes"""
-        self.fx_send(None if self.fx_on == i else i)
+        self.fx_send(None if self.fx_state()[0] == i else i)
 
     def toggle_fx_latch(self):
-        self.fx_latch = not self.fx_latch
-        if not self.fx_latch and self.fx_on is not None:
+        fx_on, latch = self.fx_state()
+        if self.fx_dest == "xo4":
+            self.xo4_fx[1] = not latch
+        else:
+            self.fx_latch = not latch
+        if latch and fx_on is not None:                # LATCH off: what it held lets go
             self.fx_send(None)
 
     # ---- kits

@@ -1453,3 +1453,45 @@ def test_xo4_big_pads():
     press("mpc-back")
     ui.render(0.0, force=True)
     assert not ui.mpc_open and ("xo4-step", 0) in {w[3] for w in ui.widgets}
+
+
+def test_xo4_synth_fx_page():
+    """a synth track's FX: XO-4's own FX page; held FX go to XO-4, not the pads; its LATCH apart from the pads'"""
+    import bridge
+    import deskui
+    import padfx
+
+    class Sink:
+        sounding, step, pattern, queued = [], None, None, None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.pads, app.xo4 = Sink(), Sink()
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if not hold:
+            ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+    ui.open_tab("XO4")
+    press(("xo4-track", 1))
+    press("xo4-synth-fx")
+    assert ui.fx_open and ui.fx_dest == "xo4"
+    press(("fx", padfx.STUT), hold=True)
+    assert app.xo4.sent[-1] == ("fx", padfx.STUT) and not app.pads.sent
+    ui.touch("up", 0, 0, 0.0)
+    assert app.xo4.sent[-1] == ("fx", None)
+    press("fx-latch")
+    press(("fx", padfx.ECHO))
+    assert ui.xo4_fx == [padfx.ECHO, True] and ui.fx_latch is False   # the pads' LATCH untouched
+    press("fx-back")
+    ui.render(0.0, force=True)
+    assert ("xo4-synth-fx" in {w[3] for w in ui.widgets}) and not ui.fx_open
