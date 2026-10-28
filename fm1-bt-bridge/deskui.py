@@ -26,11 +26,13 @@ import sloopstyle as st
 from deskdecks import DeskDecks
 from deskpads import DeskPads
 from deskpages import HOLD, DeskPages
+from deskxo4 import DeskXO4
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
-TABS = ("HOME", "MIX", "PADS", "DECKS", "REC", "MIDI", "MORE")
-TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "REC": "RECORDER"}   # what a tab says, if not its name
+TABS = ("HOME", "MIX", "PADS", "XO4", "DECKS", "REC", "MIDI", "MORE")
+TAB_LABEL = {"MIX": "MIXER", "PADS": "SAMPLER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
+FULL_TABS = ("DECKS", "XO4")                    # screens of their own: no tab bar under them
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
@@ -42,13 +44,14 @@ MORE = [("PLAYING", ("menu", "play")),
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
-class DeskUI(DeskPages, DeskPads, DeskDecks):
+class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
     def __init__(self, app, display):
         self.app, self.display = app, display
         self.tab, self.classic = "HOME", False      # (classic: never, now; desk.Touch still asks)
         self.page_init()
         self.pads_init()
         self.decks_init()
+        self.xo4_init()
         self.widgets, self.held, self.shown = [], None, None
         self.theme, self.theme_seen, self.theme_check = st.Theme(), None, 0.0
         self.more_top = 0
@@ -120,6 +123,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
         if self.tab == "DAW":
             base += (json.dumps(getattr(a.midi, "mcu", None)), tuple(getattr(a.midi, "net", None) or ()),
                      json.dumps(sorted(self.daw_local.items())))
+        if self.tab == "XO4":
+            base += self.xo4_view()
         if self.tab == "DECKS":
             base += self.decks_view()
         return base
@@ -156,7 +161,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks):
             self.draw_page(img, ImageDraw.Draw(img), now)
         else:
             getattr(self, "draw_" + self.tab.lower())(img, ImageDraw.Draw(img), now)
-            if not self.pads_screen() and self.tab != "DECKS":   # a pad's page, kits, sampling, the decks:
+            if not self.pads_screen() and self.tab not in FULL_TABS:   # a pad's page, kits, sampling, the decks,
+                                                                        # XO-4:
                                                                   # full screen
                 self.draw_tabs(img)
         a = self.app

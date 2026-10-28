@@ -43,11 +43,37 @@ The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, ap
 
 - **HOME, MIXER, RECORDER:** every USB sound source and the pads, a level each, recorded as one mix (or a part each), with meters
 - **SAMPLER (PADS):** the 16-pad sampler (notes 36–51), its step sequencer, note repeat, punch-in FX and sample editor; the 808 KIT is loaded on the first start
+- **XO-4:** the Studio's own groovebox (full screen; below)
 - **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
 - **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
-Being built: **XO-4**, the Studio's own groovebox. Its engine runs in the app (`fm1-bt-bridge/xo4.py`, `xo4synth.py`): four tracks on the box's beat grid (DRUMS plays the pads' kit; SYNTH 1 and SYNTH 2, two-operator FM with chords of up to four notes; MIDI, out through the routes as the source XO4), patterns A–H changing on the bar, each track its own length, swing. Its sound is a source of its own, XO-4, in the mixer, the meters and recordings. It has no screen yet, so there's no way to make patterns on the Studio itself.
+### XO-4
+
+The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, `deskxo4.py`):
+
+- **Four tracks on the box's beat grid:**
+  - **DRUMS** plays the pads' kit.
+  - **SYN 1** and **SYN 2** are two-operator FM synths, with chords of up to four notes.
+  - **MIDI** goes out through the routes, as the source XO4.
+- **Patterns:** A–H, changing on the next bar. Each track has its own length, up to 64 steps.
+- **Sound:** a source of its own, XO-4, in the mixer, the meters and recordings.
+- **The XO-4 tab:**
+  - **Header:** < HOME, the patterns A–H, and PLAY / STOP.
+  - **Track row:** the track, its length LEN − / +, and HOLD CLR.
+  - **Steps:** 16 a page.
+  - **Step row:** the pages, then the selected step's VEL and LEN.
+  - **DRUMS:** the 16 pads below the steps. Pick a pad, and the steps put it on or off.
+  - **SYN 1, SYN 2, MIDI:**
+    - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
+    - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.
+    - **Emptying a step:** tap the selected step again.
+  - **Hearing it:** while stopped, what you tap sounds.
+
+Not there yet:
+- the synths' sound settings on the screen
+- copying patterns
+- playing the synths live from a keyboard
 
 Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 

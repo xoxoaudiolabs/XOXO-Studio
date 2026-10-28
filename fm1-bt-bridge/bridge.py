@@ -1927,6 +1927,7 @@ def main():
         app.pads.on_step = lambda step: app.post("pad_step", step)     # (wakes the screen: the playhead)
         app.xo4 = xo4_process
         app.xo4.send("song", app.song())
+        app.xo4.on_step = lambda: app.post("xo4_step")                  # (the XO-4 tab's playhead)
     if not sim and box["build"] == "desk":    # its own touch screens; the classic ones' on-screen keys
         import deskui
         app.desk = deskui.DeskUI(app, display)
