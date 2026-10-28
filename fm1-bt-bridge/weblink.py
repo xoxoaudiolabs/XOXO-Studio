@@ -29,6 +29,7 @@ class WebLink:
                         "input": self.input_label(k, n)} for k, n in self.mix_channels()]
                       if len(self.mix_channels()) > 1 else None),
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
+            "speaker_battery": getattr(self, "spk_battery", None),
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,
             "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled),
                      "error": midi and midi.error, "controllers": list(getattr(midi, "controllers", None) or []),

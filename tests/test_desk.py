@@ -1383,3 +1383,27 @@ def test_xo4_pads_in_drums():
     press("pad-back")
     ui.render(0.0, force=True)
     assert ui.tab == "XO4" and ui.pad_edit is None and ("xo4-pad", 6) in {w[3] for w in ui.widgets}
+
+
+def test_speaker_battery():
+    """a Bluetooth speaker that reports its battery: read from bluetoothctl info, on HOME's speaker row and in the
+    web page's status; one that doesn't: nothing shown"""
+    import bridge
+    import deskui
+    text = ("Device 20:18:5B:EF:AA:B0 (public)\n\tName: JBL Go 3\n\tConnected: yes\n"
+            "\tBattery Percentage: 0x55 (85)")
+    assert bridge.parse_info("20:18:5B:EF:AA:B0", text)["battery"] == 85
+    assert "battery" not in bridge.parse_info("x", "\tName: JBL Go 3")
+    was = bridge.bt
+    bridge.bt = lambda *args, timeout=15: (0, text)
+    try:
+        assert bridge.speaker_battery("20:18:5B:EF:AA:B0") == 85 and bridge.speaker_battery(None) is None
+    finally:
+        bridge.bt = was
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.sink = {"id": 9, "name": "bluez_output.x", "label": "JBL Go 3"}
+    ui = deskui.DeskUI(app, app.display)
+    app.spk_battery = 85
+    assert ui.home_rows()[-1][2] == "JBL GO 3  BAT 85%" and app.web_status()["speaker_battery"] == 85
+    app.spk_battery = None
+    assert ui.home_rows()[-1][2] == "JBL GO 3"
