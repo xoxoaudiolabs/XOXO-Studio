@@ -82,9 +82,7 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
 
 The SAMPLER tab and its own step sequencer are gone: a kit's pattern from it moves into the drums of XO-4's first pattern with empty drums, the first time that kit is used.
 
-Not there yet:
-- copying patterns
-- playing the synths live from a keyboard
+What XO-4 can't do yet is under [Known limitations](#known-limitations).
 
 ## Screens
 
@@ -99,7 +97,20 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 | ![EDITOR](docs/images/studio-editor.png) **EDITOR** | ![MIDI](docs/images/studio-midi.png) **MIDI** |
 | ![MORE](docs/images/studio-more.png) **MORE** | |
 
-Some names inside the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
+## Known limitations
+
+- **Mostly untried on hardware.** Much of the Studio has only run on a PC so far: see [Tested](#tested) for what has and hasn't been tried on a Pi.
+- **One hardware setup.** Made for a Raspberry Pi 3 B+ with a 3.5" 480×320 touchscreen (ILI9486 / XPT2046). Other Pis and other screens haven't been tried, and the screens are drawn for 480×320 only.
+- **CPU.** Each part was measured on its own on a Pi 3 B+: XO-4 about 30% of one core while it plays, the pads about 20%, the decks 28% (up to 49% with REVERB on both decks). Everything running at once hasn't been measured.
+- **XO-4:**
+  - Patterns can't be copied yet.
+  - The synths can't be played live from a keyboard yet: XO-4 isn't a MIDI destination in the routes.
+  - Eight patterns (A–H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
+- **DJ decks:** one FX at a time a deck. The Hercules DJControl Inpulse 200 MK2 has its own mapping; other controllers go through MIDI LEARN, which hasn't been tried with real hardware.
+- **Speaker battery:** shown only when the speaker reports its battery to the Pi's Bluetooth (BlueZ). Many speakers don't, and then nothing shows.
+- **Web page:** plain HTTP on the local network (`http://xoxostudio.local`), no password.
+- **Private repository:** installing with git needs a deploy key (see [Set up](#set-up)).
+- **Old names inside:** some names in the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
 
 ## Tested
 
