@@ -1139,3 +1139,32 @@ def test_xo4_tab():
     assert sloopstyle.ALL                                           # (drawn in the theme's colours)
     press("xo4-home")
     assert ui.tab == "HOME"
+
+
+def test_home_tempo():
+    """HOME's tempo - / +: a tap is 1 BPM, a hold 10, within 30-300; following another clock, they leave it be"""
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS, bpm=120))
+    app.save_settings = lambda: None
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if hold:
+            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
+    press(("tempo", "+"))
+    assert app.state["bpm"] == 121
+    press(("tempo", "-"), hold=True)
+    assert app.state["bpm"] == 111
+    app.state["bpm"] = 298
+    press(("tempo", "+"), hold=True)
+    assert app.state["bpm"] == 300                                  # (no further than 300)
+    app.state["clock_mode"] = "follow"
+    app.midi = type("M", (), {"clock": {"bpm": 97, "playing": True}, "set_clock": lambda self, *a: None})()
+    press(("tempo", "-"))
+    assert app.state["bpm"] == 300 and "Following" in app.message

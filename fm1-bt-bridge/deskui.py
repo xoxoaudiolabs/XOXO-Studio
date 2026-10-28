@@ -409,7 +409,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         bat = f"  {a.battery['percent']}%" if a.battery else ""
         return live + bat
 
-    def button(self, img, d, box, label, action, color=None, on=False, key=None):
+    def button(self, img, d, box, label, action, color=None, on=False, key=None, long=None):
+        """long: what a press of 0.6 s or more does instead"""
         t = self.theme
         key = key or label
         hot = on or self.lit(key)
@@ -422,7 +423,15 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
                 t.bg if hot else (color or t.c[4]), size)
         if box[3] <= HDR_H:                        # in the header: the touch area is its whole height and a bit
             box = (box[0], 0, box[2], HDR_H + 4)   # (26 px drawn is a thin target on a resistive screen)
-        self.widget(box, "tap", action, key)
+        self.widget(box, "tap", action, key, long)
+
+    def tempo_step(self, step):
+        """HOME's tempo - / +: the box's tempo (1 BPM a tap, 10 held); following another clock, that clock's"""
+        a = self.app
+        if a.state["clock_mode"] != "box" and getattr(a.midi, "clock", None):
+            a.say("Following MIDI clock: its tempo plays", 2)
+            return
+        a.set_clock(bpm=a.state["bpm"] + step)
 
     def tempo_text(self):
         """the tempo it plays at: the clock it follows, or the box's own ("120 BPM") with none to follow"""
@@ -477,6 +486,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         bpm = (a.clock_text() or "").replace(" BPM", "").replace("follow", "").strip() or str(a.state["bpm"])
         st.text(img, (10, 2), bpm[:7], t.hi, 2)
         st.text(img, (12 + st.text_size(bpm[:7], 2)[0], 15), "BPM", t.c[2])
+        x = 22 + st.text_size(bpm[:7], 2)[0] + st.text_size("BPM")[0]   # - and + right after the tempo
+        for box, label, step in (((x, 3, x + 44, HDR_H - 5), "-", -1), ((x + 50, 3, x + 94, HDR_H - 5), "+", 1)):
+            self.button(img, d, box, label, lambda s=step: self.tempo_step(s), key=("tempo", label),   # tap: 1 BPM
+                        long=lambda s=step: self.tempo_step(s * 10))                                    # held: 10
         right = self.status_right()
         st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
