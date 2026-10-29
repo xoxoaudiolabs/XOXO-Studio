@@ -190,6 +190,14 @@ def test_dj_music():
     assert jcall("/api/delete", {"folder": "music", "name": "Night Drive.mp3"})[1]["ok"]
     assert not (djlib.MUSIC / "Night Drive.mp3").exists()
 
+
+def test_served_as_xoxo_studio():
+    """the shared page, served under this box's name (what a phone keeps on its home screen)"""
+    status, page, _ = call("/")
+    assert status == 200 and b"<title>XOXO Studio</title>" in page
+    assert b'apple-mobile-web-app-title" content="XOXO Studio"' in page and b"FM-1 Companion</title>" not in page
+    assert jcall("/manifest.webmanifest")[1]["theme_color"] == "#0b0b0b"
+
 def test_audio_ranges():
     data = bytes(range(256)) * 40
     (library.folder("recordings") / "2026-10-22_120000_fm1.wav").write_bytes(data)
