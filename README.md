@@ -37,7 +37,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 
 **Updating with git:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
 
-The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, apart from the FM-1 Companion's, so a phone can keep both on its home screen.
+The web page is at `http://xoxostudio.local`. It's the same web app as the FM-1 Companions' (Studio and Pocket): it shows what each box has. Served from this box it's named XOXO Studio, with its own home-screen app id, so a phone can keep it beside a Companion's.
 
 The web page's tabs: **Status** (speaker, volume, the mixer with DECKS while they play, a linked Pocket, clock, keyboard, Record), **Studio** (XO-4's patterns A–H, Play / Stop, MIDI IN and the synths' starting sounds; the pads' kits; what's on each DJ deck; the Studio DJ Music folder, where tracks can be added from a phone), **MIDI** (the routes and presets), **Library** (samples), **Editor** and **Recordings**.
 
