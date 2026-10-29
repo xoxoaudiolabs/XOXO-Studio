@@ -1207,6 +1207,24 @@ def test_internal_sources_say_no_usb():
                                                                            ("XO-4", "")]
 
 
+
+def test_pocket_over_the_link():
+    """a Pocket's sound over the link (RTP into fm1-pocket, ports receive_FL / receive_FR): a source, POCKET, with
+    its ports; the Studio shows it only while a Pocket is on the network MIDI session"""
+    import bridge
+    node = {"id": 7, "type": "PipeWire:Interface:Node",
+            "info": {"props": {"media.class": "Audio/Source", "node.name": "fm1-pocket"}}}
+    ports = [{"type": "PipeWire:Interface:Port", "info": {"props": {"port.direction": "out", "port.name": f"receive_{c}",
+                                                                      "node.id": 7, "port.id": k}}}
+             for k, c in enumerate(("FL", "FR"))]
+    _, sources = bridge.pick_nodes([node] + ports)
+    assert [(n["label"], n["internal"], n["ports"]) for n in sources] == [("POCKET", True, ["receive_FL", "receive_FR"])]
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.midi = type("M", (), {"net": ["Kraken"]})()
+    assert not app.pocket_linked()
+    app.midi.net = ["Kraken", "FM-1 Companion Pocket"]
+    assert app.pocket_linked()
+
 def test_home_shows_every_source():
     """HOME: every source with its mixer level (a bar and a %), the decks while they run, then the speaker; two
     columns past seven rows; a row opens the mixer"""

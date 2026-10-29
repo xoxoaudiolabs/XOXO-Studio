@@ -1,0 +1,12 @@
+[Unit]
+Description=XOXO Studio: the Pocket's sound over the link (RTP on UDP 46000)
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+ExecStart=/usr/bin/pipewire -c %h/.local/share/fm1-bridge/pipewire-fm1-pocket-in.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
