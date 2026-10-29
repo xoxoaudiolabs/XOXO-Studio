@@ -47,7 +47,7 @@ The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, ap
 - **XO-4:** the Studio's own groovebox, with the 16-pad sampler in its DRUMS (full screen; below); the 808 KIT is loaded on the first start
 - **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN; each deck its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out)
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
-- **The Pocket by Ethernet:** an FM-1 Companion Pocket on a cable straight to the Studio (no router needed: both take a link-local address) joins the Studio's network MIDI as NET. MIDI goes both ways, and the Studio's clock leads: its clock to NET (Box>NET) is on from the start
+- **The Pocket by Ethernet:** an FM-1 Companion Pocket on a cable straight to the Studio (no router needed: both take a link-local address) joins the Studio's network MIDI as NET. MIDI goes both ways, and the Studio's clock leads: its clock to NET (Box>NET) is on from the start. The Pocket's sound comes over the link too (RTP on UDP 46000) and shows as POCKET in HOME, the mixer and recordings while the Pocket is linked; the Studio keeps the Bluetooth speaker, and the Pocket lets go of its own
 - **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
 EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
@@ -130,6 +130,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
 - the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
 - XO-4's MIDI IN: starts off on the Studio, the app runs with it (its effect on notes tested on the PC only)
+- the Pocket's sound over the link (2026-10-29, over Wi-Fi): the Studio's receiver locks onto the real Pocket's stream, and the Studio makes POCKET its own mixer channel while the Pocket is linked. Not yet heard: what reached the Studio was silent, as nothing was playing on the Pocket
 - the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error
 - the DJ decks played by touch alone (no controller), music from a USB drive, out of a JBL Go 3 over Bluetooth (the user's report, 2026-10-28, after the fix for their volume starting at 0)
 

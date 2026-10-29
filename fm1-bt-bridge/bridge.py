@@ -237,7 +237,7 @@ def capture_ports(objects):
             continue
         props = (o.get("info") or {}).get("props") or {}
         name = str(props.get("port.name", ""))
-        if props.get("port.direction") == "out" and name.startswith(("capture_", "output_")):
+        if props.get("port.direction") == "out" and name.startswith(("capture_", "output_", "receive_")):   # (receive_: the Pocket's RTP)
             ports.setdefault(props.get("node.id"), []).append((int(props.get("port.id", 0) or 0), name))
     return {node: [n for _, n in sorted(found)] for node, found in ports.items()}
 
@@ -280,6 +280,8 @@ def pick_nodes(objects):
             sources.append(dict(node, label="SAMPLER", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4's synths (xo4.py): a source too
             sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
+            sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Sink" and name.startswith("bluez_output."):
             sink = sink or node
     return sink, sources
@@ -902,6 +904,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if found is None:
             return                            # couldn't look: keep everything as it is
         (sink, others), objects = found
+        if not self.pocket_linked():          # POCKET only while a Pocket is linked (its receiver's always there)
+            others = [n for n in others if n["name"] != "fm1-pocket"]
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
@@ -1020,6 +1024,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.state["phones"] = max(0, min(100, int(level)))
         self.save_settings()
         self.scan_now = True
+
+    def pocket_linked(self):
+        """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket")"""
+        return any("Pocket" in str(n) for n in (getattr(self.midi, "net", None) or []))
 
     def mix_channels(self):
         """[(key, node)] of the sound sources there are: USB audio (a keyboard's synth, an audio interface, a mic)

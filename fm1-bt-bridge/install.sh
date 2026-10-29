@@ -158,6 +158,10 @@ else                                                                            
 fi
 install -D -m 644 "$DIR/config/fm1-bridge.service"              ~/.config/systemd/user/fm1-bridge.service
 install -D -m 644 "$DIR/config/fm1-web.service"                 ~/.config/systemd/user/fm1-web.service
+if [ "$BUILD" = desk ]; then              # the Pocket's sound over the link (RTP on UDP 46000): POCKET
+    install -D -m 644 "$DIR/config/pipewire-fm1-pocket-in.conf" ~/.local/share/fm1-bridge/pipewire-fm1-pocket-in.conf
+    install -D -m 644 "$DIR/config/fm1-pocket-in.service"       ~/.config/systemd/user/fm1-pocket-in.service
+fi
 
 if [ "$BUILD" = desk ] && [ ! -f ~/.local/share/fm1-bridge/splash.raw ]; then   # the first boot's picture
     (cd ~/.local/share/fm1-bridge && python3 -c "import deskboot, sloopstyle; deskboot.save(sloopstyle.Theme())")         || echo "   (the boot screen's picture comes with the first start instead)"
@@ -176,6 +180,9 @@ echo "== Starting at boot without a login"
 sudo loginctl enable-linger "$USER"
 systemctl --user daemon-reload
 systemctl --user enable pipewire.socket wireplumber.service fm1-bridge.service fm1-web.service
+if [ "$BUILD" = desk ]; then
+    systemctl --user enable fm1-pocket-in.service
+fi
 sync                                    # on the card before anyone pulls the power
 
 echo
