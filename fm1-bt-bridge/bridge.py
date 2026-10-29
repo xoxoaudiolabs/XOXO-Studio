@@ -1094,9 +1094,48 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         """XO-4's song changed: kept, and sent to XO-4"""
         import xo4
         self.state["xo4"] = xo4.clean_song(song)
+        self.song_rev = getattr(self, "song_rev", 0) + 1     # (the XO-4 screen redraws: a change from the web page)
         self.save_settings()
         if self.xo4:
             self.xo4.send("song", self.state["xo4"])
+
+    def xo4_pick_pattern(self, p):
+        """XO-4's pattern p: played from the next bar (at once while stopped)"""
+        if self.xo4:
+            self.xo4.send("pick", p)
+        if not self.seq_playing():
+            song = self.song()
+            song["pattern"] = p
+            self.set_song(song)
+
+    def set_xo4_midi_in(self, on):
+        """XO-4's MIDI IN: the routes' notes play its pads (on) or not"""
+        self.state["xo4_midi_in"] = bool(on)
+        self.save_settings()
+        if self.midi and hasattr(self.midi, "set_xo4_in"):
+            self.midi.set_xo4_in(self.state["xo4_midi_in"])
+        self.song_rev = getattr(self, "song_rev", 0) + 1
+
+    def xo4_sound(self, track, name):
+        """a synth track's (1, 2) starting sound (xo4.SOUNDS), as the SOUND page's buttons"""
+        import xo4
+        song = self.song()
+        song["patches"][track - xo4.SYNTH1].update(xo4.SOUNDS[name])
+        self.set_song(song)
+
+    @staticmethod
+    def xo4_sound_name(patch):
+        """the starting sound a patch is, or "CUSTOM" (changed on the SOUND page)"""
+        import xo4
+        return next((n for n, s in xo4.SOUNDS.items() if all(patch.get(k) == v for k, v in s.items())), "CUSTOM")
+
+    def pocket_link(self):
+        """a linked Pocket: "cable" (a link-local address) or "network"; None: no Pocket"""
+        hosts = getattr(self.midi, "net_hosts", None) or {}
+        here = [ip for name, ip in hosts.items() if "Pocket" in name]
+        if not here and not self.pocket_linked():
+            return None
+        return "cable" if any(str(ip).startswith("169.254.") for ip in here) else "network"
 
     def set_kit(self, kit):
         import pads

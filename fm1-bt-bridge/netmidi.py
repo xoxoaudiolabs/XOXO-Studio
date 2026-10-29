@@ -129,6 +129,11 @@ class Session:
         with self.lock:
             return sorted(p["name"] for p in self.peers.values() if p.get("data"))
 
+    def hosts(self):
+        """{name: its IP address}: where each peer is (a Pocket on a cable: 169.254.x.x)"""
+        with self.lock:
+            return {p["name"]: p["data"][0] for p in self.peers.values() if p.get("data")}
+
     def run(self):
         while True:
             ready, _, _ = select.select([self.sock, self.dsock], [], [], 5.0)

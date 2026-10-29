@@ -66,8 +66,8 @@ class DeskXO4:
     def xo4_view(self):
         a = self.app
         x = getattr(a, "xo4", None)
-        return (self.xo4_rev, self.xo4_track, self.xo4_edit, self.xo4_step, self.xo4_page, self.xo4_pad,
-                tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
+        return (self.xo4_rev, getattr(a, "song_rev", 0), self.xo4_track, self.xo4_edit, self.xo4_step,
+                self.xo4_page, self.xo4_pad, tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
                 self.xo4_sound, self.xo4_rec, self.pads_view() if self.xo4_track == 0 or self.fx_open else None)
 
     # ---- drawing
@@ -275,13 +275,8 @@ class DeskXO4:
     def xo4_pick(self, p):
         """a pattern: edited from now, played from the next bar (at once while stopped)"""
         self.xo4_edit, self.xo4_step, self.xo4_page = p, None, 0
-        x = getattr(self.app, "xo4", None)
-        if x:
-            x.send("pick", p)
-        if not self.app.seq_playing():
-            song = self.xo4_song()
-            song["pattern"] = p
-            self.xo4_save(song)
+        self.app.xo4_pick_pattern(p)
+        self.xo4_rev += 1
 
     def xo4_pick_track(self, k):
         self.xo4_track, self.xo4_step, self.xo4_page, self.xo4_sound = k, None, 0, False
@@ -365,11 +360,7 @@ class DeskXO4:
 
     def xo4_toggle_midi_in(self):
         """MIDI IN: the routes' notes play XO-4's pads (on) or not (off: a synth on the routes plays only itself)"""
-        a = self.app
-        a.state["xo4_midi_in"] = not a.state.get("xo4_midi_in")
-        a.save_settings()
-        if a.midi and hasattr(a.midi, "set_xo4_in"):
-            a.midi.set_xo4_in(a.state["xo4_midi_in"])
+        self.app.set_xo4_midi_in(not self.app.state.get("xo4_midi_in"))
         self.xo4_rev += 1
 
     def xo4_toggle_rec(self):

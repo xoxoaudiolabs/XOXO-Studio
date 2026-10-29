@@ -1231,6 +1231,38 @@ def test_pocket_over_the_link():
     app.midi.net = ["Kraken", "FM-1 Companion Pocket"]
     assert app.pocket_linked()
 
+
+def test_web_studio_status_and_commands():
+    """the web page's Studio tab: XO-4's state, the kits, the decks' level in the mixer, a linked Pocket; its
+    commands change the Studio as the screen does"""
+    import bridge
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    sent = []
+    app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"], "net_hosts": {"FM-1 Companion Pocket": "169.254.66.49"},
+                              "set_xo4_in": lambda self, on: sent.append(on), "clock": None,
+                              "peer": None, "enabled": True, "error": None})()
+    st = app.web_status()
+    assert st["xo4"]["pattern"] == "A" and st["xo4"]["midi_in"] is False and st["xo4"]["sounds"][0] == "KEYS"
+    import pads
+    assert st["kits"]["list"] == pads.list_kits() and st["kits"]["current"] == app.kit()["name"]
+    assert st["decks"] is None and st["pocket"] == "cable"
+    app.web_command({"cmd": "xo4", "action": "pattern", "value": "C"})
+    app.web_command({"cmd": "xo4", "action": "midi_in", "value": True})
+    app.web_command({"cmd": "xo4", "action": "sound", "track": 2, "value": "BELL"})
+    st = app.web_status()
+    assert st["xo4"]["pattern"] == "C" and st["xo4"]["midi_in"] is True and sent == [True]
+    assert st["xo4"]["sounds"] == ["KEYS", "BELL"]
+    app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True}]
+    app.app_here = {"decks"}
+    app.web_command({"cmd": "set", "key": "mix_decks", "value": 150})
+    assert [(r["key"], r["level"]) for r in app.web_status()["mixer"]] == [("u-xo4", 100), ("decks", 150)]
+    try:
+        app.web_command({"cmd": "kit", "name": "NO-SUCH"})
+        assert False
+    except ValueError:
+        pass
+
 def test_home_shows_every_source():
     """HOME: every source with its mixer level (a bar and a %), the decks while they run, then the speaker; two
     columns past seven rows; a row opens the mixer"""
