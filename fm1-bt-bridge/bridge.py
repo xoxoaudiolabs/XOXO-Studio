@@ -491,7 +491,10 @@ class Loopback:
         if not self.running() or not self.key:
             return False
         source, sink = self.key[0], self.key[1]
-        ids = {str(((o.get("info") or {}).get("props") or {}).get("node.name")): o.get("id") for o in objects
+        # object.serial, not the id: PipeWire reuses ids (seen: the Pocket's receiver restarted as node 150 again,
+        # and POCKET stayed silent); a serial is never reused
+        ids = {str(((o.get("info") or {}).get("props") or {}).get("node.name")):
+               ((o.get("info") or {}).get("props") or {}).get("object.serial", o.get("id")) for o in objects
                if o.get("type") == "PipeWire:Interface:Node"}
         ends = (ids.get(source[8:] if source.startswith("monitor:") else source), ids.get(sink))
         if None in ends:
