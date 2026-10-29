@@ -847,6 +847,12 @@ def test_loopback_follows_a_source_back():
         copy.ensure("monitor:" + jbl, "alsa_output.jack", "fm1-phones")
         assert not copy.follow([node(141, jbl), node(47, "alsa_output.jack")])
         assert copy.follow([node(150, jbl), node(47, "alsa_output.jack")])
+        pocket = bridge.Loopback()                                    # back as the same id (PipeWire reuses
+        pocket.ensure("fm1-pocket", jbl, "fm1-mix-u-pocket")          # them), a new serial: still restarted
+        serial = lambda i, name, s: {"type": "PipeWire:Interface:Node", "id": i,   # noqa: E731
+                                     "info": {"props": {"node.name": name, "object.serial": s}}}
+        assert not pocket.follow([serial(150, "fm1-pocket", 900), serial(141, jbl, 800)])
+        assert pocket.follow([serial(150, "fm1-pocket", 931), serial(141, jbl, 800)])
     finally:
         bridge.subprocess.Popen, bridge.set_rate = real
 
