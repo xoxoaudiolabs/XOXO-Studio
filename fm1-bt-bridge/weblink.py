@@ -23,6 +23,7 @@ class WebLink:
         midi, clock = self.midi, getattr(self.midi, "clock", None) if self.midi else None
         keys = self.keys_route()
         return {
+            "box": "xoxo-studio",             # which box (one web app for it and the FM-1 Companions: "pocket", "studio")
             "sources": [self.channel_name(k, n) for k, n in self.mix_channels()],
             "live": self.live(),
             "mixer": self.web_mixer(),
