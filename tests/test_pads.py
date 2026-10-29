@@ -454,6 +454,7 @@ def test_sampler_in_the_box():
         def send(self, msg):
             self.sent.append(msg)
     b = blemidi.MidiBridge(pads=Conn())
+    b.xo4_in = True                                                  # (XO-4's MIDI IN on)
     b.to_ble = lambda m: None
     b.controllers.send_messages = lambda messages: None
     b.from_controllers(bytes([0x99, 36, 100]))                       # USB keys > SMP: on at first
