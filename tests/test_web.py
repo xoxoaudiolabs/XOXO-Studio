@@ -152,6 +152,44 @@ def test_status_and_commands():
     assert library.take_commands() == []                               # taken once
 
 
+
+def test_studio_commands():
+    """the Studio tab's commands: XO-4 (pattern, play, MIDI IN, a synth's sound), a kit, the decks' level"""
+    for good in ({"cmd": "xo4", "action": "pattern", "value": "C"}, {"cmd": "xo4", "action": "play"},
+                 {"cmd": "xo4", "action": "midi_in", "value": True},
+                 {"cmd": "xo4", "action": "sound", "track": 2, "value": "BASS"},
+                 {"cmd": "kit", "name": "808-KIT"}, {"cmd": "set", "key": "mix_decks", "value": 120}):
+        library.write_status({"live": True})
+        reply = jcall("/api/command", good)
+        assert reply[1]["ok"], (good, reply)
+    for bad in ({"cmd": "xo4", "action": "pattern", "value": "Z"}, {"cmd": "xo4", "action": "midi_in", "value": 1},
+                {"cmd": "xo4", "action": "sound", "track": 3, "value": "BASS"},
+                {"cmd": "xo4", "action": "sound", "track": True, "value": "BASS"},
+                {"cmd": "xo4", "action": "sound", "track": 1, "value": "TUBA"}, {"cmd": "xo4", "action": "erase"},
+                {"cmd": "kit", "name": ""}, {"cmd": "set", "key": "mix_a", "value": 100}):
+        library.write_status({"live": True})
+        assert jcall("/api/command", bad)[0] == 400, bad
+    queued = library.take_commands()
+    assert [c["cmd"] for c in queued] == ["xo4"] * 4 + ["kit", "set"]
+
+
+def test_dj_music():
+    """the DJ decks' music folder: listed, a track added (streamed to disk), deleted; only audio, only plain names"""
+    import djlib
+    status, body, _ = call("/api/upload?folder=music&name=Night%20Drive.mp3", raw=b"ID3" + b"\0" * 4096)
+    assert status == 200, body
+    assert (djlib.MUSIC / "Night Drive.mp3").stat().st_size == 4099
+    (djlib.MUSIC / "Crate").mkdir(exist_ok=True)
+    (djlib.MUSIC / "Crate" / "Deep.flac").write_bytes(b"fLaC")
+    tracks = {m["name"]: m for m in jcall("/api/music")[1]}
+    assert tracks["Night Drive.mp3"]["top"] and tracks["Night Drive.mp3"]["title"] == "Night Drive"
+    assert not tracks["Crate/Deep.flac"]["top"]                       # in a subfolder: listed, not deleted here
+    assert call("/api/upload?folder=music&name=notes.txt", raw=b"hi")[0] == 400
+    assert call("/api/upload?folder=music&name=..%2Fx.mp3", raw=b"ID3")[0] == 400
+    assert jcall("/api/delete", {"folder": "music", "name": "Crate/Deep.flac"})[0] == 404
+    assert jcall("/api/delete", {"folder": "music", "name": "Night Drive.mp3"})[1]["ok"]
+    assert not (djlib.MUSIC / "Night Drive.mp3").exists()
+
 def test_audio_ranges():
     data = bytes(range(256)) * 40
     (library.folder("recordings") / "2026-10-22_120000_fm1.wav").write_bytes(data)

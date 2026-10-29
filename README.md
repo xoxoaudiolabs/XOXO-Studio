@@ -39,6 +39,8 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 
 The web page is at `http://xoxostudio.local`. It's XOXO Studio's own web app, apart from the FM-1 Companion's, so a phone can keep both on its home screen.
 
+The web page's tabs: **Status** (speaker, volume, the mixer with DECKS while they play, a linked Pocket, clock, keyboard, Record), **Studio** (XO-4's patterns A–H, Play / Stop, MIDI IN and the synths' starting sounds; the pads' kits; what's on each DJ deck; the Studio DJ Music folder, where tracks can be added from a phone), **MIDI** (the routes and presets), **Library** (samples), **Editor** and **Recordings**.
+
 ## What's inside
 
 - **HOME:** the tempo with − / +; every source (each USB device, the pads, XO-4, the decks while they run) and the speaker, each with a small bar and a % for its mixer level; REC, START, TAP
@@ -130,6 +132,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
 - the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
 - XO-4's MIDI IN: starts off on the Studio, the app runs with it (its effect on notes tested on the PC only)
+- the web page's Studio tab (2026-10-29): it loads from the Studio and shows XO-4, the kits and the decks; XO-4's pattern changed from the page and back (checked in the page's status). Not yet tried from a phone: MIDI IN, the sounds, loading a kit, adding music, the decks' rows while they play, the DECKS level
 - the Pocket's sound over the link (2026-10-29, over Wi-Fi): the Studio makes POCKET its own mixer channel while the Pocket is linked, an FM-1 on the Pocket plays out of the Studio's speaker, and it comes back after the Pocket's sender restarts (the user's reports). Not yet tried: the speaker handover, the latency by ear
 - the Pocket on a direct Ethernet cable (2026-10-29): the Studio's eth0 takes 169.254.115.88 and keeps it past NetworkManager's DHCP timeout, the Pocket finds the Studio there by DNS-SD and links over it, and the Pocket answers a ping over the cable in about 1.5 ms. The Pocket's sound over the cable: "seems good now" (the user's report, after the Pocket's bridge restarted; before that it sent only silence, which the Pocket session traces to the FM-1's input needing to be opened afresh). Not yet tried after a reboot
 - the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error

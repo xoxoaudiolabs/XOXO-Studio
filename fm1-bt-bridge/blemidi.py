@@ -1359,7 +1359,7 @@ class MidiBridge:
         if not self.net:
             return {}
         mcu = self.mackie.state() if self.mcu.names() else None
-        return {"net": self.net.names(), "mcu": mcu, "net_error": self.net.error}
+        return {"net": self.net.names(), "net_hosts": self.net.hosts(), "mcu": mcu, "net_error": self.net.error}
 
     # ---- MIDI recording: what's played in, while the recorder records, kept for a .mid beside the take
 
@@ -1643,6 +1643,7 @@ class MidiProcess:
         self.pads = pads is not None          # the Studio's sampler takes notes (the routes' SMP)
         self.xo4 = xo4 is not None            # XO-4's MIDI track plays through the routes (their XO4)
         self.net, self.mcu = [], None        # network MIDI: computers connected; the control surface's state
+        self.net_hosts = {}                  # their addresses, by name
         self.enabled, self.peer, self.error = enabled, None, None
         self.pairing_until = 0.0
         self.last_activity = 0.0
@@ -1671,6 +1672,7 @@ class MidiProcess:
             self.clock = status.get("clock")
             self.notes, self.chans = status.get("notes") or [], status.get("chans", 0)
             self.net, self.mcu = status.get("net") or [], status.get("mcu")
+            self.net_hosts = status.get("net_hosts") or {}
             self.ble_found, self.ble_scanning = status.get("ble_found") or [], status.get("ble_scanning", False)
             keys = status.get("ble_keys")
             if keys is not None:              # None: the saved ones not sent yet (not "none saved")

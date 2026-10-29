@@ -2,10 +2,11 @@
 """XOXO Studio's web page, http://xoxostudio.local (the Pi's hostname) over Wi-Fi or Ethernet. Its own app,
 apart from the FM-1 Companion's: its own name and manifest id, so a phone keeps both on its home screen.
 
-Four tabs: Status (the box's live status, and the settings you change while playing: metronome, tempo,
-clock, arp, chord, volume, audio rate, Start/Stop, recording), MIDI (the routes as a grid, each route's
-settings, the four presets), Library (samples), Editor (a recording or a sample made into a new sample) and
-Recordings (listen in the browser, download, edit as a sample, delete).
+Tabs: Status (the box's live status, and the settings you change while playing: metronome, tempo, clock, arp,
+chord, volume, the mixer, audio rate, Start/Stop, recording, a linked Pocket), Studio (XO-4's patterns, play,
+MIDI IN and its synths' sounds; the pads' kit; the DJ decks: what's loaded, and their music folder), MIDI (the
+routes as a grid, each route's settings, the four presets), Library (samples), Editor (a recording or a sample
+made into a new sample) and Recordings (listen in the browser, download, edit as a sample, delete).
 
 Settings go to the box as commands (library.queue_command; the box applies them like the joystick).
 
@@ -25,10 +26,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blemidi  # noqa: E402
+import djlib  # noqa: E402
 import library  # noqa: E402
 import sampler  # noqa: E402
 
 MAX_UPLOAD = 50 * 1024 * 1024
+MAX_MUSIC = 200 * 1024 * 1024                  # a track for the DJ decks (a long WAV)
+PATTERNS = tuple("ABCDEFGH")                   # XO-4's (xo4.PATTERNS; xo4.py isn't loaded here: numpy)
+SOUNDS = ("KEYS", "BASS", "BELL", "PLUCK", "PAD", "LEAD")   # its synths' starting sounds (xo4.SOUNDS)
 EDITABLE = ("recordings", "samples")    # what the sample editor opens
 ICONS = Path(__file__).resolve().parent / "icons"    # the home-screen icons, for installing the page as an app
 MANIFEST = {"id": "/xoxo-studio", "name": "XOXO Studio", "short_name": "XOXO Studio", "start_url": "/", "scope": "/",
@@ -41,13 +46,34 @@ MANIFEST = {"id": "/xoxo-studio", "name": "XOXO Studio", "short_name": "XOXO Stu
 
 
 def safe_path(folder, name):
-    """a file in the library, or None: one of its folders, a plain name, the right kind of file"""
-    if folder not in library.FOLDERS or not isinstance(name, str):
+    """a file in the library, or None: one of its folders (or "music", the DJ decks' Studio DJ Music), a plain
+    name, the right kind of file"""
+    if not isinstance(name, str) or (folder not in library.FOLDERS and folder != "music"):
         return None
     base = Path(name).name
-    if base != name or base.startswith(".") or Path(base).suffix.lower() not in library.SUFFIXES[folder]:
+    kinds = djlib.AUDIO if folder == "music" else library.SUFFIXES[folder]
+    if base != name or base.startswith(".") or Path(base).suffix.lower() not in kinds:
         return None
+    if folder == "music":
+        djlib.MUSIC.mkdir(parents=True, exist_ok=True)
+        return djlib.MUSIC / base
     return library.folder(folder) / base
+
+
+def music_listing():
+    """the DJ decks' music folder: [{name, title, artist, bpm, camelot, bytes, top}] (top: a file of its own
+    there, which the page can delete; in a subfolder: only listed)"""
+    out = []
+    for rel, entry in sorted(djlib.listing(djlib.MUSIC).items()):
+        path = djlib.MUSIC / rel
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        rel = Path(rel).as_posix()            # ("/" between folders, on any system)
+        out.append({"name": rel, "title": entry.get("title") or path.stem, "artist": entry.get("artist") or "",
+                    "bpm": entry.get("bpm"), "camelot": entry.get("camelot"), "bytes": size, "top": "/" not in rel})
+    return out
 
 
 def check_command(c):
@@ -63,7 +89,7 @@ def check_command(c):
               "clock_mode": value in ("follow", "box"), "click": value in ("low", "mid", "high"),
               "audio_rate": value in (44100, 48000),
               "volume": number and int(value) == value and 0 <= value <= 100}.get(key)
-        if isinstance(key, str) and re.fullmatch(r"mix_u-[a-z0-9]+", key):
+        if isinstance(key, str) and re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):
             ok = True
@@ -76,6 +102,17 @@ def check_command(c):
         return {"cmd": cmd, "value": c["value"]}
     if cmd == "routes":
         return {"cmd": cmd, "routes": blemidi.clean_routes(c.get("routes"))}
+    if cmd == "xo4":
+        action, value = c.get("action"), c.get("value")
+        ok = {"pattern": value in PATTERNS, "midi_in": isinstance(value, bool), "play": True,
+              "sound": value in SOUNDS and c.get("track") in (1, 2) and not isinstance(c.get("track"), bool)}
+        if not ok.get(action):
+            raise ValueError("bad XO-4 command")
+        return {"cmd": cmd, "action": action, "value": value, "track": c.get("track")}
+    if cmd == "kit":
+        if not isinstance(c.get("name"), str) or not 0 < len(c["name"]) <= 40:
+            raise ValueError("bad kit")
+        return {"cmd": cmd, "name": c["name"]}
     if cmd == "preset":
         name = c.get("name")
         if c.get("slot") not in ("1", "2", "3", "4") or c.get("action") not in ("load", "save", "clear") \
@@ -153,6 +190,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, path.read_bytes(), "image/png")
         elif url.path == "/api/library":
             self.send(200, library.listing())
+        elif url.path == "/api/music":
+            self.send(200, music_listing())
         elif url.path == "/api/status":
             status = library.read_status()
             self.send(200, status if status else {"offline": True})
@@ -208,7 +247,9 @@ class Handler(BaseHTTPRequestHandler):
             path = safe_path(request.get("folder"), request.get("name"))
             if not path or not path.is_file():
                 return self.fail("no such file", 404)
-            if request.get("folder") == "recordings":
+            if request.get("folder") == "music":                      # the decks' scan forgets it next time
+                path.unlink()
+            elif request.get("folder") == "recordings":
                 library.delete_recording(path.name)                   # with its parts and clip counts
             else:
                 path.unlink()
@@ -250,9 +291,22 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError):
                 pass
             return self.fail("that kind of file doesn't go there")
-        data = self.body(MAX_UPLOAD)
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > (MAX_MUSIC if folder == "music" else MAX_UPLOAD):
+            self.close_connection = True      # (not read: too big to take)
+            return self.fail("too large")
         tmp = path.with_name("." + path.name + ".part")
-        tmp.write_bytes(data)
+        with open(tmp, "wb") as f:            # in pieces: a track can be bigger than the Pi would like in memory
+            left = length
+            while left > 0:
+                chunk = self.rfile.read(min(256 * 1024, left))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        if left > 0:
+            tmp.unlink(missing_ok=True)
+            return self.fail("the upload stopped part way")
         error = check_upload(folder, tmp)
         if error:
             tmp.unlink(missing_ok=True)
@@ -331,6 +385,9 @@ table.mx td button{width:100%;min-width:92px}table.mx td button.on{background:va
 table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
 .chgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.chgrid label{font-size:12px;color:var(--dim)}
 .chgrid select{width:100%;padding:6px;min-height:36px}
+.patgrid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin:4px 0 8px}.patgrid button{min-width:0;padding:9px 0}
+.patgrid button.on{background:var(--accent);border-color:var(--accent);color:#fff}.patgrid button.queued{outline:3px solid var(--rec);outline-offset:1px}
+.patgrid button.empty{opacity:.55}
 #toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%;text-align:center}
 #toast.shown{opacity:.94}
 .banner{border-radius:12px;padding:10px 12px;margin:0 0 12px;background:var(--soft)}
@@ -349,6 +406,7 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
   <div class="line" id="s-batline" hidden><span class="k">Battery</span><span class="v" id="s-bat">–</span></div>
   <div class="line"><span class="k">Sources</span><span class="v" id="s-src-in">–</span></div>
   <div class="line"><span class="k">Speaker</span><span class="v" id="s-spk">–</span></div>
+  <div class="line" id="s-pocketline" hidden><span class="k">Pocket</span><span class="v" id="s-pocket">–</span></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2"></div>
   <div id="s-mix"></div>
@@ -374,6 +432,29 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
   <p class="dim small" style="margin:8px 0 0">Records what the Studio plays (a WAV). Takes are in the Recordings tab.</p>
 </section>
 </div>
+</div>
+
+<!-- ======================= STUDIO ======================= -->
+<div class="tab" id="tab-studio">
+<div class="grid">
+<section><h2>XO-4</h2>
+  <div class="line"><span class="k">Pattern</span><span class="v" id="x-state">–</span></div>
+  <div class="patgrid" id="x-pats"></div>
+  <div class="line"><span class="k">Transport</span><button class="primary" id="x-play" onclick="cmd({cmd:'xo4',action:'play'})">▶ Play</button></div>
+  <div class="line"><span><span class="k">MIDI IN</span><br><span class="dim small">notes from the MIDI routes play its pads</span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
+  <div class="line"><span class="k">SYN 1 sound</span><select id="x-s1" onchange="xo4Sound(1, this.value)"></select></div>
+  <div class="line"><span class="k">SYN 2 sound</span><select id="x-s2" onchange="xo4Sound(2, this.value)"></select></div>
+  <p class="dim small" style="margin:6px 0 0">While it plays, a pattern starts on the next bar. Steps are made on the Studio's screen.</p>
+</section>
+<section><h2>Kit</h2>
+  <div class="line"><span class="k">Loaded</span><span class="v" id="k-cur">–</span></div>
+  <div id="k-list"></div>
+</section>
+<section><h2>DJ decks</h2><div id="d-decks"></div></section>
+</div>
+<section style="margin-top:12px"><h2>DJ music</h2><p class="meta" style="margin:-4px 0 6px">The Studio DJ Music folder. A track added here shows on the DECKS screen; press SCAN there for its tempo and key.</p>
+<div id="music"></div>
+<div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".mp3,.flac,.wav,.aif,.aiff,.ogg,.m4a" multiple onchange="upload('music',this)"><button onclick="this.previousElementSibling.click()">Add music…</button></label></div></section>
 </div>
 
 <!-- ======================= MIDI ======================= -->
@@ -427,6 +508,7 @@ table.mx td button.sel{outline:3px solid var(--accent);outline-offset:1px}
 
 <nav>
 <button data-tab="status"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Status</button>
+<button data-tab="studio"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Studio</button>
 <button data-tab="midi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 5v8M12 5v8M16 5v8"/></svg>MIDI</button>
 <button data-tab="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v16H4zM14 4l6 2-4 14-6-2z"/></svg>Library</button>
 <button data-tab="editor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>Editor</button>
@@ -459,7 +541,7 @@ function show(name) {
   tab = name; location.hash = name;
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("shown", t.id === "tab-" + name));
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("shown", b.dataset.tab === name));
-  if (name === "library" || name === "recordings" || name === "editor") refresh();
+  if (name === "library" || name === "recordings" || name === "editor" || name === "studio") refresh();
   if (name === "midi") { renderMatrix(); renderEditor(); renderPresets(); }
   status();
 }
@@ -487,6 +569,8 @@ function renderStatus() {
   if (bat) $("s-bat").textContent = `${bat.percent}%` + (bat.plugged ? " · charging" : "");
   $("s-spk").textContent = (st.speaker || (st.connecting ? "connecting…" : (st.speaker_name ? st.speaker_name + " (off)" : "none")))
     + (st.speaker && st.speaker_battery != null ? ` · battery ${st.speaker_battery}%` : "");
+  $("s-pocketline").hidden = !st.pocket;
+  if (st.pocket) $("s-pocket").textContent = "linked over " + (st.pocket === "cable" ? "the cable" : "the network") + " · POCKET in the mixer";
   if (Date.now() > editingUntil) { if (st.volume != null) $("s-vol").value = st.volume; $("s-tempo").value = s.bpm; }
   $("s-volv").textContent = st.volume != null ? st.volume + "%" : "–"; $("s-vol").disabled = st.volume == null;
   renderMixer(st);
@@ -525,6 +609,40 @@ $("s-vol").oninput = (e) => { editingUntil = Date.now() + 2500; $("s-volv").text
 $("s-tempo").onchange = (e) => { const v = Math.max(30, Math.min(300, Math.round(+e.target.value || 120))); e.target.value = v; set("bpm", v); };
 function bump(d) { editingUntil = Date.now() + 2500; const el = $("s-tempo"); el.value = Math.max(30, Math.min(300, (+el.value || 120) + d)); clearTimeout(tempoTimer); tempoTimer = setTimeout(() => set("bpm", +el.value), 350); }
 function toggleRec() { cmd({cmd:"record", value: st && st.recording != null ? "stop" : "start"}, false).then(() => setTimeout(refresh, 900)); }
+
+// ---------------------------------------------------------------- Studio tab
+let shownKits = "", music = [];
+function renderStudio() {
+  const x = st && !st.offline && st.xo4;
+  if (x) {
+    $("x-state").textContent = `${x.pattern}${x.queued ? " → " + x.queued + " next bar" : ""} · ${x.playing ? "playing" : "stopped"}`;
+    $("x-pats").innerHTML = "ABCDEFGH".split("").map((p) => `<button class="${p === x.pattern ? "on" : ""} ${p === x.queued ? "queued" : ""} ${x.used.includes(p) ? "" : "empty"}" onclick="cmd({cmd:'xo4',action:'pattern',value:${q(p)}})">${p}</button>`).join("");
+    $("x-play").textContent = x.playing ? "■ Stop" : "▶ Play"; $("x-play").className = x.playing ? "" : "primary";
+    $("x-midiin").checked = x.midi_in; $("x-midiin").onchange = (e) => cmd({cmd:"xo4", action:"midi_in", value:e.target.checked});
+    for (const t of [1, 2]) {
+      const el = $("x-s" + t), v = x.sounds[t - 1];
+      if (document.activeElement === el) continue;          // (not under a finger)
+      el.innerHTML = opt(v === "CUSTOM" ? ["CUSTOM", ...x.choices] : x.choices, v, (n) => n === "CUSTOM" ? "custom (from the SOUND page)" : n);
+    }
+  }
+  const k = st && !st.offline && st.kits;
+  if (k) {
+    $("k-cur").textContent = k.current;
+    const key = JSON.stringify(k);
+    if (key !== shownKits) { shownKits = key; $("k-list").innerHTML = k.list.map((n) => `<div class="item"><span class="name">${esc(n.replace(/-/g, " "))}</span><button onclick="cmd({cmd:'kit', name:${q(n)}}, false)">Load</button></div>`).join("") || `<p class="empty">No kits saved.</p>`; }
+  }
+  const d = st && !st.offline ? st.decks : null;
+  $("d-decks").innerHTML = !d ? `<p class="empty">The decks aren't running: open DECKS on the Studio.</p>` : d.map((x, i) => `<div class="item"><div><div class="name">${"AB"[i]} · ${esc(x.title || "empty")}</div>
+    <div class="meta">${x.artist ? esc(x.artist) + " · " : ""}${x.bpm ? Number(x.bpm).toFixed(1) + " BPM" : ""}${x.camelot ? " · " + esc(x.camelot) : ""}</div></div>
+    <div class="row"><span class="pill ${x.playing ? "live" : ""}">${x.playing ? "playing" : "paused"}</span>${x.fx ? `<span class="pill ${x.fx_on ? "rec" : ""}">${esc(x.fx)}${x.fx_on ? " on" : ""}</span>` : ""}</div></div>`).join("");
+}
+function renderMusic() {
+  $("music").innerHTML = music.length ? music.map((m) => `<div class="item"><div><div class="name">${esc(m.title)}</div>
+    <div class="meta">${m.artist ? esc(m.artist) + " · " : ""}${m.bpm ? Math.round(m.bpm) + " BPM · " : ""}${m.camelot ? esc(m.camelot) + " · " : ""}${(m.bytes / 1048576).toFixed(1)} MB${m.top ? "" : " · in " + esc(m.name.slice(0, m.name.lastIndexOf("/")))}</div></div>
+    ${m.top ? `<button class="danger" onclick="del('music',${q(m.name)})">Delete</button>` : ""}</div>`).join("")
+    : `<p class="empty">No music yet: add MP3, FLAC or WAV files.</p>`;
+}
+function xo4Sound(track, v) { if (v !== "CUSTOM") cmd({cmd:"xo4", action:"sound", track, value:v}); }
 
 // ---------------------------------------------------------------- MIDI tab
 // NET (network MIDI: a DAW on a computer, the desk box) only while a computer is connected
@@ -745,6 +863,7 @@ let shownRoutes = "", shownPresets = "";
 async function status() {
   st = await fetch("/api/status").then((r) => r.json()).catch(() => ({offline:true}));
   renderStatus();
+  if (tab === "studio") renderStudio();
   if (st.offline) return;
   // redraw the MIDI tab only when the box's routes or presets changed: a redraw closes an open dropdown,
   // and the presets' name fields mustn't change under your fingers
@@ -755,8 +874,11 @@ async function status() {
   if (r !== shownRoutes && Date.now() > routesDirtyUntil) { routes = JSON.parse(r); shownRoutes = r; renderMatrix(); renderEditor(); }
   if (p !== shownPresets && !String(document.activeElement && document.activeElement.id).startsWith("pn")) { shownPresets = p; renderPresets(); }
 }
-async function refresh() { lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib); renderLibrary(); }
-async function pollStatus() { if (!document.hidden && (tab === "status" || tab === "midi" || tab === "recordings")) await status(); setTimeout(pollStatus, 1000); }
+async function refresh() {
+  lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib); renderLibrary();
+  if (tab === "studio") { music = await fetch("/api/music").then((r) => r.json()).catch(() => music); renderMusic(); }
+}
+async function pollStatus() { if (!document.hidden && (tab === "status" || tab === "studio" || tab === "midi" || tab === "recordings")) await status(); setTimeout(pollStatus, 1000); }
 show((location.hash || "#status").slice(1).replace(/[^a-z]/g, "") || "status");
 pollStatus();
 </script></body></html>
