@@ -130,7 +130,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
 - the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
 - XO-4's MIDI IN: starts off on the Studio, the app runs with it (its effect on notes tested on the PC only)
-- the Pocket's sound over the link (2026-10-29, over Wi-Fi): the Studio's receiver locks onto the real Pocket's stream, and the Studio makes POCKET its own mixer channel while the Pocket is linked. Not yet heard: what reached the Studio was silent, as nothing was playing on the Pocket
+- the Pocket's sound over the link (2026-10-29, over Wi-Fi): the Studio's receiver locks onto the real Pocket's stream, and the Studio makes POCKET its own mixer channel while the Pocket is linked. and an FM-1 on the Pocket plays out of the Studio's speaker (the user's report). Not yet tried: a cable, a Pocket sender that restarts, the latency by ear
 - the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error
 - the DJ decks played by touch alone (no controller), music from a USB drive, out of a JBL Go 3 over Bluetooth (the user's report, 2026-10-28, after the fix for their volume starting at 0)
 
