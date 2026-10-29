@@ -70,7 +70,7 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
   - **DRUMS:**
     - **The pads:** played (they sound while held, playing or not) and picked for the steps: the steps put the picked pad on or off.
     - **The hit just put on:** its LEVEL, ratchet and the step's NUDGE − / +. QUANT: live REC on the grid, or where it was played.
-    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4 as on an MPC, full screen, with KIT, RPT, FX, REC and EDIT above them. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
+    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4 as on an MPC, full screen, with KIT, RPT, FX, REC and EDIT above them. **MIDI IN:** off at first, so a synth or the Pocket on the MIDI routes plays only itself; on, the routes' SMP column plays the pads (and live REC records them). Clock and start/stop still reach the pads either way. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
   - **SYN 1, SYN 2, MIDI:**
     - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
     - **FX:** XO-4's own sixteen punch-in FX on the two synths' sound (hold one, or LATCH it), apart from the pads' FX.
@@ -129,6 +129,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
 - HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
 - the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
+- XO-4's MIDI IN: starts off on the Studio, the app runs with it (its effect on notes tested on the PC only)
 - the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error
 - the DJ decks played by touch alone (no controller), music from a USB drive, out of a JBL Go 3 over Bluetooth (the user's report, 2026-10-28, after the fix for their volume starting at 0)
 
