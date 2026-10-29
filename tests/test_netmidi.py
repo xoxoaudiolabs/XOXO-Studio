@@ -59,6 +59,17 @@ def test_session():
     assert session.names() == []
 
 
+
+def test_a_pocket_forgotten_sooner():
+    """a peer gone without BY: a computer forgotten after 90 s, a Pocket (syncing every 10 s) after 25 s"""
+    import time
+    s = netmidi.Session("XOXO Studio", 0, lambda m: None)
+    now = time.monotonic()
+    s.peers = {1: {"name": "Mac", "data": ("a", 1), "seen": now - 30},
+               2: {"name": "FM-1 Companion Pocket", "data": ("b", 1), "seen": now - 30}}
+    s.expire()
+    assert s.names() == ["Mac"]
+
 def test_mackie():
     m = netmidi.Mackie()
     m.feed(bytes([0xE2, 0x7F, 0x3F]))                               # strip 3's fader

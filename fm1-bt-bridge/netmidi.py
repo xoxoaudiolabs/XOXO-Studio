@@ -174,10 +174,12 @@ class Session:
 
     def expire(self):
         """a computer that went away without saying (sleep, Wi-Fi off): forgotten after 90 s without a sync
-        (a session syncs at least every 10-60 s)"""
+        (a session syncs at least every 10-60 s). A Pocket (its link syncs every 10 s): after 25 s, so an unplugged
+        one leaves the Studio's mixer (POCKET) soon"""
         now = time.monotonic()
         with self.lock:
-            for ssrc in [k for k, p in self.peers.items() if now - p.get("seen", now) > 90]:
+            for ssrc in [k for k, p in self.peers.items()
+                         if now - p.get("seen", now) > (25 if "Pocket" in p.get("name", "") else 90)]:
                 del self.peers[ssrc]
 
     def send(self, messages):
