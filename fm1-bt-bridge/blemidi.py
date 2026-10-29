@@ -795,9 +795,9 @@ ARPS = ("up", "down", "updown", "played", "random")
 ARP_RATES = {"1/4": 24, "1/8": 12, "1/8T": 8, "1/16": 6}  # clock ticks (24 a quarter note) per step
 
 
-# the keyboards (Bluetooth, USB) and a DAW play the pads, and the box's clock goes out on Bluetooth; the rest is a
-# choice
-OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "NET>USB", "Box>NET", "Box>SMP",
+# the keyboards (Bluetooth, USB) and a DAW play the pads, and the box's clock goes out on Bluetooth and the network
+# (the Studio leads: a Pocket linked by Ethernet follows it); the rest is a choice
+OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "NET>USB", "Box>SMP",
                 "XO4>BT", "XO4>NET", "XO4>SMP")      # XO-4's MIDI track plays the USB gear
 
 

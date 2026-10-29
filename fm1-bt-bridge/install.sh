@@ -88,6 +88,9 @@ if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): lis
     echo "== Announcing the Studio's network MIDI (XOXO Studio, XOXO Studio MCU)"
     sudo install -D -m 644 "$DIR/config/fm1-midi.service" /etc/avahi/services/fm1-midi.service
     sudo install -D -m 644 "$DIR/config/fm1-midi-mcu.service" /etc/avahi/services/fm1-midi-mcu.service
+    echo "== Ethernet straight to another box (the Pocket): a link-local address when there's no router"
+    sudo install -D -m 644 "$DIR/config/50-fm1-ethernet-link.conf" /etc/NetworkManager/conf.d/50-fm1-ethernet-link.conf
+    sudo nmcli general reload conf || true
 fi
 
 echo "== Letting the bridge shut down and switch Wi-Fi without a password"
