@@ -12,7 +12,9 @@ the decks are: the step grid and the keys need the height the tab bar takes.
               DRUMS: the hit last put on (the pad picked, on that step): its LEVEL (NORM, GHOST, SOFT, HARD), its
               ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
   below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the pads' punch-in FX), PADS (the 16 pads big,
-              4x4 as on an MPC, full screen: KIT, RPT, FX, REC, EDIT above them), EDIT, and the 16 pads:
+              4x4 as on an MPC, full screen: KIT, RPT, FX, REC, EDIT above them), MIDI IN (off at first: notes from
+              the MIDI routes, a synth's or the Pocket's, don't play the pads; on, the routes' SMP column does), EDIT,
+              and the 16 pads:
               played (they sound while held, playing or not; with REC on, recorded) and picked for the steps; EDIT on,
               a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling, trimming). These
               are the pads' own pages (deskpads.py), back to XO-4 when closed. The rest: OCT - / +, KEY and SCALE (the note keys
@@ -209,12 +211,14 @@ class DeskXO4:
         kit = a.kit()
         y = HDR_H + 136                         # KIT, RPT, FX, EDIT (where the synths have OCT, KEY, SCALE, SOUND)
         repeat = a.state.get("repeat")
-        self.button(img, d, (4, y, 112, y + 30), kit["name"][:12], self.open_kits, key="xo4-kits")
-        self.button(img, d, (116, y, 206, y + 30), "RPT" if repeat is None else "RPT " + pads.DIVS[repeat],
+        self.button(img, d, (4, y, 96, y + 30), kit["name"][:10], self.open_kits, key="xo4-kits")
+        self.button(img, d, (100, y, 182, y + 30), "RPT" if repeat is None else "RPT " + pads.DIVS[repeat],
                     self.toggle_repeat, on=repeat is not None, key="xo4-rpt")
-        self.button(img, d, (210, y, 270, y + 30), "FX", self.open_fx, on=self.fx_on is not None, key="xo4-fx")
-        self.button(img, d, (274, y, 372, y + 30), "PADS", self.open_mpc, key="xo4-mpc")   # the big pads
-        self.button(img, d, (376, y, W - 4, y + 30), "EDIT", self.toggle_pad_mode, on=self.pad_mode, key="xo4-edit")
+        self.button(img, d, (186, y, 226, y + 30), "FX", self.open_fx, on=self.fx_on is not None, key="xo4-fx")
+        self.button(img, d, (230, y, 290, y + 30), "PADS", self.open_mpc, key="xo4-mpc")   # the big pads
+        self.button(img, d, (294, y, 384, y + 30), "MIDI IN", self.xo4_toggle_midi_in,
+                    on=bool(a.state.get("xo4_midi_in")), key="xo4-midi-in")
+        self.button(img, d, (388, y, W - 4, y + 30), "EDIT", self.toggle_pad_mode, on=self.pad_mode, key="xo4-edit")
         top, pw = y + 36, W // 8
         sounding = set(a.pads.sounding) if a.pads else set()
         for i in range(16):
@@ -358,6 +362,15 @@ class DeskXO4:
         song = self.xo4_song()
         song["quant"] = not song["quant"]
         self.xo4_save(song)
+
+    def xo4_toggle_midi_in(self):
+        """MIDI IN: the routes' notes play XO-4's pads (on) or not (off: a synth on the routes plays only itself)"""
+        a = self.app
+        a.state["xo4_midi_in"] = not a.state.get("xo4_midi_in")
+        a.save_settings()
+        if a.midi and hasattr(a.midi, "set_xo4_in"):
+            a.midi.set_xo4_in(a.state["xo4_midi_in"])
+        self.xo4_rev += 1
 
     def xo4_toggle_rec(self):
         self.xo4_rec = not self.xo4_rec

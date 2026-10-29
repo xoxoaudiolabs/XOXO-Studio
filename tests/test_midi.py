@@ -45,6 +45,7 @@ class FakePads:
 
 def make_bridge():
     bridge = blemidi.MidiBridge(pads=FakePads())
+    bridge.xo4_in = True                       # XO-4's MIDI IN on: the routes' SMP column reaches the pads
     bridge.controllers = FakeControllers()
     bridge.to_ble_sent = []
     bridge.to_ble = bridge.to_ble_sent.append
@@ -106,6 +107,7 @@ def test_several_bluetooth_devices():
     """Phones connect to the box and the box connects to keyboards, several at once: each sender keeps its own
     running status, and what goes out to BT reaches every one of them."""
     bridge = blemidi.MidiBridge(pads=FakePads())
+    bridge.xo4_in = True
     notified, written = [], []
     connected = [("/hci0/dev_AA", "iPad", "AA:00:00:00:00:01"), ("/hci0/dev_BB", "microKEY", "BB:00:00:00:00:02")]
     bridge.bluez = {"idle_add": lambda f: f(), "connected_peers": lambda: connected,
@@ -417,6 +419,20 @@ def test_usb_keys_play_the_pads():
     bridge.from_controllers(b"\x90\x41\x40")
     assert bridge.pads.sent[-1] == b"\x90\x4d\x40"
     assert {k for k, r in blemidi.default_routes().items() if not r["on"]} == set(blemidi.OFF_AT_FIRST)
+
+
+def test_xo4_midi_in_off():
+    """XO-4's MIDI IN off (as it starts): a synth's notes on the routes don't play the pads; real-time still does"""
+    assert blemidi.MidiBridge(pads=FakePads()).xo4_in is False
+    bridge = make_bridge()
+    bridge.xo4_in = False
+    bridge.from_controllers(b"\x90\x3c\x40")
+    bridge.deliver("USB>SMP", [b"\xf8", b"\x80\x3c\x00"])
+    assert bridge.pads.sent == [b"\xf8"]
+    bridge.xo4_in = True
+    bridge.from_controllers(b"\x90\x3c\x40")
+    assert bridge.pads.sent == [b"\xf8", b"\x90\x3c\x40"]
+
 
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]

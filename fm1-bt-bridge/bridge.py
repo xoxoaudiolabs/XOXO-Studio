@@ -49,6 +49,7 @@ DEFAULTS = {
     "audio_rate": 48000,    # PipeWire's rate (Hz), 48000 or 44100: the USB sources are opened at this rate
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
+    "xo4_midi_in": False,   # XO-4's MIDI IN: the routes' notes (the SMP column) play its pads; off, they don't
     "routes": None,         # the MIDI matrix: {"BT>SMP": {...}, ...}; None = every route as it starts
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
     "metronome": False,     # a click on the speaker in time with the clock
@@ -1968,6 +1969,7 @@ def main():
         midi.set_ble_saved(state["ble_keys"])
         midi.set_clock(state["clock_mode"], state["bpm"])
         midi.set_routes(state["routes"])
+        midi.set_xo4_in(state["xo4_midi_in"])
     if boot:
         deskboot.show(display, boot, 2)
     state["touch_cal"] = list(state["touch_cal"])   # its own list: calibrating changes it in place

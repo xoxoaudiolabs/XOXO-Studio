@@ -1080,6 +1080,7 @@ class MidiBridge:
         self.enabled = enabled
         self.xo4, self.xo4_notes = xo4, xo4_notes   # XO-4 (the Studio): the grid to it, its MIDI track's notes from it
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
+        self.xo4_in = False                 # XO-4's MIDI IN (its DRUMS row): off, the routes' notes don't play its pads
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         if net:
             import netmidi
@@ -1142,7 +1143,9 @@ class MidiBridge:
             if self.net:
                 self.net.send(messages)
         elif dest == "SMP":
-            if self.pads is not None:
+            if not self.xo4_in:               # MIDI IN off: only real-time (clock, start, stop) reaches the pads
+                messages = [m for m in messages if m and m[0] >= 0xF8]
+            if self.pads is not None and messages:
                 with self.pads_lock:
                     try:
                         self.pads.send(("midi", [list(m) for m in messages]))
@@ -1533,6 +1536,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.transport(command[1])
             elif command[0] == "routes":           # ("routes", {route key: settings})
                 bridge.set_routes(command[1])
+            elif command[0] == "xo4_in":           # ("xo4_in", on): XO-4's MIDI IN
+                bridge.xo4_in = bool(command[1])
             elif command[0] == "metronome":        # ("metronome", on, speaker, level, rate)
                 wanted[:] = command[1:5]
             elif command[0] == "mcu" and bridge.mcu:   # ("mcu", [messages]): the control surface, to the DAW
@@ -1713,6 +1718,9 @@ class MidiProcess:
 
     def set_routes(self, routes):
         self.conn.send(("routes", routes))
+
+    def set_xo4_in(self, on):
+        self.conn.send(("xo4_in", bool(on)))
 
     def set_metronome(self, on, target, level, rate):
         self.conn.send(("metronome", on, target, level, rate))

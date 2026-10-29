@@ -742,6 +742,7 @@ def test_each_usb_midi_device_its_own_route():
         def send(self, msg):
             self.sent.extend(msg[1])
     b = blemidi.MidiBridge(net=True, pads=Pads())                              # the MIDI process, the Studio's
+    b.xo4_in = True                                                            # (XO-4's MIDI IN on)
     to_dev = []
     b.controllers.send_to = lambda name, m: to_dev.append((name, list(m)))
     b.controllers.names = lambda: ["Clipper", "EP-136"]
