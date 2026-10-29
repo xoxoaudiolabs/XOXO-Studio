@@ -1246,7 +1246,7 @@ def test_web_studio_status_and_commands():
     assert st["xo4"]["pattern"] == "A" and st["xo4"]["midi_in"] is False and st["xo4"]["sounds"][0] == "KEYS"
     import pads
     assert st["kits"]["list"] == pads.list_kits() and st["kits"]["current"] == app.kit()["name"]
-    assert st["decks"] is None and st["pocket"] == "cable"
+    assert st["decks"] is None and st["pocket"] == "cable" and st["box"] == "xoxo-studio"
     app.web_command({"cmd": "xo4", "action": "pattern", "value": "C"})
     app.web_command({"cmd": "xo4", "action": "midi_in", "value": True})
     app.web_command({"cmd": "xo4", "action": "sound", "track": 2, "value": "BELL"})
