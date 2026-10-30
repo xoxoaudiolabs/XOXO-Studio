@@ -148,6 +148,12 @@ def test_headphone_jack():
             "alsa.card_name": "vc4-hdmi"}}}]
     jack = bridge.jack_node(objects)
     assert jack["id"] == 9 and bridge.jack_node(objects[1:]) is None
+    dac = {"type": "PipeWire:Interface:Node", "id": 12, "info": {"props": {      # a DAC HAT: the jack, before the Pi's
+        "media.class": "Audio/Sink", "node.name": "alsa_output.platform-soc_sound.stereo-fallback",
+        "node.description": "BossDAC", "alsa.card_name": "BossDAC"}}}
+    assert bridge.jack_node(objects + [dac]) == {"id": 12, "name": "alsa_output.platform-soc_sound.stereo-fallback",
+                                                  "label": "DAC"}
+    assert bridge.dac_node(objects) is None
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings = lambda: None
     app.sink, app.jack = sink, jack

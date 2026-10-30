@@ -590,8 +590,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         if self.decks_proc and self.decks_proc.running():   # the DJ decks (the DECKS tab), while they run
             cols.append(("decks", "DECKS", 0, a.mix_level("decks"), 200))
         cols.append(("spk", "SPKR", 3, a.volume or 0, 100))
-        if a.jack:                           # the 3.5 mm jack
-            cols.append(("phones", "PHONES", 2, a.state.get("phones", 80), 100))
+        if a.jack:                           # the headphone jack: the Pi's 3.5 mm, or a DAC HAT's ("DAC")
+            cols.append(("phones", a.jack.get("label") or "PHONES", 2, a.state.get("phones", 80), 100))
         nodes = dict(a.mix_channels())
         if len(self.sources()) > 1:          # Record parts: only with more than one source
             box = (120, 4, 240, HDR_H - 6)
