@@ -353,9 +353,29 @@ def node_volume(objects, node_id):
     return None
 
 
+def dac_node(objects):
+    """a DAC HAT on the GPIO header (I2S: the InnoMaker HiFi DAC HAT, a PCM5122, as the Allo Boss's driver names
+    it), as {"id", "name", "label"}, or None. Its headphone amp and RCA line out carry the same sound"""
+    for o in objects:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = (o.get("info") or {}).get("props") or {}
+        name = str(props.get("node.name", ""))
+        text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name",
+                                                         "alsa.driver_name", "api.alsa.card.name")).lower()
+        if (props.get("media.class") == "Audio/Sink" and name.startswith("alsa_output.")
+                and any(k in text for k in ("bossdac", "boss dac", "pcm512x", "pcm5122"))):
+            return {"id": o.get("id"), "name": name, "label": "DAC"}
+    return None
+
+
 def jack_node(objects):
-    """the Pi's own 3.5 mm headphone jack (bcm2835 Headphones) as {"id", "name", "label"}, or None (the Zero
-    has none; HDMI sound is left out)"""
+    """the Studio's headphone jack as {"id", "name", "label"}, or None: a DAC HAT's when there's one (dac_node:
+    better sound, its own headphone amp, and line out beside it), else the Pi's own 3.5 mm jack (bcm2835
+    Headphones; the Zero has none; HDMI sound is left out)"""
+    dac = dac_node(objects)
+    if dac:
+        return dac
     for o in objects:
         if o.get("type") != "PipeWire:Interface:Node":
             continue

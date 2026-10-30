@@ -2,7 +2,15 @@
 # XOXO Studio installer for Raspberry Pi OS Lite: the Studio (Pi 3/4 + 3.5" SPI touchscreen), or the pocket
 # build (Pi Zero W + OLED HAT) it shares its code with, told apart by the board.
 # Run as your normal user (not with sudo):  bash install.sh
+# With the InnoMaker HiFi DAC HAT (PCM5122) under the screen:  bash install.sh --dac
 set -euo pipefail
+DAC=0
+for arg in "$@"; do
+    case "$arg" in
+        --dac) DAC=1 ;;
+        *) echo "Unknown option: $arg (the one there is: --dac)" >&2; exit 1 ;;
+    esac
+done
 
 if [ "$(id -u)" -eq 0 ]; then
     echo "Run this as your normal user, not root: bash install.sh" >&2
@@ -75,6 +83,18 @@ if [ "$BUILD" = desk ] && ! grep -q "^dtoverlay=\(waveshare35a\|piscreen\|mipi-d
 dtparam=spi=on
 %s
 ' "$SCREEN" | sudo tee -a "$CONFIG" >/dev/null
+fi
+# The InnoMaker HiFi DAC HAT (bash install.sh --dac): its PCM5122 on I2S (GPIO 18, 19, 21; mute GPIO 6; the DAC
+# on I2C), none of them the screen's pins. Its ID EEPROM isn't fitted, so the driver is named here: the Allo
+# Boss's, as InnoMaker's manual says. The Studio then uses it as its headphone jack (bridge.dac_node). Takes effect
+# at the next boot.
+if [ "$BUILD" = desk ] && [ "$DAC" = 1 ] && ! grep -q "^dtoverlay=allo-boss-dac-pcm512x-audio" "$CONFIG"; then
+    sudo cp "$CONFIG" "$CONFIG.bak"
+    printf '
+[all]
+# XOXO Studio: the InnoMaker HiFi DAC HAT
+dtoverlay=allo-boss-dac-pcm512x-audio
+' | sudo tee -a "$CONFIG" >/dev/null
 fi
 
 if [ "$BUILD" = desk ]; then              # the boot screen as soon as the touchscreen appears (deskboot.py)

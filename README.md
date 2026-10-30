@@ -9,7 +9,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 - Raspberry Pi 3 B+ (what the FM-1 Companion Studio ran on), with a microSD card (8 GB or more)
 - A 3.5" SPI touchscreen (ILI9486 display, XPT2046 touch: the common "3.5 inch RPi LCD")
 - A Bluetooth speaker or headphones, or the Pi's 3.5 mm jack
-- Optional: USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar battery
+- Optional: USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar battery, an InnoMaker HiFi DAC HAT (PCM5122: headphones and RCA line out; it goes on the Pi under the screen, its header passing the pins through; not yet tried)
 
 ## Set up
 
@@ -33,6 +33,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
    bash fm1-bt-bridge/install.sh
    sudo reboot
    ```
+   With the InnoMaker HiFi DAC HAT: `bash fm1-bt-bridge/install.sh --dac` (it adds the DAC's driver to `config.txt`). The Studio then uses the DAC as its headphone jack (PHONES in the mixer shows as DAC), instead of the Pi's own.
    On the first start the Studio asks for the touch setup (four targets) before HOME.
 
 **Updating with git:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
