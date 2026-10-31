@@ -29,6 +29,10 @@ Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Stud
                                                  it) -> {card number: name}, asked on each device scan. Its names
                                                  come before add_audio_source's and add_midi_device's rules
   confirm(title, lines, fn)                      the Studio's hold-to-confirm screen (a 2 s hold), then fn()
+  set_detail(source, text)                       a few words beside a sound source's name, on HOME and the web
+                                                 page's mixer, in place of "USB" (an FM-1's firmware: "SLOOP
+                                                 2.8"); source its name ("FM-1 A"), text None to take it away.
+                                                 Gone when the plug-in is switched off
   pocket()                                       a linked Pocket's IP address (its network MIDI session's), or
                                                  None. Its FM-1s A-C come as sound sources fm1-pocket-a/b/c and
                                                  MIDI devices "FM-1 Companion Pocket FM-1 A/B/C": name them with
@@ -112,6 +116,7 @@ class Studio:
         self._host, self.id, self.settings = host, pid, settings
         self.audio, self.midi, self.screens, self.events, self.cards = [], [], [], {}, []
         self.web_status, self.web_commands = None, {}
+        self.details = {}                     # source name (upper case) -> its few words (set_detail)
 
     def save(self):
         self._host.save()
@@ -121,6 +126,13 @@ class Studio:
 
     def sources(self):
         return [str(n.get("label", "")) for n in (getattr(self._host.app, "others", None) or [])]
+
+    def set_detail(self, source, text):
+        key = str(source).strip().upper()
+        if text is None or not str(text).strip():
+            self.details.pop(key, None)
+        else:
+            self.details[key] = str(text).strip()[:16]
 
     def pocket(self):
         app = self._host.app
@@ -275,6 +287,11 @@ class Host:
                     counts[(pid, i)] = n + 1
                     return str(self.call(pid, label, n, default=pid) if callable(label) else label)[:16]
         return None
+
+    def source_detail(self, name):
+        """a plug-in's few words for a sound source (set_detail), or None"""
+        key = str(name).strip().upper()
+        return next((s.details[key] for s in list(self.loaded.values()) if key in s.details), None)
 
     def midi_names(self):
         """[[pattern, name]] for the MIDI process: a device whose client name matches is called name ({n}: A, B..)"""
