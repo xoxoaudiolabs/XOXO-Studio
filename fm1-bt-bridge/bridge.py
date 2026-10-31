@@ -1152,6 +1152,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return label.upper()[:7] + (f" #{n + 1}" if n else "")
         return label.upper()[:10]
 
+    def source_detail(self, key, node=None):
+        """a plug-in's few words for a sound source ("SLOOP 2.8" for an FM-1), or None"""
+        return self.plugin_host.source_detail(self.channel_name(key, node))
+
     def kit(self):
         """the Studio's kit in use; none yet (a first start): the ready-made 808 KIT, so the pads and XO-4's drums
         play out of the box"""

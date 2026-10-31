@@ -1752,3 +1752,30 @@ def test_mixer_shows_only_the_pocket_fm1s_plugged_in():
     assert names(["FM-1 Companion Pocket"]) == ["alsa_input.usb-EP-136", "fm1-pocket"]
     assert names(["FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A", "FM-1 Companion Pocket FM-1 C"]) == [
         "alsa_input.usb-EP-136", "fm1-pocket-a", "fm1-pocket-c"]
+
+
+def test_plugin_detail_beside_a_source():
+    """a plug-in's few words beside a source (the FM-1 Companion: an FM-1's firmware), on HOME and the web
+    page's mixer, in place of USB; gone when it takes them away or is switched off"""
+    import bridge
+    import deskui
+    import plugins
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.others = [{"id": 1, "name": "alsa_input.usb-Felucca", "label": "FM-1 A"},
+                  {"id": 2, "name": "alsa_input.usb-EP-136", "label": "EP-136"}]
+    studio = plugins.Studio(app.plugin_host, "fm1-companion", {})
+    app.plugin_host.loaded["fm1-companion"] = studio
+    ui = deskui.DeskUI(app, app.display)
+    details = lambda: {label: detail for _, label, detail, _ in ui.sources()}   # noqa: E731
+    assert details() == {"FM-1 A": "USB", "EP-136": "USB"}
+    studio.set_detail("fm-1 a", "SLOOP 2.8")
+    assert details() == {"FM-1 A": "SLOOP 2.8", "EP-136": "USB"}
+    assert [r.get("detail") for r in app.web_status()["mixer"]] == ["SLOOP 2.8", None]
+    ui.render(0.0, force=True)                                        # (HOME draws it)
+    studio.set_detail("FM-1 A", None)
+    assert details()["FM-1 A"] == "USB"
+    studio.set_detail("FM-1 A", "FELUCCA 1.0.12 AND MORE")
+    assert details()["FM-1 A"] == "FELUCCA 1.0.12 A"                  # (16 at most)
+    app.plugin_host.loaded.clear()                                    # switched off
+    assert details()["FM-1 A"] == "USB"

@@ -49,7 +49,8 @@ class WebLink:
     def web_mixer(self):
         """the mixer's levels: each source, and the DJ decks while they play; None with only one source"""
         rows = [{"key": k, "label": self.channel_name(k, n), "level": self.mix_level(k),
-                 "input": self.input_label(k, n), "mute": k in self.mutes, "solo": k in self.solos}
+                 "input": self.input_label(k, n), "detail": self.source_detail(k, n),
+                 "mute": k in self.mutes, "solo": k in self.solos}
                 for k, n in self.mix_channels()]
         if "decks" in (getattr(self, "app_here", None) or ()):
             rows.append({"key": "decks", "label": "DECKS", "level": self.mix_level("decks"), "input": None,

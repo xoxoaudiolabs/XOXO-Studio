@@ -744,11 +744,11 @@ function renderLink(l) {                           // the Pocket's Studio link (
 // a source with more than two channels (an audio interface) shows which pair it takes; tap it for the next
 let shownMix = "", mixUntil = 0, mixTimer;
 function renderMixer(st) {
-  const m = st.mixer, keys = m ? m.map((c) => c.key + c.label + (c.input || "")).join() : "";
+  const m = st.mixer, keys = m ? m.map((c) => c.key + c.label + (c.input || "") + (c.detail || "")).join() : "";
   if (keys !== shownMix) {
     shownMix = keys;
     $("s-mix").innerHTML = !m ? "" : `<div class="line"><span class="k">Mixer</span></div>` + m.map((c) =>
-      `<div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">${esc(c.label)}${c.input ? ` <button onclick="set('input_${c.key}', true)">${esc(c.input)}</button>` : ""}</span><span class="row"><button id="mx-${c.key}m" onclick="set('mute_${c.key}', !this.classList.contains('on'))" title="Mute">M</button><button id="mx-${c.key}s" onclick="set('solo_${c.key}', !this.classList.contains('on'))" title="Solo">S</button><b id="mx-${c.key}v"></b></span></div>
+      `<div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">${esc(c.label)}${c.detail ? ` <span class="meta">${esc(c.detail)}</span>` : ""}${c.input ? ` <button onclick="set('input_${c.key}', true)">${esc(c.input)}</button>` : ""}</span><span class="row"><button id="mx-${c.key}m" onclick="set('mute_${c.key}', !this.classList.contains('on'))" title="Mute">M</button><button id="mx-${c.key}s" onclick="set('solo_${c.key}', !this.classList.contains('on'))" title="Solo">S</button><b id="mx-${c.key}v"></b></span></div>
        <input type="range" id="mx-${c.key}" min="0" max="200" step="5" oninput="mixSet('${c.key}', this.value)"></div>`).join("");
   }
   for (const c of m || []) { $(`mx-${c.key}m`).classList.toggle("on", !!c.mute); $(`mx-${c.key}s`).classList.toggle("on", !!c.solo); }
