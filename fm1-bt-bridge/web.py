@@ -28,9 +28,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blemidi  # noqa: E402
 import djlib  # noqa: E402
 import library  # noqa: E402
+import plugins  # noqa: E402
 import sampler  # noqa: E402
 
 MAX_UPLOAD = 50 * 1024 * 1024
+CONTENT = {".wav": "audio/wav", ".json": "application/json"}   # a file's type when it's sent (else octet-stream)
 MAX_MUSIC = 200 * 1024 * 1024                  # a track for the DJ decks (a long WAV)
 PATTERNS = tuple("ABCDEFGH")                   # XO-4's (xo4.PATTERNS; xo4.py isn't loaded here: numpy)
 SOUNDS = ("KEYS", "BASS", "BELL", "PLUCK", "PAD", "LEAD")   # its synths' starting sounds (xo4.SOUNDS)
@@ -45,13 +47,27 @@ MANIFEST = {"id": "/xoxo-studio", "name": "XOXO Studio", "short_name": "XOXO Stu
                        "purpose": "maskable"}]}
 
 
+def plugin_folders():
+    """{folder: [".suffix"]}: the library folders of the plug-ins switched on (their plugin.json "library", in the
+    box's status); none while the box isn't answering"""
+    out = {}
+    for p in ((library.read_status() or {}).get("plugins") or {}).get("list") or []:
+        if isinstance(p, dict) and p.get("on"):
+            for folder, kinds in plugins.library_folders(p.get("library")).items():
+                out.setdefault(folder, kinds)
+    return out
+
+
 def safe_path(folder, name):
-    """a file in the library, or None: one of its folders (or "music", the DJ decks' Studio DJ Music), a plain
-    name, the right kind of file"""
-    if not isinstance(name, str) or (folder not in library.FOLDERS and folder != "music"):
+    """a file in the library, or None: one of its folders (or "music", the DJ decks' Studio DJ Music, or a folder
+    of a plug-in's: plugin_folders), a plain name, the right kind of file"""
+    own = folder in library.FOLDERS or folder == "music"
+    kinds = None if own or not isinstance(folder, str) else plugin_folders().get(folder)
+    if not isinstance(name, str) or not (own or kinds):
         return None
     base = Path(name).name
-    kinds = djlib.AUDIO if folder == "music" else library.SUFFIXES[folder]
+    if own:
+        kinds = djlib.AUDIO if folder == "music" else library.SUFFIXES[folder]
     if base != name or base.startswith(".") or Path(base).suffix.lower() not in kinds:
         return None
     if folder == "music":
@@ -209,7 +225,8 @@ class Handler(BaseHTTPRequestHandler):
             path = safe_path(folder, urllib.parse.unquote(name))
             if not path or not path.is_file():
                 return self.fail("no such file", 404)
-            self.send_file(path, "audio/wav", inline=query.get("inline") == "1")
+            self.send_file(path, CONTENT.get(path.suffix.lower(), "application/octet-stream"),
+                           inline=query.get("inline") == "1")
         elif url.path == "/api/edit-info":            # what the sample editor opens a take or sample with
             folder = query.get("folder", "")
             path = safe_path(folder, query.get("file", "")) if folder in EDITABLE else None
@@ -524,11 +541,11 @@ details summary{cursor:pointer}
 
 <!-- ======================= LIBRARY ======================= -->
 <div class="tab" id="tab-library">
-<div class="chips" id="libnav"><button onclick="jump('lib-backups')">Backups<b id="n-backups"></b></button><button onclick="jump('lib-projects')">Projects<b id="n-projects"></b></button><button onclick="jump('lib-songs')">Songs<b id="n-songs"></b></button><button onclick="jump('lib-patches')">DX7<b id="n-patches"></b></button><button onclick="jump('lib-samples')">Samples<b id="n-samples"></b></button><button onclick="jump('lib-firmware')">Firmware<b id="n-firmware"></b></button><button onclick="jump('lib-software')">Software</button></div>
+<div class="chips" id="libnav"><button onclick="jump('lib-backups')">Backups<b id="n-backups"></b></button><button onclick="jump('lib-projects')">Projects<b id="n-projects"></b></button><button onclick="jump('lib-songs')">Songs<b id="n-songs"></b></button><button onclick="jump('lib-patches')">DX7<b id="n-patches"></b></button><button onclick="jump('lib-samples')">Samples<b id="n-samples"></b></button><button onclick="jump('lib-firmware')">Firmware<b id="n-firmware"></b></button><button id="nav-software" onclick="jump('lib-software')">Software</button></div>
 <section id="lib-now"><h2>Now</h2><div class="job"><div id="job" class="meta">Nothing running.</div><div class="bar" id="barwrap" hidden><div id="bar"></div></div></div>
 <div class="row" style="margin-top:12px"><button class="primary" onclick="run('backup')">Back up now</button>
-<button onclick="run('fetch-sloop')">Get SLOOP update</button><button onclick="run('fetch-clipper')" title="isod89's synthesizer firmware, experimental">Get Clipper (exp.)</button><button onclick="run('import-sd')">Import SD card</button></div>
-<p class="meta" style="margin:12px 0 0">Anything that writes to the FM-1 asks for a confirmation on the box: hold the joystick press for 2 seconds. Restores, projects, songs and firmware back the FM-1 up first; a sample only replaces its slot.</p></section>
+<button onclick="run('fetch-sloop')">Get SLOOP update</button><button onclick="run('fetch-clipper')" title="isod89's synthesizer firmware, experimental">Get Clipper (exp.)</button><button id="lib-sd" onclick="run('import-sd')">Import SD card</button><select id="lib-fm1" hidden onchange="plug('use', {fm1:this.value})" title="which FM-1 the library works on"></select></div>
+<p class="meta" style="margin:12px 0 0" id="lib-howto">Anything that writes to the FM-1 asks for a confirmation on the box: hold the joystick press for 2 seconds. Restores, projects, songs and firmware back the FM-1 up first; a sample only replaces its slot.</p></section>
 
 <p class="label group" id="g-fm1">On the FM-1</p>
 <section id="lib-backups"><h2>Backups</h2><div id="backups"></div>
@@ -612,18 +629,27 @@ let st = null;                                     // the box's status
 let tab = "status";
 // one page for every box: the FM-1 Companion (Pocket, Studio) and XOXO Studio, which has no FM-1 ("box" in its status)
 const xoxo = () => !!st && st.box === "xoxo-studio";
+// on XOXO Studio the FM-1 library is the FM-1 Companion plug-in's (XOXO-Studio-Plugins): its status, or null when it's off
+const fm1 = () => (xoxo() && ((st.plugins || {}).status || {})["fm1-companion"]) || null;
+const plug = (name, args = {}) => post("/api/command", {cmd:"plugin", id:"fm1-companion", name, args}).then((j) => { setTimeout(update, 600); return j; });
 let shownBox = null;
 function applyBox() {
-  const x = xoxo(), studio = !!(st && !st.offline && (st.xo4 || st.kits || st.decks));
-  const key = `${x}${studio}`;
+  const x = xoxo(), studio = !!(st && !st.offline && (st.xo4 || st.kits || st.decks)), p = fm1(), nolib = x && !p;
+  const key = `${x}${studio}${!!p}${p ? (p.fm1s || []).join("") + p.library_fm1 : ""}`;
   if (key === shownBox) return;
   shownBox = key;
   $("title").innerHTML = x ? "XOXO<i>//</i>Studio" : "FM-1<i>//</i>Companion";
   document.title = x ? "XOXO Studio" : "FM-1 Companion";
   document.querySelector('nav button[data-tab="studio"]').hidden = !studio;
-  for (const id of ["libnav", "lib-now", "g-fm1", "lib-backups", "lib-projects", "lib-songs", "lib-patches", "g-fw", "lib-firmware", "lib-software", "smp-fm1"]) $(id).hidden = x;
+  for (const id of ["libnav", "lib-now", "g-fm1", "lib-backups", "lib-projects", "lib-songs", "lib-patches", "g-fw", "lib-firmware", "smp-fm1"]) $(id).hidden = nolib;
+  for (const id of ["lib-software", "nav-software", "lib-sd"]) $(id).hidden = x;     // (the Studio's own updates, its own SD import)
   for (const id of ["smp-pads", "smp-sd"]) $(id).hidden = !x;
-  document.querySelectorAll(".fm1only").forEach((e) => e.hidden = x);
+  document.querySelectorAll(".fm1only").forEach((e) => e.hidden = nolib);
+  const letters = p ? p.fm1s || [] : [];
+  $("lib-fm1").hidden = letters.length < 2;
+  $("lib-fm1").innerHTML = letters.map((l) => `<option value="${l}" ${l === p.library_fm1 ? "selected" : ""}>Library: FM-1 ${l}</option>`).join("");
+  $("lib-howto").textContent = x ? "Anything that writes to the FM-1 asks for a confirmation on the Studio's screen: hold it for 2 seconds. Restores, projects, songs and firmware back the FM-1 up first; a sample only replaces its slot."
+    : "Anything that writes to the FM-1 asks for a confirmation on the box: hold the joystick press for 2 seconds. Restores, projects, songs and firmware back the FM-1 up first; a sample only replaces its slot.";
   $("s-recnote").textContent = x ? "Records what the Studio plays (a WAV). Takes are in the Recordings tab."
     : "Records the FM-1 on the box (a WAV at the FM-1's own rate). Takes are in the Recordings tab.";
   $("s-kbnote").textContent = x ? "Arp and Chord switch every keyboard route to your MIDI gear; pattern, rate and chord type: MIDI tab, on a route."
@@ -857,8 +883,11 @@ function preset(slot, action) {
 }
 
 // ---------------------------------------------------------------- library and recordings
-const run = (c) => post("/api/run", {cmd:c}).then(() => { refresh(); setTimeout(update, 300); });
-const ask = (body) => post("/api/ask", body).then(() => setTimeout(update, 300));
+// the library's jobs: the box's own (/api/run, /api/ask), or on XOXO Studio the FM-1 Companion plug-in's commands
+const PLUG_RUNS = {"backup": ["backup", {}], "song-backup": ["song-backup", {}], "fetch-sloop": ["fetch", {firmware:"sloop"}],
+                   "fetch-clipper": ["fetch", {firmware:"clipper"}]};
+const run = (c) => (fm1() && PLUG_RUNS[c] ? plug(...PLUG_RUNS[c]) : post("/api/run", {cmd:c})).then(() => { refresh(); setTimeout(update, 300); });
+const ask = (body) => (fm1() ? plug("ask", body) : post("/api/ask", body)).then(() => setTimeout(update, 300));
 async function del(folder, name) { if (confirm(`Delete ${name}?`)) { await post("/api/delete", {folder, name}); refresh(); } }
 async function upload(folder, input) {
   for (const f of input.files) {
@@ -887,7 +916,7 @@ function renderLibrary() {
   const all = [...files, ...fromBackups];
   $("projects").innerHTML = all.length ? all.map((p, i) => `<div class="item"><div><div class="name">${esc(p.label)}</div><div class="meta">${p.meta}</div></div>
     <div class="row">${targetSelect("t" + i)}<button onclick="ask({cmd:'load-project', folder:${q(p.folder)}, file:${q(p.file)}, source:${q(p.source)}, target:$('t${i}').value})">Load…</button>
-    ${p.folder === "backups" ? `<a href="/api/project?backup=${encodeURIComponent(p.file)}&source=${p.source}" download><button>Download</button></a>` : `<a href="/files/projects/${encodeURIComponent(p.file)}" download><button>Download</button></a><button class="danger" onclick="del('projects',${q(p.file)})">Delete</button>`}</div></div>`).join("")
+    ${p.folder === "backups" ? (xoxo() ? "" : `<a href="/api/project?backup=${encodeURIComponent(p.file)}&source=${p.source}" download><button>Download</button></a>`) : `<a href="/files/projects/${encodeURIComponent(p.file)}" download><button>Download</button></a><button class="danger" onclick="del('projects',${q(p.file)})">Delete</button>`}</div></div>`).join("")
     : `<p class="empty">No projects yet: make a backup, or upload a project file.</p>`;
   const patches = lib.patches || [];
   $("patches").innerHTML = patches.length ? patches.map((p, i) => `<div class="item"><div><div class="name">${esc(p.name)}</div>
@@ -902,7 +931,7 @@ function renderLibrary() {
     <div class="row">${s.damaged ? "" : `<button onclick="ask({cmd:'load-song', file:${q(s.name)}})">Load…</button>`}<a href="/files/songs/${encodeURIComponent(s.name)}" download><button>Download</button></a>
     <button class="danger" onclick="del('songs',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No songs yet: Back up song saves the one on the FM-1.</p>`;
-  $("samples").innerHTML = lib.samples.length ? lib.samples.map((s) => `<div class="item"><label class="row">${xoxo() ? "" : `<input type="checkbox" class="pick" value="${esc(s.name)}" style="width:22px;height:22px">`}<span class="name">${esc(s.name)}</span></label>
+  $("samples").innerHTML = lib.samples.length ? lib.samples.map((s) => `<div class="item"><label class="row">${xoxo() && !fm1() ? "" : `<input type="checkbox" class="pick" value="${esc(s.name)}" style="width:22px;height:22px">`}<span class="name">${esc(s.name)}</span></label>
     <div class="row"><span class="meta">${(s.bytes / 1024).toFixed(0)} KB</span><button onclick="sedOpen('samples', ${q(s.name)})">Edit…</button><button class="danger" onclick="del('samples',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No WAV files yet.</p>`;
   $("firmware").innerHTML = lib.firmware.length ? lib.firmware.map((f) => `<div class="item"><div><div class="name">${esc(f.name)}</div><div class="meta">${when(f.date)}</div></div>
@@ -1032,14 +1061,19 @@ async function sedSave() {
 // ---------------------------------------------------------------- polling
 let last = "";
 async function update() {                          // the library job, as before
-  if (xoxo()) return false;                        // (XOXO Studio has none)
-  const s = await fetch("/api/state").then((r) => r.json()).catch(() => ({}));
+  let s;
+  if (xoxo()) {                                    // XOXO Studio: the FM-1 Companion plug-in's job, in the box's status
+    st = await fetch("/api/status").then((r) => r.json()).catch(() => st); applyBox();
+    const p = fm1();
+    if (!p) return false;                          // (without the plug-in there's no library job)
+    s = Object.assign({}, p.job || {}, {waiting: !!p.waiting, listed: p.library_at});
+  } else s = await fetch("/api/state").then((r) => r.json()).catch(() => ({}));
   const running = s.state === "running";
-  $("job").innerHTML = s.waiting ? "Waiting for the confirmation on the box…"
+  $("job").innerHTML = s.waiting ? `Waiting for the confirmation on the ${xoxo() ? "Studio's screen" : "box"}…`
     : running ? `${esc(s.job)}: ${esc(s.step)}${s.percent != null ? " " + Math.round(s.percent) + "%" : ""}`
     : s.state ? `Last: ${esc(s.job)} <span style="color:var(${s.state === "done" ? "--on" : "--bad"})">${esc(s.state === "done" ? "done" : "failed")}</span>: ${esc(s.message)}` : "Nothing running.";
   $("barwrap").hidden = !running || s.percent == null; $("bar").style.width = (s.percent || 0) + "%";
-  const key = `${s.state}${s.finished}`;
+  const key = `${s.state}${s.finished}${s.listed}`;
   if (key !== last) { last = key; refresh(); }
   return running || s.waiting;
 }
@@ -1059,7 +1093,9 @@ async function status() {
   if (p !== shownPresets && !String(document.activeElement && document.activeElement.id).startsWith("pn")) { shownPresets = p; renderPresets(); }
 }
 async function refresh() {
-  lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib); renderLibrary();
+  lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib);
+  if (fm1()) lib = Object.assign({}, fm1().library || {}, lib);   // the plug-in's folders (backups, projects ...)
+  renderLibrary();
   if (tab === "library" && st && !st.offline && !xoxo()) software();
   if (tab === "studio") { music = await fetch("/api/music").then((r) => r.json()).catch(() => music); renderMusic(); }
 }

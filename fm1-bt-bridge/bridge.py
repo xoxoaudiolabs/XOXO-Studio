@@ -863,6 +863,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.card_loop = Loopback(state["audio_rate"])  # the main mix copied to the I/O card
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
         self.plugin_host = plugins.Host(self)  # the plug-ins (plugins.py): started in main()
+        self.cards_sent = None                # the plug-ins' {sound card: name} the MIDI process has
         self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
         self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
         self.copy_set = None                  # (node id, level) last set on the jack's copy of the main mix
@@ -959,6 +960,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def scan_devices(self):
         if self.midi:
             self.midi.poll()
+            cards = self.plugin_host.card_names()  # (the mixer's names come from the same, in pick_nodes)
+            if cards != self.cards_sent and hasattr(self.midi, "set_cards"):
+                self.midi.set_cards(cards)
+                self.cards_sent = cards
         found = pw_nodes(self.pw, self.plugin_host)
         if found is None:
             return                            # couldn't look: keep everything as it is
@@ -1107,6 +1112,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         """a plug-in switched on or off: its device names to the MIDI process, the sources scanned again"""
         if self.midi and hasattr(self.midi, "set_names"):
             self.midi.set_names(self.plugin_host.midi_names())
+        self.cards_sent = None                # (sent again on the next scan)
         self.scan_now = True
         self.post("status", True)
 
