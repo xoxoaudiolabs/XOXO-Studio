@@ -269,7 +269,11 @@ def pick_nodes(objects):
         cls, name = props.get("media.class", ""), props.get("node.name", "")
         label = props.get("node.description") or props.get("node.nick") or name
         node = {"id": o.get("id"), "name": name, "label": label}
-        if cls == "Audio/Source" and name.startswith("alsa_input.") and ".usb-" in name:
+        text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name"))
+        if cls == "Audio/Source" and name.startswith("alsa_input.") and is_computer(text):
+            # the computer's sound over USB (a Pi 4 Studio as its interface): a source, COMPUTER
+            sources.append(dict(node, label="COMPUTER", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name.startswith("alsa_input.") and ".usb-" in name:
             # the USB card's own name ("EP-136"), not the description ("... Analog Stereo")
             node["label"] = props.get("alsa.card_name") or props.get("node.nick") or label
             path = re.search(r":(\d+)", str(props.get("api.alsa.path", "")))   # "front:3": sound card 3
@@ -350,6 +354,27 @@ def node_volume(objects, node_id):
                 volumes = props.get("channelVolumes") if isinstance(props, dict) else None
                 if volumes:
                     return round(max(0.0, volumes[0]) ** (1 / 3) * 100)
+    return None
+
+
+def is_computer(text):
+    """a PipeWire node's names are the computer's USB link (a Pi 4 Studio as a USB interface: its UAC2 gadget,
+    xoxo-usb-gadget.sh, on the USB-C port's controller, fe980000.usb)"""
+    low = str(text).lower()
+    return "uac2" in low or "fe980000.usb" in low
+
+
+def computer_node(objects):
+    """the computer's side of the USB link: the sink the Studio plays into (the computer's input, in its DAW), as
+    {"id", "name", "label"}, or None (not a Pi 4, or no computer plugged in)"""
+    for o in objects:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = (o.get("info") or {}).get("props") or {}
+        name = str(props.get("node.name", ""))
+        text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name"))
+        if props.get("media.class") == "Audio/Sink" and name.startswith("alsa_output.") and is_computer(text):
+            return {"id": o.get("id"), "name": name, "label": "COMPUTER"}
     return None
 
 
@@ -830,6 +855,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.card = None                      # the I/O card's line out (iocard.sink_node), when it's plugged in
         self.card_loop = Loopback(state["audio_rate"])  # the main mix copied to the I/O card
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
+        self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
+        self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
         self.copy_set = None                  # (node id, level) last set on the jack's copy of the main mix
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
@@ -932,6 +959,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
+        if computer_node(objects) != self.computer:
+            plugged = self.computer is None
+            self.computer = computer_node(objects)
+            if plugged != (self.computer is None):
+                self.say("Computer connected (USB)" if self.computer else "Computer disconnected", 2)
+            self.post("status", True)
         if iocard.sink_node(objects) != self.card:
             plugged = self.card is None
             self.card = iocard.sink_node(objects)
@@ -954,7 +987,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.post("status", changed)
         channels = self.mix_channels()
         loops = [self.loop, self.jack_loop, self.card_loop]
-        for loop in loops + list(self.mixer.channels.values()) + list(self.cue_mixer.channels.values()):
+        mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
+        for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
                 self.post("status", False)
         main, copy = self.outputs()
@@ -968,6 +1002,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         cued = [(key, node["name"], self.input_pair(key, node)) for key, node in channels if key in self.cued()]
         cued += [(key, APP_NODES[key], None) for key in sorted(self.app_here) if key in self.cued()]   # an app:
         self.cue_mixer.ensure(self.jack and self.jack["name"], cued)   # its stream, after its level (set there)
+        self.pc_mixer.ensure(self.computer and self.computer["name"], self.computer_feeds(channels))
+        self.pc_mixer.set_levels(objects, {key: self.mix_level(key) for key, _ in channels}
+                                 | {key: self.mix_level(key) for key in self.app_here})
         cue_level, main_level = self.cue_levels()
         self.cue_mixer.set_levels(objects, {key: cue_level for key, _, _ in cued})
         copy_id = next((o.get("id") for o in objects
@@ -994,6 +1031,15 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.mix_lost = 0
             only = channels[0][1] if channels else None
             self.loop.ensure(only and only["name"], main)
+
+    def computer_feeds(self, channels):
+        """what goes to the computer over USB: every source at its mixer level, and the Studio's apps (the decks),
+        but not the computer's own sound: a DAW that monitors its input would hear itself back, round and round"""
+        if not self.computer:
+            return []
+        feeds = [(key, node["name"], self.input_pair(key, node)) for key, node in channels
+                 if node.get("label") != "COMPUTER" and self.mix_level(key) > 0]
+        return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
 
     def outputs(self):
         """(the node name the sound goes to, a second one that gets a copy of it, or None): the Bluetooth
@@ -1503,6 +1549,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.jack_loop.reopen(rate)
             self.card_loop.reopen(rate)
             self.cue_mixer.reopen(rate)
+            self.pc_mixer.reopen(rate)
             self.say(f"{rate / 1000:g} kHz: audio restarts")
         elif key == "clock":
             self.set_clock("box" if self.state["clock_mode"] == "follow" else "follow")
@@ -2080,6 +2127,7 @@ def main():
         app.jack_loop.stop()
         app.card_loop.stop()
         app.cue_mixer.stop()
+        app.pc_mixer.stop()
 
 
 if __name__ == "__main__":

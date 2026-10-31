@@ -709,6 +709,9 @@ class UsbControllers:
                 if iocard.din_port(name):
                     out[iocard.DIN] = name
                 continue
+            if low.startswith("f_midi"):               # a computer on a Pi 4 Studio's USB-C (xoxo-usb-gadget.sh)
+                out.setdefault(COMPUTER, name)
+                continue
             out.setdefault(name.split(":")[0], name)
         return out
 
@@ -780,6 +783,7 @@ class UsbControllers:
 # ---------------------------------------------------------------- the MIDI matrix
 
 SOURCES, DESTINATIONS = ("BT", "USB", "NET", "XO4", "Box"), ("BT", "USB", "NET", "SMP")
+COMPUTER = "COMPUTER"       # a computer on a Pi 4 Studio's USB-C: one more USB MIDI device, by this name
 # XO4: XO-4's MIDI track (xo4.py), on the Studio
 # SMP: the Studio's MPC-style sampler (pads.py): notes 36-51 play its 16 pads
 # NET: network MIDI (netmidi.py: a DAW on a computer, such as Kraken), on the desk box

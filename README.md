@@ -6,14 +6,17 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 
 ## Hardware
 
-- Raspberry Pi 3 B+ (what the FM-1 Companion Studio ran on), with a microSD card (8 GB or more)
-- A 3.5" SPI touchscreen (ILI9486 display, XPT2046 touch: the common "3.5 inch RPi LCD")
-- A Bluetooth speaker or headphones, or the Pi's 3.5 mm jack
-- Optional: USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar battery, an InnoMaker HiFi DAC HAT (PCM5122: headphones and RCA line out; it goes on the Pi under the screen, its header passing the pins through; not yet tried)
+**The parts, their cost (about $129–144 from PiShop.us) and how they go together: [docs/BUILD.md](docs/BUILD.md).** In short:
+
+- **Raspberry Pi 4** (1 GB is enough), the planned build: its USB-C port makes the Studio a USB audio + MIDI interface for a computer. A Raspberry Pi 3 B+ runs everything else (the Studio so far has run on one)
+- A 3.5" SPI touchscreen on the pins (ILI9486 display, XPT2046 touch): the Hosyond / Waveshare (A) "3.5 inch RPi LCD" (tested), or the Waveshare (C) (not yet tried)
+- A microSD card (16 GB or more)
+- A Bluetooth speaker or headphones, or a wired one (the Pi's 3.5 mm jack, or the DAC HAT)
+- Optional: the InnoMaker HiFi DAC HAT (headphones and RCA line out), USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar 3 Plus battery
 
 ## Set up
 
-1. **Flash the card** with Raspberry Pi Imager: *Raspberry Pi 3*, *Raspberry Pi OS Lite*. In its settings, set the hostname `XOXOStudio`, a user name and password, your Wi-Fi, and **enable SSH**.
+1. **Flash the card** with Raspberry Pi Imager: your Pi (*Raspberry Pi 4*, or *3*), *Raspberry Pi OS Lite*. In its settings, set the hostname `XOXOStudio`, a user name and password, your Wi-Fi, and **enable SSH**.
 2. **Boot the Pi** (give it a few minutes the first time).
 3. **Get the app onto the Pi**, either way:
    - **From a download:** on GitHub, *Code › Download ZIP*, unzip it, and from the unzipped `XOXO-Studio-main` folder:
@@ -33,7 +36,10 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
    bash fm1-bt-bridge/install.sh
    sudo reboot
    ```
-   With the InnoMaker HiFi DAC HAT: `bash fm1-bt-bridge/install.sh --dac` (it adds the DAC's driver to `config.txt`). The Studio then uses the DAC as its headphone jack (PHONES in the mixer shows as DAC), instead of the Pi's own.
+   Options, for the parts you have (e.g. `bash fm1-bt-bridge/install.sh --dac --screen c`):
+   - `--dac`: the InnoMaker HiFi DAC HAT (it adds the DAC's driver to `config.txt`). The Studio then uses the DAC as its headphone jack (PHONES in the mixer shows as DAC), instead of the Pi's own.
+   - `--screen c`: the Waveshare 3.5" (C). Without it, the Hosyond / Waveshare (A).
+   - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose.
    On the first start the Studio asks for the touch setup (four targets) before HOME.
 
 **Updating with git:** on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
@@ -103,6 +109,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 
 ## Known limitations
 
+- **The Pi 4 build isn't tried yet** (its parts arrive in November 2026): the Studio as a computer's USB audio + MIDI interface, the Waveshare (C) screen, the DAC HAT, the passive case. All of it is written and tested on a PC only.
 - **Mostly untried on hardware.** Much of the Studio has only run on a PC so far: see [Tested](#tested) for what has and hasn't been tried on a Pi.
 - **One hardware setup.** Made for a Raspberry Pi 3 B+ with a 3.5" 480×320 touchscreen (ILI9486 / XPT2046). Other Pis and other screens haven't been tried, and the screens are drawn for 480×320 only.
 - **CPU.** Each part was measured on its own on a Pi 3 B+: XO-4 about 30% of one core while it plays, the pads about 20%, the decks 28% (up to 49% with REVERB on both decks). Everything running at once hasn't been measured.
