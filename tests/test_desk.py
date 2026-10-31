@@ -1739,3 +1739,16 @@ def test_pocket_fm1s_on_their_own():
     assert app.pocket_address() == "169.254.66.49"
     host = plugins.Host(app)
     assert plugins.Studio(host, "x", {}).pocket() == "169.254.66.49"
+
+
+def test_mixer_shows_only_the_pocket_fm1s_plugged_in():
+    """the mixer's Pocket channels: none without a Pocket; POCKET while it sends one mix; once it sends its FM-1s
+    apart, a channel for each FM-1 plugged into it (its own network MIDI session says so) and no POCKET"""
+    import bridge
+    nodes = [{"name": n, "label": n} for n in ("alsa_input.usb-EP-136", "fm1-pocket", "fm1-pocket-a",
+                                               "fm1-pocket-b", "fm1-pocket-c")]
+    names = lambda peers: [n["name"] for n in bridge.pocket_sources(nodes, peers)]   # noqa: E731
+    assert names(["Kraken"]) == ["alsa_input.usb-EP-136"]
+    assert names(["FM-1 Companion Pocket"]) == ["alsa_input.usb-EP-136", "fm1-pocket"]
+    assert names(["FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A", "FM-1 Companion Pocket FM-1 C"]) == [
+        "alsa_input.usb-EP-136", "fm1-pocket-a", "fm1-pocket-c"]
