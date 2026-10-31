@@ -2,14 +2,26 @@
 # XOXO Studio installer for Raspberry Pi OS Lite: the Studio (Pi 3/4 + 3.5" SPI touchscreen), or the pocket
 # build (Pi Zero W + OLED HAT) it shares its code with, told apart by the board.
 # Run as your normal user (not with sudo):  bash install.sh
-# With the InnoMaker HiFi DAC HAT (PCM5122) under the screen:  bash install.sh --dac
+# Options (the Studio; docs/BUILD.md):
+#   --dac          the InnoMaker HiFi DAC HAT (PCM5122) under the screen
+#   --screen a     the 3.5" touchscreen: the Hosyond / Waveshare (A) (the default)
+#   --screen c     the Waveshare 3.5" (C), 125 MHz SPI
+# e.g.  bash install.sh --dac --screen c
 set -euo pipefail
 DAC=0
-for arg in "$@"; do
-    case "$arg" in
+SCREEN_KIND=""
+while [ $# -gt 0 ]; do
+    case "$1" in
         --dac) DAC=1 ;;
-        *) echo "Unknown option: $arg (the one there is: --dac)" >&2; exit 1 ;;
+        --screen)
+            shift
+            case "${1:-}" in
+                a|c) SCREEN_KIND="$1" ;;
+                *) echo "--screen takes a (the Hosyond / Waveshare A) or c (the Waveshare C)" >&2; exit 1 ;;
+            esac ;;
+        *) echo "Unknown option: $1 (there are: --dac, --screen a, --screen c)" >&2; exit 1 ;;
     esac
+    shift
 done
 
 if [ "$(id -u)" -eq 0 ]; then
@@ -70,12 +82,22 @@ CONFIG=/boot/firmware/config.txt
 # CE0, DC GPIO24, reset GPIO25; touch on CE1, its interrupt GPIO17). Its fbtft driver, not its DRM one (drm):
 # on the Hosyond 3.5" the DRM driver's start-up leaves the panel white (tested 2026-10-24). 24 MHz SPI: clean on
 # that panel and half again the frames of 16 MHz (the meters smoother; tested 2026-10-24).
-if [ -f "$(dirname "$CONFIG")/overlays/waveshare35a.dtbo" ]; then
+# The Waveshare (C) (--screen c) is the same chips run faster (its "125 MHz" design): Waveshare's own overlay
+# (waveshare35c) when it's in the overlays folder (Raspberry Pi OS doesn't ship it), else piscreen at 48 MHz.
+# Not yet tried on a (C): if its picture is wrong, put Waveshare's waveshare35c.dtbo in the overlays folder and run
+# this again with --screen c.
+OVERLAYS="$(dirname "$CONFIG")/overlays"
+if [ "$SCREEN_KIND" = c ] && [ -f "$OVERLAYS/waveshare35c.dtbo" ]; then
+    SCREEN="dtoverlay=waveshare35c,rotate=90"
+elif [ "$SCREEN_KIND" = c ]; then
+    SCREEN="dtoverlay=piscreen,speed=48000000,rotate=90"
+elif [ -f "$OVERLAYS/waveshare35a.dtbo" ]; then
     SCREEN="dtoverlay=waveshare35a,rotate=90"
 else
     SCREEN="dtoverlay=piscreen,speed=24000000,rotate=90"
 fi
-if [ "$BUILD" = desk ] && ! grep -q "^dtoverlay=\(waveshare35a\|piscreen\|mipi-dbi-spi\)" "$CONFIG"; then
+SCREEN_LINE="^dtoverlay=\(waveshare35a\|waveshare35c\|piscreen\|mipi-dbi-spi\)"
+if [ "$BUILD" = desk ] && ! grep -q "$SCREEN_LINE" "$CONFIG"; then
     sudo cp "$CONFIG" "$CONFIG.bak"
     printf '
 [all]
@@ -83,6 +105,9 @@ if [ "$BUILD" = desk ] && ! grep -q "^dtoverlay=\(waveshare35a\|piscreen\|mipi-d
 dtparam=spi=on
 %s
 ' "$SCREEN" | sudo tee -a "$CONFIG" >/dev/null
+elif [ "$BUILD" = desk ] && [ -n "$SCREEN_KIND" ]; then     # a screen named: its line in place of the one there
+    sudo cp "$CONFIG" "$CONFIG.bak"
+    sudo sed -i "s#$SCREEN_LINE.*#$SCREEN#" "$CONFIG"
 fi
 # The InnoMaker HiFi DAC HAT (bash install.sh --dac): its PCM5122 on I2S (GPIO 18, 19, 21; mute GPIO 6; the DAC
 # on I2C), none of them the screen's pins. Its ID EEPROM isn't fitted, so the driver is named here: the Allo
@@ -95,6 +120,29 @@ if [ "$BUILD" = desk ] && [ "$DAC" = 1 ] && ! grep -q "^dtoverlay=allo-boss-dac-
 # XOXO Studio: the InnoMaker HiFi DAC HAT
 dtoverlay=allo-boss-dac-pcm512x-audio
 ' | sudo tee -a "$CONFIG" >/dev/null
+fi
+# A Pi 4: the Studio as a USB audio + MIDI interface for a computer on its USB-C port (docs/BUILD.md). The port's
+# USB controller in device mode (its USB-A ports stay hosts); the gadget set up at each boot
+# (config/xoxo-usb-gadget.sh). A Pi 3 has no such port: nothing done there.
+case "$MODEL" in
+    *"Raspberry Pi 4"*) USB_IFACE=1 ;;
+    *) USB_IFACE=0 ;;
+esac
+if [ "$BUILD" = desk ] && [ "$USB_IFACE" = 1 ]; then
+    echo "== The Studio as a USB audio + MIDI interface (the Pi 4's USB-C)"
+    if ! grep -q "^dtoverlay=dwc2,dr_mode=peripheral" "$CONFIG"; then
+        sudo cp "$CONFIG" "$CONFIG.bak"
+        printf '
+[pi4]
+# XOXO Studio: USB-C as a USB audio + MIDI device for a computer
+dtoverlay=dwc2,dr_mode=peripheral
+[all]
+' | sudo tee -a "$CONFIG" >/dev/null
+    fi
+    sudo install -D -m 755 "$DIR/config/xoxo-usb-gadget.sh" /usr/local/sbin/xoxo-usb-gadget
+    sudo install -D -m 644 "$DIR/config/xoxo-usb-gadget.service" /etc/systemd/system/xoxo-usb-gadget.service
+    sudo systemctl daemon-reload
+    sudo systemctl enable xoxo-usb-gadget.service
 fi
 
 if [ "$BUILD" = desk ]; then              # the boot screen as soon as the touchscreen appears (deskboot.py)

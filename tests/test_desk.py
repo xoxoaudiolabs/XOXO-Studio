@@ -1269,6 +1269,33 @@ def test_web_studio_status_and_commands():
     except ValueError:
         pass
 
+
+def test_studio_as_a_computers_usb_interface():
+    """a Pi 4 Studio on a computer's USB (the UAC2 gadget): the computer's sound a source, COMPUTER; the Studio's
+    mix to the computer, every source but the computer's own (no feedback through a DAW monitoring its input)"""
+    import bridge
+
+    def node(i, name, cls, **props):
+        return {"type": "PipeWire:Interface:Node", "id": i,
+                "info": {"props": dict({"media.class": cls, "node.name": name}, **props)}}
+    objects = [node(30, "alsa_output.platform-fe980000.usb.stereo-fallback", "Audio/Sink", **{"alsa.card_name": "UAC2_Gadget"}),
+               node(31, "alsa_input.platform-fe980000.usb.stereo-fallback", "Audio/Source", **{"alsa.card_name": "UAC2_Gadget"}),
+               node(32, "fm1-xo4", "Audio/Source"),
+               node(33, "alsa_output.platform-bcm2835_audio.stereo-fallback", "Audio/Sink",
+                    **{"alsa.card_name": "bcm2835 Headphones"})]
+    assert bridge.computer_node(objects) == {"id": 30, "name": "alsa_output.platform-fe980000.usb.stereo-fallback",
+                                             "label": "COMPUTER"}
+    assert bridge.jack_node(objects)["id"] == 33                      # the computer isn't taken for the jack
+    _, sources = bridge.pick_nodes(objects)
+    assert [(n["label"], n.get("internal")) for n in sources] == [("COMPUTER", True), ("XO-4", True)]
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.others, app.app_here = sources, {"decks"}
+    channels = app.mix_channels()
+    assert app.computer_feeds(channels) == []                         # no computer: nothing sent
+    app.computer = bridge.computer_node(objects)
+    assert [k for k, _, _ in app.computer_feeds(channels)] == ["u-xo4", "decks"]
+    assert bridge.computer_node(objects[2:]) is None
+
 def test_home_shows_every_source():
     """HOME: every source with its mixer level (a bar and a %), the decks while they run, then the speaker; two
     columns past seven rows; a row opens the mixer"""

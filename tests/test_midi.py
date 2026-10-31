@@ -434,6 +434,13 @@ def test_xo4_midi_in_off():
     assert bridge.pads.sent == [b"\xf8", b"\x90\x3c\x40"]
 
 
+def test_a_computer_on_usb_c():
+    """a Pi 4 Studio as a computer's USB MIDI device (the f_midi gadget): one more device, named COMPUTER"""
+    controllers = blemidi.UsbControllers(lambda message, name=None: None)
+    assert controllers.wanted(["f_midi:f_midi 24:0", "EP-136:EP-136 MIDI 1 16:0"]) == {
+        "COMPUTER": "f_midi:f_midi 24:0", "EP-136": "EP-136:EP-136 MIDI 1 16:0"}
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:
