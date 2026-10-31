@@ -124,6 +124,11 @@ changed for it):
 
 Not in it: the SLOOP and X0X apps, and FM-1 ON STUDIO (left out by choice).
 
+**Where the FM-1 work goes (the user, 2026-10-31):** this plug-in makes the FM-1 Companion Studio obsolete. The
+Pocket (in `FM-1-Companion`) stays the FM-1-focused box; the Studio has outgrown being an FM-1 companion, so for
+the Studio this plug-in is what gets the FM-1 updates made on the Pocket. Its code follows the Pocket's FM-1 code
+(the FM-1 detection, the library, the FM-1's MIDI and clock), brought over as each update lands there.
+
 ## Order, after the launch
 
 1. The device registry: the built-in profiles, one at a time, tests unchanged
