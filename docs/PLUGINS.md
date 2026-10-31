@@ -69,7 +69,20 @@ def setup(studio):                 # studio: the plug-in host, the only door int
 ```
 
 That is API 1 as built for the launch (`plugins.py` lists it in full: also `settings`, `save()`, `say()`,
-`sources()`). The rest of this section (device profiles with roles, MIDI route ends of a plug-in's own, a sound
+`sources()`). Added to it for the FM-1 library (2026-10-31; a plug-in checks with `hasattr`, so it still runs on
+an older Studio):
+
+- `add_card_names(fn)`: USB devices named by their ALSA sound card, `fn(/proc/asound/cards' text) -> {card:
+  name}`, asked on each device scan; the same name in the mixer and the MIDI routes (the FM-1 Companion's FM-1 A-D
+  by USB port, as the Pocket names them), before the rules of `add_audio_source` and `add_midi_device`
+- `confirm(title, lines, fn)`: the Studio's hold-to-confirm screen, then `fn()` (a write the web page asked for)
+- `"library": {folder: [".suffix"]}` in `plugin.json`: folders of its own in `~/fm1-library` the web page lists,
+  uploads to, downloads from and deletes from (never the Studio's own samples and recordings)
+
+The shared web page shows the FM-1 library's sections on a Studio when the FM-1 Companion plug-in is on: its job
+and files from the plug-in's status, its jobs and writes sent as the plug-in's commands.
+
+The rest of this section (device profiles with roles, MIDI route ends of a plug-in's own, a sound
 process, settings rows, the web page's plug-in rows) is the plan for later versions of the API.
 
 **What a plug-in can add:**
@@ -122,7 +135,8 @@ In XOXO-Studio-Plugins, as `fm1-companion`. Ported from the FM-1 Companion app's
 changed for it):
 
 - **Sound and MIDI:** an FM-1 (Felucca, SLOOP, Clipper firmware: `sloop.fm1_cards`' rules) recognised as a
-  device, FM-1 A / FM-1 B as mixer sources and MIDI route ends, its clock (the FM-1 keeping the clock when it's
+  device, up to four on the Studio's USB as FM-1 A-D (by USB port) in the mixer and the MIDI routes, E-G kept for a
+  linked Pocket's three (not yet: needs the Pocket's side in `FM-1-Companion`), its clock (the FM-1 keeping the clock when it's
   the driver), its WirePlumber tuning
 - **Library:** its backups, projects, sample slots and firmware: the library screens and the web app's FM-1
   groups, with the hold-press on the box before anything is written to the FM-1

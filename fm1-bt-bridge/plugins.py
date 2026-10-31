@@ -23,6 +23,15 @@ What API 1 gives a plug-in (Studio):
   add_web(status=None, commands=None)            fields in the web page's status (plugins.<id>) and its commands
   on(event, fn)                                  "tick" (about once a second, with the app), "devices" (the sound
                                                  sources changed: fn(labels))
+Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Studio too):
+  add_card_names(fn)                             USB devices named by their ALSA sound card, for the mixer and the
+                                                 MIDI routes alike: fn(the text of /proc/asound/cards, "" without
+                                                 it) -> {card number: name}, asked on each device scan. Its names
+                                                 come before add_audio_source's and add_midi_device's rules
+  confirm(title, lines, fn)                      the Studio's hold-to-confirm screen (a 2 s hold), then fn()
+  plugin.json "library": {folder: [".suffix"]}   folders of its own in ~/fm1-library the web page can list files
+                                                 of, upload to, download from and delete from (not the Studio's
+                                                 own: samples, recordings)
 """
 import importlib.util
 import json
@@ -32,6 +41,8 @@ from pathlib import Path
 
 API = 1                                        # the host API this Studio gives plug-ins
 LETTERS = "ABCDEFGH"
+CARDS = Path("/proc/asound/cards")
+OWN_FOLDERS = ("samples", "recordings", "music")   # the Studio's library folders: not a plug-in's
 
 
 def plugin_dirs():
@@ -68,7 +79,25 @@ def read_manifest(folder):
         return None
     return {"id": m["id"], "name": str(m.get("name") or m["id"])[:24], "version": str(m.get("version") or "?")[:16],
             "api": m.get("api"), "author": str(m.get("author") or "")[:40], "license": str(m.get("license") or "")[:24],
-            "entry": entry, "description": str(m.get("description") or "")[:200]}
+            "entry": entry, "description": str(m.get("description") or "")[:200],
+            "library": library_folders(m.get("library"))}
+
+
+def library_folders(declared):
+    """a manifest's "library": {folder: [".suffix", ...]}, checked: plain folder names, not the Studio's own"""
+    out = {}
+    if not isinstance(declared, dict):
+        return out
+    for folder, suffixes in list(declared.items())[:8]:
+        if isinstance(suffixes, str):
+            suffixes = [suffixes]
+        if (not isinstance(folder, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,23}", folder)
+                or folder in OWN_FOLDERS or not isinstance(suffixes, list)):
+            continue
+        kinds = [x.lower() for x in suffixes[:4] if isinstance(x, str) and re.fullmatch(r"\.[A-Za-z0-9]{1,8}", x)]
+        if kinds:
+            out[folder] = kinds
+    return out
 
 
 class Studio:
@@ -76,7 +105,7 @@ class Studio:
 
     def __init__(self, host, pid, settings):
         self._host, self.id, self.settings = host, pid, settings
-        self.audio, self.midi, self.screens, self.events = [], [], [], {}
+        self.audio, self.midi, self.screens, self.events, self.cards = [], [], [], {}, []
         self.web_status, self.web_commands = None, {}
 
     def save(self):
@@ -90,6 +119,15 @@ class Studio:
 
     def add_audio_source(self, match, label):
         self.audio.append((re.compile(match, re.I) if isinstance(match, str) else match, label))
+
+    def add_card_names(self, fn):
+        self.cards.append(fn)
+
+    def confirm(self, title, lines, fn):
+        """the Studio's hold-to-confirm screen; fn() once it's held (a mistake in fn switches the plug-in off)"""
+        host = self._host
+        host.app.ask(str(title)[:20], [str(line)[:40] for line in lines][:3], lambda: host.call(self.id, fn),
+                     back="status")
 
     def add_midi_device(self, pattern, name):
         re.compile(pattern)                    # (a bad pattern fails here, in setup, not in the MIDI process)
@@ -191,8 +229,33 @@ class Host:
         """[{id, name, version, author, license, description, on, error}] of every plug-in found"""
         return [dict(m, on=pid in self.loaded, error=self.errors.get(pid)) for pid, (_, m) in self.found.items()]
 
+    def card_names(self, text=None):
+        """{sound card number: name} from the plug-ins' add_card_names (text: /proc/asound/cards, read here)"""
+        if not any(studio.cards for studio in self.loaded.values()):
+            return {}
+        if text is None:
+            try:
+                text = CARDS.read_text(errors="replace")
+            except OSError:
+                text = ""
+        out = {}
+        for pid, studio in list(self.loaded.items()):
+            for fn in studio.cards:
+                names = self.call(pid, fn, text, default=None) or {}
+                for card, name in (names.items() if isinstance(names, dict) else []):
+                    if isinstance(card, int) and not isinstance(card, bool) and str(name).strip():
+                        out.setdefault(card, str(name)[:16])
+        return out
+
     def source_label(self, props, counts):
-        """a sound source's name from a plug-in's rule, or None; counts: {rule: sources named by it so far}"""
+        """a sound source's name from a plug-in's card names or rules, or None; counts: {rule: sources named by it
+        so far, "cards": the card names, asked once a scan}"""
+        if "cards" not in counts:
+            counts["cards"] = self.card_names()
+        if counts["cards"]:
+            card = node_card(props)
+            if card in counts["cards"]:
+                return counts["cards"][card]
         text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name",
                                                          "alsa.long_card_name", "api.alsa.card.name"))
         for pid, studio in list(self.loaded.items()):
@@ -231,9 +294,27 @@ class Host:
                 self.call(pid, fn, *args)
 
 
-def name_device(client, rules, taken):
-    """a MIDI device's name in the routes from the plug-ins' rules (midi_names), or None; taken: names given so
-    far this scan (so a second matching device is B)"""
+def node_card(props):
+    """a PipeWire node's ALSA sound card number, or None ("api.alsa.path": "front:3", or "alsa.card": "3")"""
+    m = re.search(r":(\d+)", str(props.get("api.alsa.path", "")))
+    card = m.group(1) if m else str(props.get("alsa.card", ""))
+    return int(card) if card.isdigit() else None
+
+
+def port_card(port):
+    """a MIDI port's name -> its ALSA sound card number, or None: "Felucca:Felucca MIDI 1 28:0" -> 3 (a sound
+    card's MIDI is sequencer client 16 + 4 x its card number)"""
+    m = re.search(r"\s(\d+):\d+$", str(port or ""))
+    client = int(m.group(1)) if m else 0
+    return (client - 16) // 4 if 16 <= client < 128 else None
+
+
+def name_device(client, rules, taken, port=None, cards=None):
+    """a MIDI device's name in the routes from the plug-ins' card names (port: its full port name, cards: {card:
+    name}) or rules (midi_names), or None; taken: names given so far this scan (so a second matching device is B)"""
+    card = port_card(port) if cards else None
+    if card in (cards or {}):
+        return cards[card]
     for pattern, name in rules or []:
         if re.search(pattern, client, re.I):
             if "{n}" not in name:

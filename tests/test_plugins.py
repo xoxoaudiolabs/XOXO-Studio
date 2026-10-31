@@ -106,6 +106,55 @@ def test_midi_device_names():
             taken.add(got)
 
 
+CARDS = '''
+API = 1
+def setup(studio):
+    studio.add_card_names(lambda text: {int(n): "FM-1 " + "ABCD"[i] for i, n in enumerate(text.split())})
+    studio.add_card_names(lambda text: {3: "NOT ME", "x": "BAD", 9: "  "})
+    studio.add_audio_source(r"felucca", "RULE")
+'''
+
+
+def test_card_names():
+    """devices named by their sound card come before the rules, in the mixer and in the MIDI routes alike"""
+    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
+    make(base, "cards", CARDS)
+    host = plugins.Host(App(), [base])
+    host.start()
+    assert host.card_names("3 2") == {}                            # (off: nothing)
+    host.set_on("cards", True)
+    assert host.card_names("3 2") == {3: "FM-1 A", 2: "FM-1 B"}    # the first plug-in's name wins; bad ones dropped
+    counts = {"cards": host.card_names("3 2")}
+    assert host.source_label({"node.name": "alsa_input.usb-Felucca", "api.alsa.path": "front:2"}, counts) == "FM-1 B"
+    assert host.source_label({"node.name": "alsa_input.usb-Felucca", "alsa.card": "7"}, counts) == "RULE"
+    cards = {3: "FM-1 A", 2: "FM-1 B"}
+    assert plugins.port_card("Felucca:Felucca MIDI 1 28:0") == 3 and plugins.port_card("Through:Port 14:0") is None
+    assert plugins.name_device("Felucca", [], set(), "Felucca:Felucca MIDI 1 24:0", cards) == "FM-1 B"
+    assert plugins.name_device("Felucca", [], set(), "Felucca:Felucca MIDI 1 36:0", cards) is None
+
+
+def test_confirm_and_library_folders():
+    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
+    make(base, "lib", "API = 1\ndef setup(studio):\n    studio.on('tick', lambda: 1)\n")
+    manifest = json.loads((base / "lib" / "plugin.json").read_text())
+    manifest["library"] = {"backups": [".json"], "firmware": ".fwsc", "samples": [".wav"], "../up": [".x"],
+                           "patches": ["syx"]}
+    (base / "lib" / "plugin.json").write_text(json.dumps(manifest))
+    found = plugins.find([base])
+    assert found["lib"][1]["library"] == {"backups": [".json"], "firmware": [".fwsc"]}   # not the Studio's own
+    app = App()
+    asked = []
+    app.ask = lambda title, lines, action, back="pick": asked.append((title, lines, action))
+    host = plugins.Host(app, [base])
+    host.start()
+    host.set_on("lib", True)
+    done = []
+    host.loaded["lib"].confirm("Restore?", ["a backup", "replaces"], lambda: done.append(1))
+    assert asked[0][:2] == ("Restore?", ["a backup", "replaces"]) and not done
+    asked[0][2]()                                                  # held 2 s
+    assert done == [1]
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

@@ -695,6 +695,7 @@ class UsbControllers:
         self.last_activity = 0.0
         self.lock = threading.Lock()
         self.names = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
+        self.cards = {}                     # the plug-ins' {sound card: name}: a USB device they name by its card
 
     def wanted(self, names):
         """mido port names -> {client name: port name} of the controllers among them (a client's first port). The
@@ -703,7 +704,8 @@ class UsbControllers:
         out = {}
         for name in sorted(names):              # (in order: two alike get the same letters in and out)
             low = name.lower()
-            named = plugins.name_device(name.split(":")[0], self.names, set(out)) if self.names else None
+            named = (plugins.name_device(name.split(":")[0], self.names, set(out), name, self.cards)
+                     if self.names or self.cards else None)
             if named and not (any(s in low for s in self.SKIP) or ADDRESS.search(name)):
                 if not any(v.rsplit(" ", 1)[-1] == name.rsplit(" ", 1)[-1] for v in out.values()):
                     out[named] = name
@@ -1552,6 +1554,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.xo4_in = bool(command[1])
             elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
                 bridge.controllers.names = [[str(p), str(n)] for p, n in command[1]]
+            elif command[0] == "cards":            # ("cards", [[card, name]]): USB devices the plug-ins name by card
+                bridge.controllers.cards = {int(c): str(n) for c, n in command[1]}
             elif command[0] == "metronome":        # ("metronome", on, speaker, level, rate)
                 wanted[:] = command[1:5]
             elif command[0] == "mcu" and bridge.mcu:   # ("mcu", [messages]): the control surface, to the DAW
@@ -1741,6 +1745,10 @@ class MidiProcess:
     def set_names(self, rules):
         """the plug-ins' MIDI device names (plugins.Host.midi_names)"""
         self.conn.send(("names", [list(r) for r in rules]))
+
+    def set_cards(self, cards):
+        """the plug-ins' USB device names by sound card (plugins.Host.card_names)"""
+        self.conn.send(("cards", [[int(c), str(n)] for c, n in cards.items()]))
 
     def set_metronome(self, on, target, level, rate):
         self.conn.send(("metronome", on, target, level, rate))
