@@ -100,10 +100,11 @@ def decode(packet):
 
 class Session:
     """One network MIDI port: the box answering on UDP port (control) and port + 1 (data). on_message(bytes) for
-    each MIDI message from the computer, on this session's thread; send(messages) to every connected peer."""
+    each MIDI message from a computer, on this session's thread (with by_peer: on_message(bytes, peer), peer its
+    session name or None); send(messages) to every connected peer, or to one (to) or all but some (skip), by name."""
 
-    def __init__(self, name, port, on_message):
-        self.name, self.port, self.on_message = name, port, on_message
+    def __init__(self, name, port, on_message, by_peer=False):
+        self.name, self.port, self.on_message, self.by_peer = name, port, on_message, by_peer
         self.ssrc = random.getrandbits(32)
         self.seq = random.getrandbits(16)
         self.peers = {}                       # their SSRC -> {"name", "control", "data", "seen"}
@@ -149,8 +150,13 @@ class Session:
         if packet[:2] == SIGN and len(packet) >= 4:
             self.command(packet[2:4], packet[4:], addr, data_port)
         elif data_port:
+            with self.lock:
+                peer = next((p["name"] for p in self.peers.values() if p.get("data") == addr), None)
             for m in decode(packet):
-                self.on_message(m)
+                if self.by_peer:
+                    self.on_message(m, peer)
+                else:
+                    self.on_message(m)
 
     def command(self, cmd, body, addr, data_port):
         sock = self.dsock if data_port else self.sock
@@ -187,9 +193,10 @@ class Session:
                          if now - p.get("seen", now) > (25 if "Pocket" in p.get("name", "") else 90)]:
                 del self.peers[ssrc]
 
-    def send(self, messages):
+    def send(self, messages, to=None, skip=()):
         with self.lock:
-            targets = [p["data"] for p in self.peers.values() if p.get("data")]
+            targets = [p["data"] for p in self.peers.values()
+                       if p.get("data") and (to is None or p["name"] == to) and p["name"] not in skip]
             if not targets:
                 return
             self.seq = (self.seq + 1) & 0xFFFF

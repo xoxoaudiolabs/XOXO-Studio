@@ -109,6 +109,8 @@ def check_command(c):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):
             ok = True
+        if isinstance(key, str) and re.fullmatch(r"(mute|solo)_(decks|u-[a-z0-9]+)", key):
+            ok = isinstance(value, bool)
         if not ok:
             raise ValueError(f"bad setting {key!r}")
         return {"cmd": cmd, "key": key, "value": value}
@@ -435,6 +437,7 @@ label.file{display:inline-block}label.file input{display:none}
 table.mx{border-collapse:collapse}table.mx th{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);text-align:left;padding:6px;white-space:nowrap}
 table.mx td{padding:3px}table.mx td button{width:100%;min-width:76px}table.mx td.self{color:var(--line);text-align:center}
 table.mx td button.on{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+#s-mix button.on[id$="m"]{background:var(--rec);border-color:var(--rec);color:var(--bg)}#s-mix button.on[id$="s"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
 table.mx td button.sel{outline:2px solid var(--accent);outline-offset:2px}
 .midi{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:0 32px}.midi .wide{grid-column:1/-1}
 .chgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.chgrid label{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
@@ -745,9 +748,10 @@ function renderMixer(st) {
   if (keys !== shownMix) {
     shownMix = keys;
     $("s-mix").innerHTML = !m ? "" : `<div class="line"><span class="k">Mixer</span></div>` + m.map((c) =>
-      `<div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">${esc(c.label)}${c.input ? ` <button onclick="set('input_${c.key}', true)">${esc(c.input)}</button>` : ""}</span><b id="mx-${c.key}v"></b></div>
+      `<div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">${esc(c.label)}${c.input ? ` <button onclick="set('input_${c.key}', true)">${esc(c.input)}</button>` : ""}</span><span class="row"><button id="mx-${c.key}m" onclick="set('mute_${c.key}', !this.classList.contains('on'))" title="Mute">M</button><button id="mx-${c.key}s" onclick="set('solo_${c.key}', !this.classList.contains('on'))" title="Solo">S</button><b id="mx-${c.key}v"></b></span></div>
        <input type="range" id="mx-${c.key}" min="0" max="200" step="5" oninput="mixSet('${c.key}', this.value)"></div>`).join("");
   }
+  for (const c of m || []) { $(`mx-${c.key}m`).classList.toggle("on", !!c.mute); $(`mx-${c.key}s`).classList.toggle("on", !!c.solo); }
   if (!m || Date.now() < mixUntil) return;
   for (const c of m) { $(`mx-${c.key}`).value = c.level; $(`mx-${c.key}v`).textContent = c.level + "%"; }
 }

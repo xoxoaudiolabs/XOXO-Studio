@@ -29,6 +29,11 @@ Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Stud
                                                  it) -> {card number: name}, asked on each device scan. Its names
                                                  come before add_audio_source's and add_midi_device's rules
   confirm(title, lines, fn)                      the Studio's hold-to-confirm screen (a 2 s hold), then fn()
+  pocket()                                       a linked Pocket's IP address (its network MIDI session's), or
+                                                 None. Its FM-1s A-C come as sound sources fm1-pocket-a/b/c and
+                                                 MIDI devices "FM-1 Companion Pocket FM-1 A/B/C": name them with
+                                                 add_audio_source(r"fm1-pocket-a", ...) and add_midi_device(r"Pocket
+                                                 FM-1 A$", ...); unnamed they're POCKET FM-1 A-C
   plugin.json "library": {folder: [".suffix"]}   folders of its own in ~/fm1-library the web page can list files
                                                  of, upload to, download from and delete from (not the Studio's
                                                  own: samples, recordings)
@@ -116,6 +121,10 @@ class Studio:
 
     def sources(self):
         return [str(n.get("label", "")) for n in (getattr(self._host.app, "others", None) or [])]
+
+    def pocket(self):
+        app = self._host.app
+        return app.pocket_address() if hasattr(app, "pocket_address") else None
 
     def add_audio_source(self, match, label):
         self.audio.append((re.compile(match, re.I) if isinstance(match, str) else match, label))
