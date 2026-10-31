@@ -301,6 +301,17 @@ def pick_nodes(objects, host=None):
     return sink, sources
 
 
+def pocket_sources(sources, peers):
+    """the sources, with a Pocket's only while it's linked (peers: the network MIDI session's names). A Pocket that
+    sends its FM-1s apart has a session for each one plugged in ("FM-1 Companion Pocket FM-1 A"): then only those
+    FM-1s' channels, and not POCKET (the rest of its mix); else POCKET alone"""
+    if not any("Pocket" in str(p) for p in peers):
+        return [n for n in sources if not n["name"].startswith("fm1-pocket")]
+    split = {m.group(1).lower() for m in (POCKET_FM1.search(str(p)) for p in peers) if m}
+    return [n for n in sources if not n["name"].startswith("fm1-pocket")
+            or (n["name"] in POCKET_FM1S and n["name"][-1] in split) or (n["name"] == "fm1-pocket" and not split)]
+
+
 class PwWatch:
     """PipeWire's objects, kept up to date by one `pw-dump --monitor` left running. Every new connection to
     PipeWire (a pw-dump, a pw-cli, a wpctl) costs a Zero W 1-2 s of CPU in PipeWire and WirePlumber, and a
@@ -584,6 +595,7 @@ class Loopback:
 
 MIX_MAX = 200                           # the levels go to 200%: some keyboards' synths are much quieter
 POCKET_FM1S = ("fm1-pocket-a", "fm1-pocket-b", "fm1-pocket-c")   # a linked Pocket's FM-1 A-C, each its own stream
+POCKET_FM1 = re.compile(r"Pocket FM-1 ([A-C])$")   # (their network MIDI sessions: blemidi.POCKET_FM1)
 APP_NODES = {"decks": "fm1-decks"}      # sound the Studio's own programs play (the DJ decks: decks.py, DJ decks
                                         # out: STUDIO): mixer key -> its PipeWire node, its level set there
 
@@ -973,8 +985,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if found is None:
             return                            # couldn't look: keep everything as it is
         (sink, others), objects = found
-        if not self.pocket_linked():          # POCKET only while a Pocket is linked (its receiver's always there)
-            others = [n for n in others if not n["name"].startswith("fm1-pocket")]   # (and its FM-1s' streams)
+        others = pocket_sources(others, getattr(self.midi, "net", None) or [])   # (its receivers are always there)
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
