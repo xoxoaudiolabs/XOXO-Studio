@@ -6,7 +6,7 @@ header (y from HDR_H) with ui's widgets (ui.button, ui.widget, ui.centre, ui.the
 changes when it should be drawn again (without one: once a second). A screen that raises an error switches its
 plug-in off (plugins.Host.fail), and the list comes back.
 """
-import sloopstyle as st
+import xoxostyle as st
 
 W, H, HDR_H, TAB_H = 480, 320, 34, 44
 RED = (255, 112, 92)

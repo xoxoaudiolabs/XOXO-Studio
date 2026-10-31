@@ -12,7 +12,7 @@ in: shown; the button at the top goes between them): title, BPM, Camelot key, th
 
 import json
 
-import sloopstyle as st
+import xoxostyle as st
 
 W, H, HDR_H = 480, 320, 34
 DECK_W = 240

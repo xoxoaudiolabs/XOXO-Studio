@@ -501,13 +501,13 @@ def test_touch_screens():
     os.environ.setdefault("FM1_SETTINGS", str(Path(tempfile.mkdtemp()) / "settings.json"))
     import bridge
     import deskui
-    import sloopstyle
+    import xoxostyle
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings = lambda: None
     app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"},
                   {"id": 4, "name": "alsa_input.usb-SMK", "label": "SMK-37+VA"}]
     ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12                                             # no theme file: GREEN
+    ui.theme_check = 1e12                                             # no theme file: XOXO
     now = 0.0
 
     def tap(x, y, hold=0.0):
@@ -518,7 +518,7 @@ def test_touch_screens():
         box = next(w[0] for w in ui.widgets if w[3] == ("tab", name))
         tap((box[0] + box[2]) // 2, (box[1] + box[3]) // 2)
     ui.render(now, force=True)
-    assert app.display.image.size == (480, 320) and ui.theme == sloopstyle.Theme("GREEN")
+    assert app.display.image.size == (480, 320) and ui.theme == xoxostyle.Theme("XOXO")
     tab("MIX")
     assert ui.tab == "MIX"
     slider = next(w for w in ui.widgets if w[3] == ("slide", "u-smk37va"))
@@ -538,23 +538,23 @@ def test_touch_screens():
     assert not ui.classic and any(w[3] == "page-back" for w in ui.widgets)
     app.screen = "status"
     ui.render(now, force=True)
-    tab("MORE")                                                       # then THEME: its page, AMBER tapped
+    tab("MORE")                                                       # then THEME: its page, TOXIC tapped
     ui.more_top = 5                                                    # scrolled to the end of MORE
     ui.render(now, force=True)
     row = next(w for w in ui.widgets if w[3] == ("more", "THEME"))
     tap(row[0][0] + 20, row[0][1] + 10)
     assert ui.tab == "THEME"
     ui.render(now, force=True)
-    assert {w[3] for w in ui.widgets} >= {("theme", n) for n in sloopstyle.ALL}   # every theme
-    swatch = next(w for w in ui.widgets if w[3] == ("theme", "AMBER"))
+    assert {w[3] for w in ui.widgets} >= {("theme", n) for n in xoxostyle.ALL}   # every theme
+    swatch = next(w for w in ui.widgets if w[3] == ("theme", "TOXIC"))
     tap(swatch[0][0] + 20, swatch[0][1] + 10)
-    assert app.state["desk_theme"] == "AMBER"
+    assert app.state["desk_theme"] == "TOXIC"
     ui.render(now + 5, force=True)
-    assert ui.theme.name == "AMBER" and ui.tab == "THEME"              # still on the page, to try another
+    assert ui.theme.name == "TOXIC" and ui.tab == "THEME"              # still on the page, to try another
     swatch = next(w for w in ui.widgets if w[3] == ("theme", "KAWAII"))
     tap(swatch[0][0] + 20, swatch[0][1] + 10)
     ui.render(now + 10, force=True)
-    assert ui.theme.name == "KAWAII" and ui.theme.bg == sloopstyle.EXTRA["KAWAII"][2]
+    assert ui.theme.name == "KAWAII" and ui.theme.bg == xoxostyle.THEMES["KAWAII"][2]
     back = next(w for w in ui.widgets if w[3] == "theme-back")
     tap(back[0][0] + 20, back[0][1] + 10)
     assert ui.tab == "MORE"
@@ -694,8 +694,8 @@ def test_theme_from_file_has_tuples():
     """a theme read back from its JSON file draws: its colours are tuples (Pillow 11 refuses lists: the
     Studio crashed on its first start with FM-1 A's theme saved)"""
     import json
-    import sloopstyle
-    t = sloopstyle.theme_load(json.loads(json.dumps(sloopstyle.theme_dict(sloopstyle.Theme("AMBER")))))
+    import xoxostyle
+    t = xoxostyle.theme_load(json.loads(json.dumps(xoxostyle.theme_dict(xoxostyle.Theme("TOXIC")))))
     assert all(isinstance(c, tuple) for c in t.c + t.track + [t.bg, t.hi] + t.dim + t.grey)
 
 
@@ -950,7 +950,7 @@ def test_every_meter_draws():
     import numpy as np
     import deskmeters
     import meters
-    import sloopstyle
+    import xoxostyle
     meters.load_numpy()
     t = np.arange(meters.RECENT_N) / meters.RATE
     wave = (sum(np.sin(2 * math.pi * f * t) for f in (220, 277, 330)) * 6000).astype("<i2")
@@ -984,7 +984,7 @@ def test_every_meter_draws():
         for i, name in enumerate(meters.METERS):
             img = Image.new("RGB", (480, 320))
             for k in range(3):
-                dm.draw(App(i, x), img, (0, 35, 480, 275), sloopstyle.Theme("AMBER"), 1.0 + k * 0.1)
+                dm.draw(App(i, x), img, (0, 35, 480, 275), xoxostyle.Theme("TOXIC"), 1.0 + k * 0.1)
     assert dm.tune is None                                            # silence: no note
 
 
@@ -1072,7 +1072,7 @@ def test_xo4_tab():
     drums' pads, octave, key and scale, a track cleared; what's tapped sounds while stopped; the song is kept"""
     import bridge
     import deskui
-    import sloopstyle
+    import xoxostyle
     import xo4
 
     class XO4:
@@ -1165,7 +1165,7 @@ def test_xo4_tab():
     app.state["clock_mode"] = "box"
     ui.render(0.0, force=True)
     assert ui.app.display.image.size == (480, 320)
-    assert sloopstyle.ALL                                           # (drawn in the theme's colours)
+    assert xoxostyle.ALL                                           # (drawn in the theme's colours)
     press("xo4-home")
     assert ui.tab == "HOME"
 

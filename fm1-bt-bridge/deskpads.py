@@ -1,6 +1,6 @@
 """The Studio's PADS tab: the 4x4 sampler (pads.py) by touch. Mixed into deskui.DeskUI.
 
-The 16 pads in four rows of SLOOP's track colours, lit while they sound (from a tap or from MIDI: notes 36-51).
+The 16 pads in four rows of the theme's track colours, lit while they sound (from a tap or from MIDI: notes 36-51).
 EDIT, then a pad: its own page (sample, level, pan, tune, mode, attack, release, choke, reverse; PLAY, SAMPLE
 from any source, TRIM in the touch editor, CLEAR). The kit's name (top left): KITS (load one, save this one,
 start a new one). EDITOR: the sample editor (it lives here, with the sampler), with the file last edited; its OPEN
@@ -16,7 +16,7 @@ from pathlib import Path
 
 import library
 import pads
-import sloopstyle as st
+import xoxostyle as st
 
 W, H, HDR_H, TAB_H = 480, 320, 34, 44
 ROW_H, ROWS = 46, 4

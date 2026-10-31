@@ -204,7 +204,7 @@ install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/f
 install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
 install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/fm1-bridge/deskboot.py
 install -D -m 644 "$DIR/netmidi.py"                             ~/.local/share/fm1-bridge/netmidi.py
-install -D -m 644 "$DIR/sloopstyle.py"                          ~/.local/share/fm1-bridge/sloopstyle.py
+install -D -m 644 "$DIR/xoxostyle.py"                           ~/.local/share/fm1-bridge/xoxostyle.py
 install -D -m 644 "$DIR/weblink.py"                             ~/.local/share/fm1-bridge/weblink.py
 install -D -m 644 "$DIR/sampler.py"                             ~/.local/share/fm1-bridge/sampler.py
 install -D -m 644 "$DIR/sampleui.py"                            ~/.local/share/fm1-bridge/sampleui.py
@@ -234,7 +234,7 @@ if [ "$BUILD" = desk ]; then              # the Pocket's sound over the link (RT
 fi
 
 if [ "$BUILD" = desk ] && [ ! -f ~/.local/share/fm1-bridge/splash.raw ]; then   # the first boot's picture
-    (cd ~/.local/share/fm1-bridge && python3 -c "import deskboot, sloopstyle; deskboot.save(sloopstyle.Theme())")         || echo "   (the boot screen's picture comes with the first start instead)"
+    (cd ~/.local/share/fm1-bridge && python3 -c "import deskboot, xoxostyle; deskboot.save(xoxostyle.Theme())")         || echo "   (the boot screen's picture comes with the first start instead)"
 fi
 
 echo "== Booting faster (on Trixie a Zero W otherwise takes ~3 minutes before the app starts)"

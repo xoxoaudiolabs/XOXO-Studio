@@ -1,5 +1,5 @@
-"""The Studio's boot screen (480x320), in SLOOP's style and the last theme it showed: XOXO, STUDIO,
-XOXO//AUDIO//LABS, and a bar along the start-up's steps until HOME takes over.
+"""The Studio's boot screen (480x320), in the XOXO look and the last theme it showed: XOXO // STUDIO, a line along
+the start-up's steps until HOME takes over, and XOXO//AUDIO//LABS.
 
 Two moments use it. Early in boot, before the app runs, a udev rule copies splash.raw onto the screen as soon as
 the touchscreen's framebuffer appears (install.sh; the kernel's console is kept off the screen), so the boot text
@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-import sloopstyle as st
+import xoxostyle as st
 
 W, H = 480, 320
 STEPS = ("STARTING THE SAMPLER", "STARTING MIDI", "STARTING AUDIO", "FINDING YOUR DEVICES")
@@ -19,41 +19,38 @@ SPLASH = Path.home() / ".local" / "share" / "fm1-bridge" / "splash.raw"   # RGB5
 
 
 def theme(state):
-    """the theme the Studio last showed (state "boot_theme", saved by the desk UI), else the picked palette"""
+    """the theme the Studio last showed (state "boot_theme", saved by the desk UI), else the picked one"""
     saved = state.get("boot_theme")
-    if saved:
+    if saved and saved.get("name") in st.ALL:      # (one saved before the XOXO look: the picked one instead)
         return st.theme_load(saved)
-    pick = state.get("desk_theme", "follow")
+    pick = state.get("desk_theme")
     return st.Theme(pick) if pick in st.ALL else st.Theme()
+
+
+def mark(img, y, parts, size, colour, slashes):
+    """parts in a row, centred, the "//" between them in the slashes' colour"""
+    gap = 8 if size > 1 else 0
+    x = (W - sum(st.text_size(p, size)[0] for p in parts) - gap * (len(parts) - 1)) // 2
+    for p in parts:
+        st.text(img, (x, y), p, slashes if p == "//" else colour, size)
+        x += st.text_size(p, size)[0] + gap
 
 
 def frame(t, step=None, version=VERSION):
     """the boot screen; step: the index into STEPS under way (None: the picture before the app runs)"""
     img = Image.new("RGB", (W, H), t.bg)
     d = ImageDraw.Draw(img)
-    for k in range(4):                             # SLOOP's four track colours, a band along the top
-        d.rectangle((k * W // 4, 0, (k + 1) * W // 4 - 1, 5), fill=t.track[k])
-    name = "XOXO"
-    w, _ = st.text_size(name, 3)
-    st.text(img, ((W - w) // 2, 62), name, t.hi, 3)
-    studio = "S T U D I O"
-    w, _ = st.text_size(studio, 2)
-    st.text(img, ((W - w) // 2, 122), studio, t.track[2], 2)
-    left, right, y = 80, W - 80, 196                # the start-up's bar, its steps in the track colours
-    d.rectangle((left, y, right, y + 10), fill=t.grey[0])
+    mark(img, 96, ("XOXO", "//", "STUDIO"), 3, t.hi, t.c[2])
+    left, right, y = 120, W - 120, 196              # the start-up's line: the steps done in the highlight
+    d.rectangle((left, y, right, y + 3), fill=t.c[0])
     done = 0 if step is None else step + 1
-    seg = (right - left) / len(STEPS)
-    for k in range(done):
-        d.rectangle((int(left + k * seg), y, int(left + (k + 1) * seg) - 2, y + 10), fill=t.track[k % 4])
+    d.rectangle((left, y, left + (right - left) * done // len(STEPS), y + 3), fill=t.hi)
     label = "STARTING..." if step is None else STEPS[step]
-    w, _ = st.text_size(label)
-    st.text(img, ((W - w) // 2, y + 20), label, t.c[3])
-    x = (W - st.text_size("XOXO//AUDIO//LABS")[0]) // 2   # the XOXO Audio Labs mark, its slashes grey
-    for part in ("XOXO", "//", "AUDIO", "//", "LABS"):
-        st.text(img, (x, H - 34), part, t.grey[2] if part == "//" else t.c[4])
-        x += st.text_size(part)[0]
+    st.text(img, ((W - st.text_size(label)[0]) // 2, y + 14), label, t.c[2])
+    mark(img, H - 30, ("XOXO", "//", "AUDIO", "//", "LABS"), 1, t.hi, t.c[2])
+    d.rectangle((W - 14, H - 14, W - 8, H - 8), fill=t.track[0])       # the signal dot
     if version:
-        st.text(img, (W - 8 - st.text_size(version)[0], H - 20), version, t.grey[1])
+        st.text(img, (8, H - 22), version, t.c[1])
     return img
 
 

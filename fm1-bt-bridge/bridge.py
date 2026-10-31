@@ -61,7 +61,7 @@ DEFAULTS = {
     "inputs": {},           # a multichannel USB source's first channel taken (0: 1-2, 2: 3-4 ...), by mixer key
     "build": "auto",        # "pocket" (Zero + OLED HAT), "desk" (Pi 3/4 + 3.5" touchscreen) or "auto" (device.py)
     "touch_cal": [3900, 200, 3900, 200, True],   # the desk touchscreen: raw x left/right, y top/bottom, swap
-    "desk_theme": "GREEN",  # the desk box's colours: one of sloopstyle.ALL (MORE > THEME)
+    "desk_theme": "XOXO",   # the desk box's colours: one of xoxostyle.ALL (MORE > THEME)
     "output": "both",       # the Studio's sound: "speaker" (Bluetooth), "phones" (the 3.5 mm jack) or "both"
     "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)

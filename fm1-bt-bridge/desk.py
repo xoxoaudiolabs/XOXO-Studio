@@ -58,7 +58,7 @@ def button_at(x, y):
 
 
 def colours(theme=None):
-    """(picture, background, rule, key, key lit, key text) from a sloopstyle.Theme, or the defaults"""
+    """(picture, background, rule, key, key lit, key text) from a xoxostyle.Theme, or the defaults"""
     if theme is None:
         return FG, BG, DIM, KEY_BG, KEY_ON, KEY_TEXT
     return theme.c[4], theme.bg, theme.c[0], theme.grey[0], theme.hi, theme.c[4]
@@ -224,7 +224,7 @@ class TftDisplay:
         self.frame, self.pressed, self.lock = Image.new("1", (128, 64)), None, threading.Lock()
         self.blank_path = Path("/sys/class/graphics") / Path(device).name / "blank"
         self.bases = {}                       # (pressed button, theme) -> the whole screen with no picture in it
-        self.theme = None                     # the desk UI's colours (sloopstyle.Theme), for the classic screens
+        self.theme = None                     # the desk UI's colours (xoxostyle.Theme), for the classic screens
         self.last = None                      # the desk UI's last frame, as RGB565 rows (show_rgb)
         self.hz, self.busy_until = spi_hz(), 0.0   # the SPI link; when the last frame is all on the screen
         self.mirror = HdmiMirror.find(skip=device)        # a monitor on HDMI shows it too

@@ -1,4 +1,4 @@
-"""The desk box's touch screens (480x320), in SLOOP's style and the theme picked in MORE > THEME (sloopstyle.py).
+"""The desk box's touch screens (480x320), in the XOXO look and the theme picked in MORE > THEME (xoxostyle.py).
 
 A tab bar along the bottom: HOME (the sources, tempo, record / start / tap), MIXER (tab "MIX": a slider a
 source, and the speaker; METERS opens the meters, larger), EDITOR (the sample editor, full screen; the pads
@@ -22,7 +22,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 import blemidi
-import sloopstyle as st
+import xoxostyle as st
 from deskdecks import DeskDecks
 from deskpads import DeskPads
 from deskpages import HOLD, DeskPages
@@ -407,10 +407,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
     def header(self, img, d, title, right=""):
         t = self.theme
         self.home_button(img, d)
-        st.text(img, (72, 9), title, t.hi)
-        if right:
-            st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
-        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
+        st.text(img, (74, 8), title, t.hi)
+        if right:                                  # (a recording's time in the signal colour)
+            st.text(img, (W - 10 - st.text_size(right)[0], 8), right, t.track[0] if right.startswith("REC") else t.c[2])
+        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0])
 
     def status_right(self):
         a = self.app
@@ -424,8 +424,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         t = self.theme
         key = key or label
         hot = on or self.lit(key)
-        fill = (color or t.hi) if hot else t.grey[0]
-        d.rectangle(box, fill=fill)
+        if hot:                                    # lit: filled; else a dark tile with a hairline edge
+            d.rectangle(box, fill=color or t.hi)
+        else:
+            d.rectangle(box, fill=t.grey[0], outline=t.c[1])
         w, h = st.text_size(label, 2 if box[3] - box[1] >= 48 else 1)
         size = 2 if box[3] - box[1] >= 48 and w < box[2] - box[0] - 8 else 1
         w, h = st.text_size(label, size)
@@ -455,18 +457,19 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         t, d = self.theme, ImageDraw.Draw(img)
         top = H - TAB_H
         d.rectangle((0, top, W, H), fill=t.bg)                # (whatever a screen drew past its bottom)
-        d.line((0, top, W, top), fill=t.c[0], width=2)
+        d.line((0, top, W, top), fill=t.c[0])
         w = W // len(TABS)
         lit = PARENT.get(self.tab, self.tab)
-        for i, name in enumerate(TABS):              # SLOOP's way: the active tab's label bright, a line under it
-            box = (i * w, top + 2, (i + 1) * w - 1, H - 1)
+        for i, name in enumerate(TABS):              # the active tab filled in the highlight, the rest its labels
+            box = (i * w, top + 1, (i + 1) * w - 1, H - 1)
             on = name == lit and not self.classic
             label = TAB_LABEL.get(name, name)
             tw, th = st.text_size(label)
-            st.text(img, ((box[0] + box[2] - tw) // 2, (box[1] + box[3] - th) // 2 - 2), label,
-                    t.hi if on else t.c[2])
             if on:
-                d.rectangle((box[0] + 14, H - 7, box[2] - 14, H - 4), fill=t.track[i % 4])
+                d.rectangle((box[0] + 2, box[1] + 3, box[2] - 2, box[3] - 3), fill=t.hi)
+            elif i:
+                d.line((box[0], top + 10, box[0], H - 10), fill=t.c[0])
+            st.text(img, ((box[0] + box[2] - tw) // 2, (box[1] + box[3] - th) // 2), label, t.bg if on else t.c[2])
             self.widget(box, "tap", lambda name=name: self.open_tab(name), ("tab", name))
 
     def draw_message(self, img, message):
@@ -494,7 +497,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         if name in METER_TABS:
             a.screen = "meter"
 
-    # ---- HOME: the sources like SLOOP's TRACKS page, then record / start / tap
+    # ---- HOME: every source with its level, then record / start / tap
 
     def draw_home(self, img, d, now):
         a, t = self.app, self.theme

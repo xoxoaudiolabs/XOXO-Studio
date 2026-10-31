@@ -29,7 +29,7 @@ index), BR DECAY and BR HOLD (how the brightness falls, and what stays), ATTACK,
 While stopped, a change sounds the track's last notes.
 """
 
-import sloopstyle as st
+import xoxostyle as st
 
 W, H, HDR_H = 480, 320, 34
 TRACK_LABELS = ("DRUMS", "SYN 1", "SYN 2", "MIDI")
