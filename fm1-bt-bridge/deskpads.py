@@ -1,4 +1,4 @@
-"""The Studio's PADS tab: the MPC-style sampler (pads.py) by touch. Mixed into deskui.DeskUI.
+"""The Studio's PADS tab: the 4x4 sampler (pads.py) by touch. Mixed into deskui.DeskUI.
 
 The 16 pads in four rows of SLOOP's track colours, lit while they sound (from a tap or from MIDI: notes 36-51).
 EDIT, then a pad: its own page (sample, level, pan, tune, mode, attack, release, choke, reverse; PLAY, SAMPLE
@@ -70,7 +70,7 @@ class DeskPads:
             return self.draw_seq(img, d)
         if self.fx_open:
             return self.draw_fx(img, d, now)
-        a, t = self.app, self.theme             # the big pads, MPC style (XO-4's DRUMS > PADS)
+        a, t = self.app, self.theme             # the big 4x4 pads (XO-4's DRUMS > PADS)
         kit = a.kit()
         self.button(img, d, (4, 3, 74, HDR_H - 5), "< XO-4", self.close_mpc, key="mpc-back")
         self.button(img, d, (80, 3, 168, HDR_H - 5), kit["name"][:10], self.open_kits, key="kits")   # its kits
