@@ -243,21 +243,19 @@ class RgbCapture:
 
 
 def desk_screens(state, out):
-    """The Studio's touch screens (desk-ui-NAME.png), in GREEN and in a custom theme (desk-ui-NAME-theme.png),
+    """The Studio's touch screens (desk-ui-NAME.png), in XOXO and in KAWAII (desk-ui-NAME-theme.png),
     as a Studio might run: an SMK-37 running Clipper, a K.O. Sidekick (EP-136), the sampler with a kit and a beat
     (the kit's old pattern, XO-4's now), the headphone jack, a speaker. The tabs, the pads in XO-4's DRUMS, a pad's
     page and FX over it, the EDITOR tab, the recorder and the boot screen"""
     import deskboot
-    import sloopstyle
+    import xoxostyle
     meters.load_numpy()
-    custom = sloopstyle.Theme("MY THEME", [(8, 36, 48), (24, 76, 96), (40, 124, 168), (56, 180, 240),
-                                           (144, 212, 248)], None, (40, 60, 64), (248, 252, 248))
     samples = studio_samples()
     pages = [("home", "HOME", {}), ("mix", "MIX", {}), ("pads", "XO4", {"xo4_track": 0}), ("rec", "REC", {}),
              ("midi", "MIDI", {}), ("more", "MORE", {}), ("pad", "XO4", {"xo4_track": 0, "pad_edit": 0}),
              ("fx", "XO4", {"xo4_track": 0, "fx_open": True, "fx_on": 1, "fx_latch": True}),
              ("editor", "EDITOR", {"editor": True})]   # (the pads: XO-4's DRUMS, their pages over it)
-    for suffix, theme in (("", sloopstyle.Theme("GREEN")), ("-theme", custom)):
+    for suffix, theme in (("", xoxostyle.Theme("XOXO")), ("-theme", xoxostyle.Theme("KAWAII"))):
         for name, tab, attrs in pages:
             attrs = dict(attrs)                       # (each theme's pass: its own copy)
             display = RgbCapture()
@@ -277,7 +275,7 @@ def desk_screens(state, out):
         boot = deskboot.frame(theme, 3)
         boot.save(out / f"desk-ui-boot{suffix}.png", optimize=True)
         print("wrote", out / f"desk-ui-boot{suffix}.png")
-    desk_meters_sheet(state, out, custom)
+    desk_meters_sheet(state, out, xoxostyle.Theme("KAWAII"))
 
 
 def studio_samples():

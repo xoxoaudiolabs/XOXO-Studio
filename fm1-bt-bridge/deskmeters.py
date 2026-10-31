@@ -1,5 +1,5 @@
 """The meters drawn for the desk box's touchscreen (it shows ten: deskui hides the tuner): full width, in
-colour, in SLOOP's style and the theme's colours (sloopstyle.Theme). The sound comes from the same reader as
+colour, in the XOXO look and the theme's colours (xoxostyle.Theme). The sound comes from the same reader as
 the pocket box's meters (meters.LevelReader, the mix the box plays) and the sums are meters.py's own; only the
 pictures are new, and their smoothing (peak holds, needles, the waterfall's history) lives here, apart from the
 pocket box's.
@@ -12,7 +12,7 @@ import math
 from PIL import Image, ImageDraw
 
 import meters as m
-import sloopstyle as st
+import xoxostyle as st
 
 BANDS = 32                                # the spectrum's bands (the pocket box has 16)
 FALL = 26.0                               # dB a second a level bar falls back (rises at once): steady at any

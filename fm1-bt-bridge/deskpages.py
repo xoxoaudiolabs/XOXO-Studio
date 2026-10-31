@@ -7,7 +7,7 @@ chosen and pressed; - / + on a row being edited are up / down), so both boxes be
 the Studio's, for touch: rows a fingertip wide, - / + buttons, a hold-to-confirm button, a back button.
 """
 
-import sloopstyle as st
+import xoxostyle as st
 
 W, H, HDR_H = 480, 320, 34
 ROW_H, ROWS = 46, 5                          # list rows: 5 to a page, 46 pixels each
