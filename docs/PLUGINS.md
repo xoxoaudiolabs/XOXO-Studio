@@ -2,7 +2,7 @@
 
 **A design, not built yet.** Agreed 2026-10-31: the design now, the building after the launch (Maker Faire
 Orlando), so the launch build stays the one that's tested. Plug-ins are open to anyone from the start, so the API
-below is versioned and kept stable. The first plug-in from outside the core is **FM-1**: the FM-1 as sound and
+below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and
 MIDI, and its library.
 
 ## Why
@@ -49,8 +49,8 @@ the pads, XO-4, the decks, the Pocket link. Each one moves over with its tests, 
 A plug-in is a folder with a manifest and a Python file:
 
 ```
-plugins/fm1/
-  plugin.json     {"id": "fm1", "name": "FM-1", "version": "1.0.0", "api": 1,
+plugins/fm1-companion/
+  plugin.json     {"id": "fm1-companion", "name": "FM-1 Companion", "version": "1.0.0", "api": 1,
                    "author": "XOXO Audio Labs", "license": "GPL-3.0", "entry": "plugin.py"}
   plugin.py
 ```
@@ -111,9 +111,9 @@ recorder and the plug-in host. These become first-party plug-ins, each its own s
 
 The Pocket's OLED screens leave the Studio's app (they belong to the FM-1 Companion's Pocket).
 
-## 4. The FM-1 plug-in
+## 4. The FM-1 Companion plug-in
 
-Ported from the FM-1 Companion's code (`FM-1-Companion`, GPL-3.0, our own repository; that repository isn't
+In XOXOPlugIns, as `fm1-companion`. Ported from the FM-1 Companion app's code (`FM-1-Companion`, GPL-3.0, our own repository; that repository isn't
 changed for it):
 
 - **Sound and MIDI:** an FM-1 (Felucca, SLOOP, Clipper firmware: `sloop.fm1_cards`' rules) recognised as a
@@ -130,5 +130,5 @@ Not in it: the SLOOP and X0X apps, and FM-1 ON STUDIO (left out by choice).
 2. The plug-in host: manifests, switching on and off, settings, screens, MIDI route ends, events, errors
 3. The web app's plug-in sections (with the Web app development session: the page is shared)
 4. XO-4, the decks, the Pocket link and the computer link as plug-ins
-5. The FM-1 plug-in
+5. The FM-1 Companion plug-in
 6. The plug-in guide for others (this file, finished as a guide) and an example plug-in
