@@ -293,6 +293,9 @@ def pick_nodes(objects, host=None):
             sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name in POCKET_FM1S:      # one of the Pocket's FM-1s on its own stream
+            label = (host and host.source_label(props, counts)) or "POCKET FM-1 " + name[-1].upper()  # (46002-6)
+            sources.append(dict(node, label=label, internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Sink" and name.startswith("bluez_output."):
             sink = sink or node
     return sink, sources
@@ -580,6 +583,7 @@ class Loopback:
 
 
 MIX_MAX = 200                           # the levels go to 200%: some keyboards' synths are much quieter
+POCKET_FM1S = ("fm1-pocket-a", "fm1-pocket-b", "fm1-pocket-c")   # a linked Pocket's FM-1 A-C, each its own stream
 APP_NODES = {"decks": "fm1-decks"}      # sound the Studio's own programs play (the DJ decks: decks.py, DJ decks
                                         # out: STUDIO): mixer key -> its PipeWire node, its level set there
 
@@ -869,6 +873,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.copy_set = None                  # (node id, level) last set on the jack's copy of the main mix
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
+        self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
         self.box = {"build": "pocket", "board": "", "screen": None, "can": set()}   # main() fills it in
         self.desk = None                      # the desk box's touch screens (deskui.DeskUI), from main()
         self.pads = None                      # the Studio's sampler (pads.PadProcess), from main()
@@ -969,7 +974,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return                            # couldn't look: keep everything as it is
         (sink, others), objects = found
         if not self.pocket_linked():          # POCKET only while a Pocket is linked (its receiver's always there)
-            others = [n for n in others if n["name"] != "fm1-pocket"]
+            others = [n for n in others if not n["name"].startswith("fm1-pocket")]   # (and its FM-1s' streams)
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
@@ -1017,8 +1022,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         cued += [(key, APP_NODES[key], None) for key in sorted(self.app_here) if key in self.cued()]   # an app:
         self.cue_mixer.ensure(self.jack and self.jack["name"], cued)   # its stream, after its level (set there)
         self.pc_mixer.ensure(self.computer and self.computer["name"], self.computer_feeds(channels))
-        self.pc_mixer.set_levels(objects, {key: self.mix_level(key) for key, _ in channels}
-                                 | {key: self.mix_level(key) for key in self.app_here})
+        self.pc_mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels}
+                                 | {key: self.heard(key) for key in self.app_here})
         cue_level, main_level = self.cue_levels()
         self.cue_mixer.set_levels(objects, {key: cue_level for key, _, _ in cued})
         copy_id = next((o.get("id") for o in objects
@@ -1027,14 +1032,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             run(["wpctl", "set-volume", str(copy_id), f"{main_level / 100:.2f}"], timeout=5)
             self.copy_set = (copy_id, main_level)
         for key, app_id in app_ids.items():   # a Studio app playing (it goes to the speaker by itself): its level
-            if app_id is not None and self.app_set.get(key) != (app_id, self.mix_level(key)):
-                run(["wpctl", "set-volume", str(app_id), f"{self.mix_level(key) / 100:.2f}"], timeout=5)
-                self.app_set[key] = (app_id, self.mix_level(key))
+            if app_id is not None and self.app_set.get(key) != (app_id, self.heard(key)):
+                run(["wpctl", "set-volume", str(app_id), f"{self.heard(key) / 100:.2f}"], timeout=5)
+                self.app_set[key] = (app_id, self.heard(key))
         if len(channels) > 1:                 # more than one source: through the mixer, each at its level
             self.loop.ensure(None, None)
             self.mixer.ensure(main, [(key, node["name"], self.input_pair(key, node))
                                                       for key, node in channels if self.mix_level(key) > 0])
-            self.mixer.set_levels(objects, {key: self.mix_level(key) for key, _ in channels})
+            self.mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels})
             for loop in list(self.mixer.channels.values()) + list(self.cue_mixer.channels.values()):
                 loop.heal(objects)            # an interface's chosen pair, linked again if it got lost
             self.mix_lost = 0
@@ -1043,7 +1048,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         else:                                 # one source (the FM-1, as ever): straight to the speaker
             self.mixer.stop()
             self.mix_lost = 0
-            only = channels[0][1] if channels else None
+            only = channels[0][1] if channels and self.heard(channels[0][0]) else None   # (muted: no loop)
             self.loop.ensure(only and only["name"], main)
 
     def computer_feeds(self, channels):
@@ -1225,6 +1230,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return None
         return "cable" if any(str(ip).startswith("169.254.") for ip in here) else "network"
 
+    def pocket_address(self):
+        """a linked Pocket's IP address (its network MIDI session's), or None"""
+        hosts = getattr(self.midi, "net_hosts", None) or {}
+        return next((str(ip) for name, ip in sorted(hosts.items()) if "Pocket" in name), None)
+
     def set_kit(self, kit):
         import pads
         kit = pads.clean_kit(kit)
@@ -1240,6 +1250,24 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if key in mix:
             return int(mix[key])
         return int(mix.get("usb", 100)) if key.startswith("u-") else 100     # (before: one level for all USB)
+
+    def heard(self, key):
+        """the level a source plays at, after MUTE and SOLO: 0 when muted, or when something else is soloed and
+        it isn't (a soloed source that's also muted stays silent). The fader's own level stays as it was. Only
+        sources there now count as soloed, so one unplugged while soloed doesn't silence the rest."""
+        if key in self.mutes:
+            return 0
+        here = {k for k, _ in self.mix_channels()} | self.app_here
+        solos = self.solos & here
+        return 0 if solos and key not in solos else self.mix_level(key)
+
+    def toggle_mute(self, key):
+        self.mutes ^= {key}
+        self.scan_now = True
+
+    def toggle_solo(self, key):
+        self.solos ^= {key}
+        self.scan_now = True
 
     def input_pairs(self, node):
         """the channel pairs a source can give: [] for stereo, else ["1-2", "3-4", ...] (a mono source: ["1"])"""

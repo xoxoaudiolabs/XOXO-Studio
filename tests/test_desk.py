@@ -1592,3 +1592,150 @@ def test_xo4_synth_fx_page():
     press("fx-back")
     ui.render(0.0, force=True)
     assert ("xo4-synth-fx" in {w[3] for w in ui.widgets}) and not ui.fx_open
+
+
+def test_mixer_mute_and_solo():
+    """each mixer channel's M and S: muted, or silent while another is soloed, its fader level kept; one unplugged
+    while soloed doesn't silence the rest; by touch, on HOME, and from the web page"""
+    import bridge
+    import deskui
+    import web
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"},
+                  {"id": 4, "name": "alsa_input.usb-SMK", "label": "SMK-37+VA"}]
+    ep, smk = [k for k, _ in app.mix_channels()]
+    app.set_mix_level(smk, 150)
+    assert (app.heard(ep), app.heard(smk)) == (100, 150)
+    app.toggle_mute(ep)
+    assert (app.heard(ep), app.heard(smk), app.mix_level(ep)) == (0, 150, 100)
+    app.toggle_mute(ep)
+    app.toggle_solo(smk)
+    assert (app.heard(ep), app.heard(smk)) == (0, 150)
+    app.toggle_mute(smk)                                               # soloed and muted: silent
+    assert app.heard(smk) == 0
+    app.toggle_mute(smk)
+    app.others = app.others[:1]                                        # the soloed one unplugged
+    assert app.heard(ep) == 100
+    app.others = [{"id": 1, "name": "alsa_input.usb-EP-136", "label": "EP-136"},
+                  {"id": 4, "name": "alsa_input.usb-SMK", "label": "SMK-37+VA"}]
+    set_to = []                                                        # what reaches PipeWire
+    real_run, bridge.run = bridge.run, lambda cmd, **kw: set_to.append(cmd)
+    try:
+        mixer = bridge.Mixer()
+        mixer.set_levels([{"id": 7, "info": {"props": {"node.name": f"fm1-mix-{ep}"}}},
+                          {"id": 8, "info": {"props": {"node.name": f"fm1-mix-{smk}"}}}],
+                         {k: app.heard(k) for k in (ep, smk)})
+    finally:
+        bridge.run = real_run
+    assert ["wpctl", "set-volume", "7", "0.00"] in set_to and ["wpctl", "set-volume", "8", "1.50"] in set_to
+    app.toggle_solo(smk)
+
+    ui = deskui.DeskUI(app, app.display)                               # by touch
+    ui.theme_check = 1e12
+    ui.open_tab("MIX")
+    ui.render(0.0, force=True)
+
+    def press(key):
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 3, box[1] + 3, 0.0)
+        ui.touch("up", box[0] + 3, box[1] + 3, 0.0)
+        ui.render(0.0, force=True)
+    press(("m-mix", ep))
+    press(("s-mix", smk))
+    assert app.mutes == {ep} and app.solos == {smk}
+    assert not any(w[3] in (("m-mix", "spk"), ("s-mix", "spk")) for w in ui.widgets)   # the speaker: no M / S
+    texts = {row[0]: row[5] for row in ui.home_rows()}
+    assert texts[ep] == "MUTE" and texts[smk] == "150%"
+    app.toggle_mute(ep)
+    assert {row[0]: row[5] for row in ui.home_rows()}[ep] == "OFF"     # silent under the other's SOLO
+
+    app.web_command({"cmd": "set", "key": f"solo_{smk}", "value": False})   # from the web page
+    app.web_command({"cmd": "set", "key": f"mute_{ep}", "value": True})
+    app.web_command({"cmd": "set", "key": f"mute_{ep}", "value": True})    # (again: stays muted)
+    rows = {r["key"]: r for r in app.web_status()["mixer"]}
+    assert rows[ep]["mute"] is True and rows[smk]["solo"] is False and app.heard(smk) == 150
+    assert web.check_command({"cmd": "set", "key": f"mute_{ep}", "value": True})["value"] is True
+    for bad in ({"cmd": "set", "key": f"mute_{ep}", "value": 1}, {"cmd": "set", "key": "solo_spk", "value": True}):
+        try:
+            web.check_command(bad)
+            assert False, bad
+        except ValueError:
+            pass
+
+
+def test_pocket_fm1s_on_their_own():
+    """a linked Pocket's FM-1s A-C, each on its own (seven-fm1s-design.md): their sound streams (fm1-pocket-a/b/c)
+    are sources, named by a plug-in or POCKET FM-1 A; their network MIDI sessions are devices with a row and column
+    of their own, sent to alone, and left out of NET; the Studio says it takes them, and gives a plug-in the
+    Pocket's address"""
+    import blemidi
+    import bridge
+    import netmidi
+    import plugins
+    conf = (Path(__file__).resolve().parent.parent / "fm1-bt-bridge" / "config" / "pipewire-fm1-pocket-in.conf").read_text()
+    for port, x in ((46000, ""), (46002, "-a"), (46004, "-b"), (46006, "-c")):
+        assert f"source.port = {port}" in conf and f'node.name = "fm1-pocket{x}"' in conf
+    nodes = [{"id": 10 + i, "type": "PipeWire:Interface:Node",
+              "info": {"props": {"media.class": "Audio/Source", "node.name": name, "node.description": desc}}}
+             for i, (name, desc) in enumerate((("fm1-pocket", "Pocket (link)"), ("fm1-pocket-a", "Pocket FM-1 A"),
+                                               ("fm1-pocket-b", "Pocket FM-1 B")))]
+    _, sources = bridge.pick_nodes(nodes)
+    assert [n["label"] for n in sources] == ["POCKET", "POCKET FM-1 A", "POCKET FM-1 B"]
+    assert all(n["internal"] for n in sources)
+
+    class Host:                                                         # the FM-1 Companion's rules, as a plug-in has them
+        def source_label(self, props, counts):
+            return {"fm1-pocket-a": "FM-1 E", "fm1-pocket-b": "FM-1 F"}.get(props.get("node.name"))
+    _, sources = bridge.pick_nodes(nodes, Host())
+    assert [n["label"] for n in sources] == ["POCKET", "FM-1 E", "FM-1 F"]
+
+    sent = []                                                           # network MIDI: to one peer, or all but some
+
+    class Sock:
+        def sendto(self, packet, addr):
+            sent.append(addr)
+    s = netmidi.Session("XOXO Studio", 5004, lambda m, peer=None: None, by_peer=True)
+    s.dsock = Sock()
+    s.peers = {1: {"name": "FM-1 Companion Pocket", "data": ("10.0.0.2", 5005)},
+               2: {"name": "FM-1 Companion Pocket FM-1 A", "data": ("10.0.0.2", 5007)},
+               3: {"name": "Kraken", "data": ("10.0.0.9", 5005)}}
+    s.send([bytes([0x90, 60, 100])], to="FM-1 Companion Pocket FM-1 A")
+    assert sent == [("10.0.0.2", 5007)]
+    sent.clear()
+    s.send([bytes([0x90, 60, 100])], skip={"FM-1 Companion Pocket FM-1 A"})
+    assert sorted(sent) == [("10.0.0.2", 5005), ("10.0.0.9", 5005)]
+    got = []
+    s.on_message = lambda m, peer=None: got.append(peer)
+    s.received(netmidi.encode([bytes([0x90, 60, 100])], 1, 2), ("10.0.0.2", 5007), True)
+    assert got == ["FM-1 Companion Pocket FM-1 A"]
+
+    b = blemidi.MidiBridge(net=True)                                    # the MIDI process, the Studio's
+    to_peer, to_dev = [], []
+    b.net.names = lambda: ["FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A", "FM-1 Companion Pocket FM-1 B"]
+    b.net.send = lambda m, to=None, skip=(): to_peer.append((to, set(skip)))
+    b.controllers.send_to = lambda name, m: to_dev.append(name)
+    b.to_ble = lambda m: None
+    assert b.device_names() == ["POCKET FM-1 A", "POCKET FM-1 B"]      # (no plug-in: the Pocket's letters)
+    b.controllers.rules = [[r"Pocket FM-1 A$", "FM-1 E"], [r"Pocket FM-1 B$", "FM-1 F"]]
+    assert b.device_names() == ["FM-1 E", "FM-1 F"] and b.controllers.names() == []
+    assert "U:FM-1 E" in b.dests() and "NET" in b.dests()
+    b.set_routes({"Box>U:FM-1 E": {"on": True}})
+    b.deliver("BT>U:FM-1 E", [bytes([0x90, 60, 100])])
+    assert to_peer == [("FM-1 Companion Pocket FM-1 A", set())] and to_dev == []
+    to_peer.clear()
+    b.deliver("BT>NET", [bytes([0x90, 60, 100])])                       # NET: not the FM-1s' own sessions
+    assert to_peer == [(None, {"FM-1 Companion Pocket FM-1 A", "FM-1 Companion Pocket FM-1 B"})]
+    to_peer.clear()
+    b.set_routes({"U:FM-1 F>U:FM-1 E": {"on": True}})
+    b.from_net(bytes([0x90, 62, 90]), "FM-1 Companion Pocket FM-1 B")   # FM-1 F played: to FM-1 E, by its route
+    assert ("FM-1 Companion Pocket FM-1 A", set()) in to_peer and b.source_names["U:FM-1 F"] == "FM-1 F"
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))               # status and the plug-ins' pocket()
+    app.save_settings = lambda: None
+    assert app.web_status()["pocket_fm1s"] is True and app.pocket_address() is None
+    app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"], "net_hosts": {"Kraken": "10.0.0.9",
+                              "FM-1 Companion Pocket": "169.254.66.49"}})()
+    assert app.pocket_address() == "169.254.66.49"
+    host = plugins.Host(app)
+    assert plugins.Studio(host, "x", {}).pocket() == "169.254.66.49"

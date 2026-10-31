@@ -694,7 +694,7 @@ class UsbControllers:
         self.ports = {}                     # client name ("SMK-37+VA") -> {"in": port, "out": port or None}
         self.last_activity = 0.0
         self.lock = threading.Lock()
-        self.names = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
+        self.rules = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
         self.cards = {}                     # the plug-ins' {sound card: name}: a USB device they name by its card
 
     def wanted(self, names):
@@ -704,8 +704,8 @@ class UsbControllers:
         out = {}
         for name in sorted(names):              # (in order: two alike get the same letters in and out)
             low = name.lower()
-            named = (plugins.name_device(name.split(":")[0], self.names, set(out), name, self.cards)
-                     if self.names or self.cards else None)
+            named = (plugins.name_device(name.split(":")[0], self.rules, set(out), name, self.cards)
+                     if self.rules or self.cards else None)
             if named and not (any(s in low for s in self.SKIP) or ADDRESS.search(name)):
                 if not any(v.rsplit(" ", 1)[-1] == name.rsplit(" ", 1)[-1] for v in out.values()):
                     out[named] = name
@@ -793,6 +793,8 @@ class UsbControllers:
 # ---------------------------------------------------------------- the MIDI matrix
 
 SOURCES, DESTINATIONS = ("BT", "USB", "NET", "XO4", "Box"), ("BT", "USB", "NET", "SMP")
+POCKET_FM1 = re.compile(r"Pocket FM-1 ([A-C])$")   # a linked Pocket's FM-1 on a network MIDI session of its own
+                                                     # ("FM-1 Companion Pocket FM-1 A"): a device, as a USB one
 COMPUTER = "COMPUTER"       # a computer on a Pi 4 Studio's USB-C: one more USB MIDI device, by this name
 # XO4: XO-4's MIDI track (xo4.py), on the Studio
 # SMP: the Studio's 4x4 sampler (pads.py): notes 36-51 play its 16 pads
@@ -1098,7 +1100,7 @@ class MidiBridge:
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         if net:
             import netmidi
-            self.net = netmidi.Session("XOXO Studio", 5004, self.from_net)
+            self.net = netmidi.Session("XOXO Studio", 5004, self.from_net, by_peer=True)
             self.mcu = netmidi.Session("XOXO Studio MCU", 5006, self.from_mcu)
             self.mackie = netmidi.Mackie()
         self.peers = {}                     # device path -> name: what's connected to the box (phones, iPads, Macs)
@@ -1142,7 +1144,24 @@ class MidiBridge:
         return r
 
     def dests(self):
-        return matrix(self.controllers.names() if self.split else None)[1]
+        return matrix(self.device_names() if self.split else None)[1]
+
+    def pocket_fm1s(self):
+        """{device name: network MIDI peer} of a linked Pocket's FM-1s, each on a session of its own: named by the
+        plug-ins' rules on the peer's name ("FM-1 E"), else "POCKET FM-1 A" (the Studio: none on the Pocket)"""
+        import plugins
+        out = {}
+        for peer in (self.net.names() if self.net and self.split else []):
+            m = POCKET_FM1.search(peer)
+            if m:
+                name = plugins.name_device(peer, self.controllers.rules, set(out)) or f"POCKET FM-1 {m.group(1)}"
+                out.setdefault(name, peer)
+        return out
+
+    def device_names(self):
+        """the devices with a row and column of their own: the USB MIDI ones, then a linked Pocket's FM-1s"""
+        usb = self.controllers.names()
+        return usb + [n for n in sorted(self.pocket_fm1s()) if n not in usb]
 
     def deliver(self, key, messages):
         """messages out of a route, to its destination"""
@@ -1151,11 +1170,15 @@ class MidiBridge:
         dest = key.split(">")[1]
         if dest == "USB":
             self.controllers.send_messages(messages)
-        elif dest.startswith(DEVICE):         # one USB device (the Studio)
-            self.controllers.send_to(dest[len(DEVICE):], messages)
+        elif dest.startswith(DEVICE):         # one USB device (the Studio), or one of a linked Pocket's FM-1s
+            peer = self.pocket_fm1s().get(dest[len(DEVICE):]) if self.net else None
+            if peer:
+                self.net.send(messages, to=peer)
+            else:
+                self.controllers.send_to(dest[len(DEVICE):], messages)
         elif dest == "NET":
-            if self.net:
-                self.net.send(messages)
+            if self.net:                      # (not a Pocket's FM-1s: they have their own routes)
+                self.net.send(messages, skip=set(self.pocket_fm1s().values()))
         elif dest == "SMP":
             if not self.xo4_in:               # MIDI IN off: only real-time (clock, start, stop) reaches the pads
                 messages = [m for m in messages if m and m[0] >= 0xF8]
@@ -1358,10 +1381,15 @@ class MidiBridge:
                 self.deliver(key, self.route(key).apply_all(message))
 
     # network MIDI: a DAW's notes and clock (the routes' NET), and what it shows on the control surface
-    def from_net(self, message):
-        if not self.passes("NET", message):
+    def from_net(self, message, peer=None):
+        """peer: the session it came from; a linked Pocket's FM-1 on its own is a device of its own"""
+        named = next((n for n, p in self.pocket_fm1s().items() if p == peer), None) if peer else None
+        source = device_key(named) if named else "NET"
+        if named:
+            self.source_names[source] = named
+        if not self.passes(source, message):
             return
-        self.route_from("NET", message)
+        self.route_from(source, message)
 
     def from_mcu(self, message):
         replies = self.mackie.feed(message)
@@ -1553,7 +1581,7 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
             elif command[0] == "xo4_in":           # ("xo4_in", on): XO-4's MIDI IN
                 bridge.xo4_in = bool(command[1])
             elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
-                bridge.controllers.names = [[str(p), str(n)] for p, n in command[1]]
+                bridge.controllers.rules = [[str(p), str(n)] for p, n in command[1]]
             elif command[0] == "cards":            # ("cards", [[card, name]]): USB devices the plug-ins name by card
                 bridge.controllers.cards = {int(c): str(n) for c, n in command[1]}
             elif command[0] == "metronome":        # ("metronome", on, speaker, level, rate)
@@ -1583,7 +1611,7 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
             bridge.poll()
             next_poll = now + 3                # a USB controller plugged in shows up within 3 s
         metro.ensure(*wanted)                  # starts, stops, or restarts it if its stream ended
-        status = {"peer": bridge.peer, "error": bridge.error, "controllers": bridge.controllers.names(),
+        status = {"peer": bridge.peer, "error": bridge.error, "controllers": bridge.device_names(),
                   "activity": round(bridge.activity(), 1),  # 0.1 s steps: at most ~5 updates a second
                   "clock": bridge.clock_status(now)}
         status["notes"], status["chans"] = bridge.notes_status(now)

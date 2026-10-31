@@ -31,6 +31,7 @@ from deskxo4 import DeskXO4
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
+MUTE_COLOUR, SOLO_COLOUR = st.rgb(255, 59, 31), st.rgb(255, 198, 24)   # the mixer's M and S lit, in any theme
 TABS = ("HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
 FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
@@ -520,11 +521,13 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         """HOME's rows: every source (its mixer level), the DJ decks while they run, then the speaker (its volume):
         [(key, label, detail, track colour, level 0..1, level's text)]"""
         a = self.app
-        rows = [(key, label, detail, k, a.mix_level(key) / 200, f"{a.mix_level(key)}%")
+        def level(key):                     # muted, or silent under another's SOLO: said instead of the %
+            return "MUTE" if key in a.mutes else "OFF" if a.heard(key) == 0 < a.mix_level(key) else f"{a.mix_level(key)}%"
+        rows = [(key, label, detail, k, a.mix_level(key) / 200, level(key))
                 for key, label, detail, k in self.sources()]
         if self.decks_proc and self.decks_proc.running():
             rows.append(("decks", "DECKS", "", len(rows) % 3, a.mix_level("decks") / 200,   # (not the speaker's colour)
-                         f"{a.mix_level('decks')}%"))
+                         level("decks")))
         speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
         if a.sink and getattr(a, "spk_battery", None) is not None:   # the speaker reports its battery
             speaker = f"{speaker}  BAT {a.spk_battery}%"
@@ -602,7 +605,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
             self.button(img, d, box, f"PARTS {parts}", self.toggle_parts, on=a.state.get("rec_parts"))
         self.button(img, d, (246, 4, 340, HDR_H - 6), "METERS", lambda: self.open_tab("METER"), key="meters")
         width = W // len(cols)
-        top, bottom = HDR_H + 26, H - TAB_H - (64 if a.jack else 30)   # with a jack: CUE buttons underneath
+        top, bottom = HDR_H + 52, H - TAB_H - (64 if a.jack else 30)   # MUTE / SOLO above; with a jack: CUE under
         blend = {0: "CUE", 25: "75/25", 50: "50/50", 75: "25/75", 100: "MAIN"}
         for i, (key, label, k, value, most) in enumerate(cols):
             x0 = i * width
@@ -614,7 +617,16 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
                 label = label[:room - 2].rstrip() + label[-2:]     # ("EP-13#2")
             label = label[:room]
             st.text(img, (cx - st.text_size(label)[0] // 2, HDR_H + 5), label, t.track[k])
-            pair = a.input_label(key, nodes[key]) if key in nodes and key.startswith("u-") else None
+            silent = False
+            if key in nodes or key == "decks":   # a source: M (mute) and S (solo), each a tap
+                half = (width - 12) // 2
+                for j, (tag, on, act, colour) in enumerate((("M", key in a.mutes, a.toggle_mute, MUTE_COLOUR),
+                                                            ("S", key in a.solos, a.toggle_solo, SOLO_COLOUR))):
+                    box = (x0 + 4 + j * (half + 4), HDR_H + 24, x0 + 4 + j * (half + 4) + half, HDR_H + 44)
+                    self.button(img, d, box, tag, lambda act=act, key=key: act(key), color=colour, on=on,
+                                key=(tag.lower() + "-mix", key))
+                silent = a.heard(key) == 0 and value > 0     # muted, or another source soloed
+            pair =a.input_label(key, nodes[key]) if key in nodes and key.startswith("u-") else None
             if pair and len(a.input_pairs(nodes[key])) > 1:      # an interface: tap for its next input pair
                 box = (x0 + 4, top - 8, x0 + width - 5, top + 12)
                 self.button(img, d, box, pair[3:], lambda key=key: a.next_input_pair(key), key=("pair", key))
@@ -624,9 +636,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
             d.rectangle((cx - 4, top_k, cx + 4, bottom), fill=t.c[0])
             frac = max(0.0, min(1.0, value / most))
             y = bottom - int((bottom - top_k) * frac)
-            d.rectangle((cx - 4, y, cx + 4, bottom), fill=t.track[k])
+            colour = t.dim[k] if silent else t.track[k]  # silenced: the fader dimmed, its level kept
+            d.rectangle((cx - 4, y, cx + 4, bottom), fill=colour)
             hot = self.lit(("slide", key))
-            d.rectangle((cx - 28, y - 9, cx + 28, y + 9), fill=t.hi if hot else t.track[k], outline=t.bg, width=2)
+            d.rectangle((cx - 28, y - 9, cx + 28, y + 9), fill=t.hi if hot else colour, outline=t.bg, width=2)
             v = f"{int(value)}%"
             st.text(img, (cx - st.text_size(v)[0] // 2, bottom + 8), v, t.hi)
             self.widget((x0, top_k - 10, x0 + width - 1, bottom + 10), "slide",

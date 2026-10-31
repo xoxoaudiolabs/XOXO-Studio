@@ -28,6 +28,7 @@ class WebLink:
             "live": self.live(),
             "mixer": self.web_mixer(),
             "pocket": self.pocket_link(),
+            "pocket_fm1s": True,              # a linked Pocket may send its FM-1s each on its own (sound and MIDI)
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
             "speaker_battery": getattr(self, "spk_battery", None),
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,
@@ -48,9 +49,11 @@ class WebLink:
     def web_mixer(self):
         """the mixer's levels: each source, and the DJ decks while they play; None with only one source"""
         rows = [{"key": k, "label": self.channel_name(k, n), "level": self.mix_level(k),
-                 "input": self.input_label(k, n)} for k, n in self.mix_channels()]
+                 "input": self.input_label(k, n), "mute": k in self.mutes, "solo": k in self.solos}
+                for k, n in self.mix_channels()]
         if "decks" in (getattr(self, "app_here", None) or ()):
-            rows.append({"key": "decks", "label": "DECKS", "level": self.mix_level("decks"), "input": None})
+            rows.append({"key": "decks", "label": "DECKS", "level": self.mix_level("decks"), "input": None,
+                         "mute": "decks" in self.mutes, "solo": "decks" in self.solos})
         return rows if len(rows) > 1 else None
 
     def web_xo4(self):
@@ -131,6 +134,11 @@ class WebLink:
                 return None                   # toggle_keys says it
             if re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key) and isinstance(value, int) and 0 <= value <= 200:
                 self.set_mix_level(key[4:], value)
+                return None
+            if re.fullmatch(r"(mute|solo)_(decks|u-[a-z0-9]+)", key) and isinstance(value, bool):
+                kind, which = key.split("_", 1)
+                if (which in (self.mutes if kind == "mute" else self.solos)) != value:
+                    (self.toggle_mute if kind == "mute" else self.toggle_solo)(which)
                 return None
             if re.fullmatch(r"input_u-[a-z0-9]+", key):          # a multichannel source: its next pair
                 pair = self.next_input_pair(key[6:])
