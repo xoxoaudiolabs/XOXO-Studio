@@ -90,7 +90,8 @@ change that breaks plug-ins makes a new one, and the old one stays supported for
 
 **Installing:** a plug-in folder in `~/xoxo-plugins/` (from a download, or `git clone`), or from the web app
 (upload a `.zip`). Each is switched on or off in MORE › PLUG-INS and on the web page; one that's off leaves no
-trace: no tab, no device profiles, no process. First-party plug-ins ship in the repository's `plugins/` folder.
+trace: no tab, no device profiles, no process. First-party plug-ins live in their own repository,
+**xoxoaudiolabs/XOXOPlugIns** (one folder per plug-in, the same layout as anyone's), apart from the Studio's code.
 
 **Trust:** a plug-in is Python running as the Studio does, with its access to the files and the network. The
 Studio says so when one is switched on from outside the repository, and only runs plug-ins someone switched on.
