@@ -313,7 +313,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         t, kit = self.theme, self.app.kit()
         d.rectangle((0, top, W, H), fill=t.bg)
         st.text(img, (8, top + 2), "PUT IT ON PAD:", t.hi)
-        self.button(img, d, (W - 96, top, W - 4, top + 20), "CANCEL", self.choose_pad, key="ed-pad-cancel")
+        self.button(img, d, (W - 96, top, W - 4, top + 20), "BACK", self.choose_pad, key="ed-pad-cancel")
         gw, gh = (W - 8) // 8, (H - top - 26) // 2
         for i in range(16):
             row, col = 1 - i // 8, i % 8

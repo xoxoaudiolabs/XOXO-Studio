@@ -325,7 +325,7 @@ class DeskDecks:
             self.button(img, d, (164, by, 316, H - 4), "SKIP", lambda: p.send("learn_skip"), key="learn-skip")
             self.button(img, d, (324, by, 476, H - 4), "DONE", lambda: p.send("learn_done"), key="learn-done")
         else:
-            self.button(img, d, (4, by, 236, H - 4), "CANCEL", lambda: p.send("learn_done"), key="learn-cancel")
+            self.button(img, d, (4, by, 236, H - 4), "BACK", lambda: p.send("learn_done"), key="learn-cancel")
             self.button(img, d, (244, by, 476, H - 4), "CLEAR IT", lambda a=lr["action"]: self.learn_clear(p, a),
                         key="learn-clear")
 
