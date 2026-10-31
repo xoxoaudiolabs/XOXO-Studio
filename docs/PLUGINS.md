@@ -1,7 +1,9 @@
 # Plug-ins and devices: the design
 
-**A design, not built yet.** Agreed 2026-10-31: the design now, the building after the launch (Maker Faire
-Orlando), so the launch build stays the one that's tested. Plug-ins are open to anyone from the start, so the API
+**Being built for the launch** (Maker Faire Orlando; the user, 2026-10-31: "Yes, at launch"). Built so far: the
+plug-in host (`fm1-bt-bridge/plugins.py`, API 1), MORE › PLUG-INS (`deskplugins.py`), the web app's status and
+commands, and FM-1 Companion 0.1 (sound and MIDI). The device registry (section 1) and moving the built-ins
+(section 3) come after the launch. Plug-ins are open to anyone from the start, so the API
 below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and
 MIDI, and its library.
 
@@ -59,19 +61,22 @@ plugins/fm1-companion/
 API = 1
 
 def setup(studio):                 # studio: the plug-in host, the only door into the Studio
-    studio.add_device(AudioProfile(id="fm1", role=SOURCE, label=fm1_label, match=is_fm1))
-    studio.add_midi_end("FM1", label="FM-1", source=True, destination=True)
-    studio.add_screen("FM1", label="FM-1", screen=FM1Screen, full=True)       # a tab of its own
-    studio.add_setting("auto_backup", kind="switch", label="Auto backup", default=True)
+    studio.add_audio_source(r"felucca|sloop", lambda n: "FM-1 " + "AB"[n])   # a mixer source, named
+    studio.add_midi_device(r"^(felucca|sloop)", "FM-1 {n}")                  # a MIDI device, named
+    studio.add_screen("FM-1", FM1Screen)          # opened from MORE > PLUG-INS
     studio.add_web(status=web_status, commands={"backup": backup})
-    studio.on("device_in", device_in)
+    studio.on("tick", tick)
 ```
+
+That is API 1 as built for the launch (`plugins.py` lists it in full: also `settings`, `save()`, `say()`,
+`sources()`). The rest of this section (device profiles with roles, MIDI route ends of a plug-in's own, a sound
+process, settings rows, the web page's plug-in rows) is the plan for later versions of the API.
 
 **What a plug-in can add:**
 
 - **Devices:** audio and MIDI profiles (above)
 - **MIDI route ends:** sources and destinations in the MIDI routes, with a callback for what arrives
-- **Screens:** a tab, or a full screen with "< HOME", drawn with the Studio's widgets (`button`, `widget` kinds tap,
+- **Screens:** full screens opened from MORE › PLUG-INS ("< PLUG-INS" top left), drawn with the Studio's widgets (`button`, `widget` kinds tap,
   hold, gate, slide, drag), its theme and font, at 480×320
 - **Settings:** its own, under MORE › PLUG-INS › its name, kept in the Studio's settings under its id
 - **A sound process:** like XO-4's or the pads', its sound a mixer source by its node name
@@ -91,7 +96,7 @@ change that breaks plug-ins makes a new one, and the old one stays supported for
 **Installing:** a plug-in folder in `~/xoxo-plugins/` (from a download, or `git clone`), or from the web app
 (upload a `.zip`). Each is switched on or off in MORE › PLUG-INS and on the web page; one that's off leaves no
 trace: no tab, no device profiles, no process. First-party plug-ins live in their own repository,
-**xoxoaudiolabs/XOXOPlugIns** (one folder per plug-in, the same layout as anyone's), apart from the Studio's code,
+**xoxoaudiolabs/XOXO-Studio-Plugins** (one folder per plug-in, the same layout as anyone's), apart from the Studio's code,
 except the **default plug-ins** (XO-4, the decks, the Pocket link, the computer link: section 3), which stay in the
 Studio's repository (`plugins/`), so a new Studio works without a second download.
 
@@ -113,7 +118,7 @@ The Pocket's OLED screens leave the Studio's app (they belong to the FM-1 Compan
 
 ## 4. The FM-1 Companion plug-in
 
-In XOXOPlugIns, as `fm1-companion`. Ported from the FM-1 Companion app's code (`FM-1-Companion`, GPL-3.0, our own repository; that repository isn't
+In XOXO-Studio-Plugins, as `fm1-companion`. Ported from the FM-1 Companion app's code (`FM-1-Companion`, GPL-3.0, our own repository; that repository isn't
 changed for it):
 
 - **Sound and MIDI:** an FM-1 (Felucca, SLOOP, Clipper firmware: `sloop.fm1_cards`' rules) recognised as a

@@ -26,29 +26,31 @@ import sloopstyle as st
 from deskdecks import DeskDecks
 from deskpads import DeskPads
 from deskpages import HOLD, DeskPages
+from deskplugins import DeskPlugins
 from deskxo4 import DeskXO4
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
 TABS = ("HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
-FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC")    # screens of their own: no tab bar under them (< HOME, top left)
+FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
-PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE"}   # pages opened from a tab: it stays lit under them
+PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "PLUGINS": "MORE", "PLUGIN": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
             ("LOOP", "loop")]
 MORE = [("PLAYING", ("menu", "play")),
         ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")), ("WI-FI", ("wifi", None)),
-        ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)),
+        ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)), ("PLUG-INS", ("plugins", None)),
         ("SHUT DOWN", ("off", None))]
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
-class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
+class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
     def __init__(self, app, display):
         self.app, self.display = app, display
         self.tab, self.classic = "HOME", False      # (classic: never, now; desk.Touch still asks)
         self.page_init()
+        self.plugins_init()
         self.pads_init()
         self.decks_init()
         self.xo4_init()
@@ -129,6 +131,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
             base += self.xo4_view()
         if self.tab == "DECKS":
             base += self.decks_view()
+        if self.tab in ("PLUGINS", "PLUGIN"):
+            base += self.plugins_view(now)
         return base
 
     def settle(self):
@@ -899,6 +903,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4):
         kind, arg = what
         if kind == "theme":                        # the theme page: a swatch of each
             self.open_tab("THEME")
+            return
+        if kind == "plugins":                      # MORE > PLUG-INS (deskplugins.py)
+            self.open_tab("PLUGINS")
             return
         if kind == "calibrate":
             self.calibrate()

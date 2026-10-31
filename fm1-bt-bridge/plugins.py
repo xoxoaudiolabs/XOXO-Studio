@@ -1,0 +1,245 @@
+"""XOXO Studio's plug-ins: the host (docs/PLUGINS.md). A plug-in is a folder with plugin.json and a Python file:
+
+  plugin.json   {"id": "fm1-companion", "name": "FM-1 Companion", "version": "1.0.0", "api": 1,
+                 "author": "XOXO Audio Labs", "license": "GPL-3.0", "entry": "plugin.py"}
+  plugin.py     API = 1
+                def setup(studio): ...      # studio: a Studio, its only door into the Studio
+
+Where plug-ins are found: ~/xoxo-plugins/<id>/ (anyone's; a clone of xoxoaudiolabs/XOXO-Studio-Plugins puts its
+plug-ins one level down, ~/xoxo-plugins/XOXO-Studio-Plugins/<id>/, and those are found too), and $XOXO_PLUGINS (a
+folder, for tests). A plug-in only runs once someone has switched it on (MORE > PLUG-INS, or the web page), and
+one that raises an error is switched off with a message, instead of stopping the Studio.
+
+What API 1 gives a plug-in (Studio):
+  settings, save(), say(text)                    its own settings, kept in the Studio's (state["plugins"][id])
+  sources()                                      the sound sources' names now ("FM-1 A", "XO-4", "EP-136" ...)
+  add_audio_source(match, label)                 a sound source in the mixer: match a regular expression on the
+                                                 PipeWire node's name, description and card name; label a name, or
+                                                 a function of the source's number among this rule's (0, 1, ...)
+  add_midi_device(pattern, name)                 a MIDI device's name in the routes: pattern a regular expression on
+                                                 its ALSA client name; name, with {n} for its letter (A, B, ...)
+  add_screen(label, screen)                      a screen of its own, opened from MORE > PLUG-INS: screen(ui, studio)
+                                                 with draw(img, d, now), drawn with ui's widgets (480x320)
+  add_web(status=None, commands=None)            fields in the web page's status (plugins.<id>) and its commands
+  on(event, fn)                                  "tick" (about once a second, with the app), "devices" (the sound
+                                                 sources changed: fn(labels))
+"""
+import importlib.util
+import json
+import os
+import re
+from pathlib import Path
+
+API = 1                                        # the host API this Studio gives plug-ins
+LETTERS = "ABCDEFGH"
+
+
+def plugin_dirs():
+    dirs = [Path.home() / "xoxo-plugins"]
+    if os.environ.get("XOXO_PLUGINS"):
+        dirs.insert(0, Path(os.environ["XOXO_PLUGINS"]))
+    return dirs
+
+
+def find(dirs=None):
+    """{id: (folder, manifest)} of the plug-ins in the folders (and one level further down: a repository of them)"""
+    out = {}
+    for base in dirs or plugin_dirs():
+        if not base.is_dir():
+            continue
+        for folder in sorted([p for p in base.iterdir() if p.is_dir()] +
+                             [q for p in base.iterdir() if p.is_dir() for q in p.iterdir() if q.is_dir()]):
+            manifest = read_manifest(folder)
+            if manifest and manifest["id"] not in out:
+                out[manifest["id"]] = (folder, manifest)
+    return out
+
+
+def read_manifest(folder):
+    """a folder's plugin.json, checked; None if it isn't a plug-in"""
+    try:
+        m = json.loads((folder / "plugin.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(m, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", str(m.get("id", ""))):
+        return None
+    entry = str(m.get("entry") or "plugin.py")
+    if Path(entry).name != entry or not (folder / entry).is_file():
+        return None
+    return {"id": m["id"], "name": str(m.get("name") or m["id"])[:24], "version": str(m.get("version") or "?")[:16],
+            "api": m.get("api"), "author": str(m.get("author") or "")[:40], "license": str(m.get("license") or "")[:24],
+            "entry": entry, "description": str(m.get("description") or "")[:200]}
+
+
+class Studio:
+    """what a plug-in is given: its one door into the Studio (API 1)"""
+
+    def __init__(self, host, pid, settings):
+        self._host, self.id, self.settings = host, pid, settings
+        self.audio, self.midi, self.screens, self.events = [], [], [], {}
+        self.web_status, self.web_commands = None, {}
+
+    def save(self):
+        self._host.save()
+
+    def say(self, text, seconds=2):
+        self._host.say(str(text), seconds)
+
+    def sources(self):
+        return [str(n.get("label", "")) for n in (getattr(self._host.app, "others", None) or [])]
+
+    def add_audio_source(self, match, label):
+        self.audio.append((re.compile(match, re.I) if isinstance(match, str) else match, label))
+
+    def add_midi_device(self, pattern, name):
+        re.compile(pattern)                    # (a bad pattern fails here, in setup, not in the MIDI process)
+        self.midi.append([pattern, str(name)])
+
+    def add_screen(self, label, screen):
+        self.screens.append((str(label)[:16], screen))
+
+    def add_web(self, status=None, commands=None):
+        self.web_status, self.web_commands = status, dict(commands or {})
+
+    def on(self, event, fn):
+        self.events.setdefault(event, []).append(fn)
+
+
+class Host:
+    """the plug-ins found and those switched on; app: the Studio's App (its state, say, save_settings)"""
+
+    def __init__(self, app, dirs=None):
+        self.app, self.dirs = app, dirs
+        self.found, self.loaded, self.errors = {}, {}, {}
+
+    # ---- the Studio's side
+
+    def save(self):
+        self.app.save_settings()
+
+    def say(self, text, seconds=2):
+        self.app.say(text, seconds)
+
+    def entry(self, pid):
+        """state["plugins"][pid]: {"on": bool, "settings": {...}}"""
+        plugins = self.app.state.setdefault("plugins", {})
+        return plugins.setdefault(pid, {"on": False, "settings": {}})
+
+    def start(self):
+        """find the plug-ins, and run those switched on"""
+        self.found = find(self.dirs)
+        for pid in self.found:
+            if self.entry(pid)["on"]:
+                self.load(pid)
+
+    def load(self, pid):
+        folder, m = self.found[pid]
+        if m["api"] != API:
+            self.errors[pid] = f"needs a Studio with plug-in API {m['api']}"
+            return False
+        studio = Studio(self, pid, self.entry(pid)["settings"])
+        try:
+            spec = importlib.util.spec_from_file_location(f"xoxo_plugin_{pid.replace('-', '_')}", folder / m["entry"])
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            module.setup(studio)
+        except Exception as e:                 # a plug-in's mistake isn't the Studio's: it's off, and said so
+            self.errors[pid] = f"{type(e).__name__}: {e}"[:80]
+            return False
+        self.loaded[pid] = studio
+        self.errors.pop(pid, None)
+        return True
+
+    def set_on(self, pid, on):
+        """switch a plug-in on or off (kept); -> a message for the screen"""
+        if pid not in self.found:
+            return "No such plug-in"
+        self.entry(pid)["on"] = bool(on)
+        self.save()
+        name = self.found[pid][1]["name"]
+        if on and pid not in self.loaded:
+            if not self.load(pid):
+                self.entry(pid)["on"] = False
+                self.save()
+                return f"{name}: {self.errors.get(pid)}"
+        if not on:
+            self.loaded.pop(pid, None)
+        self.app.plugins_changed()
+        return f"{name} {'on' if on else 'off'}"
+
+    def fail(self, pid, error):
+        """a plug-in raised an error while running: switched off, said"""
+        studio = self.loaded.pop(pid, None)
+        self.errors[pid] = f"{type(error).__name__}: {error}"[:80]
+        self.entry(pid)["on"] = False
+        self.save()
+        name = self.found.get(pid, (None, {"name": pid}))[1]["name"]
+        self.say(f"{name} stopped: {self.errors[pid]}"[:60], 4)
+        if studio is not None:
+            self.app.plugins_changed()
+
+    def call(self, pid, fn, *args, default=None):
+        try:
+            return fn(*args)
+        except Exception as e:
+            self.fail(pid, e)
+            return default
+
+    # ---- what the plug-ins add
+
+    def listing(self):
+        """[{id, name, version, author, license, description, on, error}] of every plug-in found"""
+        return [dict(m, on=pid in self.loaded, error=self.errors.get(pid)) for pid, (_, m) in self.found.items()]
+
+    def source_label(self, props, counts):
+        """a sound source's name from a plug-in's rule, or None; counts: {rule: sources named by it so far}"""
+        text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name",
+                                                         "alsa.long_card_name", "api.alsa.card.name"))
+        for pid, studio in list(self.loaded.items()):
+            for i, (match, label) in enumerate(studio.audio):
+                hit = self.call(pid, (match.search if hasattr(match, "search") else match), text, default=None)
+                if hit:
+                    n = counts.get((pid, i), 0)
+                    counts[(pid, i)] = n + 1
+                    return str(self.call(pid, label, n, default=pid) if callable(label) else label)[:16]
+        return None
+
+    def midi_names(self):
+        """[[pattern, name]] for the MIDI process: a device whose client name matches is called name ({n}: A, B..)"""
+        return [rule for studio in self.loaded.values() for rule in studio.midi]
+
+    def screens(self):
+        """[(pid, label, screen class)] for MORE > PLUG-INS"""
+        return [(pid, label, screen) for pid, studio in self.loaded.items() for label, screen in studio.screens]
+
+    def web_status(self):
+        out = {}
+        for pid, studio in list(self.loaded.items()):
+            if studio.web_status:
+                out[pid] = self.call(pid, studio.web_status, default=None)
+        return out
+
+    def web_command(self, pid, name, args):
+        studio = self.loaded.get(pid)
+        if not studio or name not in studio.web_commands:
+            raise ValueError("no such plug-in command")
+        return self.call(pid, studio.web_commands[name], args)
+
+    def emit(self, event, *args):
+        for pid, studio in list(self.loaded.items()):
+            for fn in studio.events.get(event, []):
+                self.call(pid, fn, *args)
+
+
+def name_device(client, rules, taken):
+    """a MIDI device's name in the routes from the plug-ins' rules (midi_names), or None; taken: names given so
+    far this scan (so a second matching device is B)"""
+    for pattern, name in rules or []:
+        if re.search(pattern, client, re.I):
+            if "{n}" not in name:
+                return name
+            for letter in LETTERS:
+                candidate = name.replace("{n}", letter)
+                if candidate not in taken:
+                    return candidate
+    return None

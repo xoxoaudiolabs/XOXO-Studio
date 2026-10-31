@@ -694,12 +694,20 @@ class UsbControllers:
         self.ports = {}                     # client name ("SMK-37+VA") -> {"in": port, "out": port or None}
         self.last_activity = 0.0
         self.lock = threading.Lock()
+        self.names = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
 
     def wanted(self, names):
         """mido port names -> {client name: port name} of the controllers among them (a client's first port). The
-        I/O card's DIN jacks are "DIN" (iocard.py)."""
+        I/O card's DIN jacks are "DIN" (iocard.py); a device a plug-in names goes by that name ("FM-1 A")."""
+        import plugins
         out = {}
-        for name in names:
+        for name in sorted(names):              # (in order: two alike get the same letters in and out)
+            low = name.lower()
+            named = plugins.name_device(name.split(":")[0], self.names, set(out)) if self.names else None
+            if named and not (any(s in low for s in self.SKIP) or ADDRESS.search(name)):
+                if not any(v.rsplit(" ", 1)[-1] == name.rsplit(" ", 1)[-1] for v in out.values()):
+                    out[named] = name
+                continue
             low = name.lower()
             if any(s in low for s in self.SKIP) or ADDRESS.search(name):
                 continue
@@ -1542,6 +1550,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.set_routes(command[1])
             elif command[0] == "xo4_in":           # ("xo4_in", on): XO-4's MIDI IN
                 bridge.xo4_in = bool(command[1])
+            elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
+                bridge.controllers.names = [[str(p), str(n)] for p, n in command[1]]
             elif command[0] == "metronome":        # ("metronome", on, speaker, level, rate)
                 wanted[:] = command[1:5]
             elif command[0] == "mcu" and bridge.mcu:   # ("mcu", [messages]): the control surface, to the DAW
@@ -1727,6 +1737,10 @@ class MidiProcess:
 
     def set_xo4_in(self, on):
         self.conn.send(("xo4_in", bool(on)))
+
+    def set_names(self, rules):
+        """the plug-ins' MIDI device names (plugins.Host.midi_names)"""
+        self.conn.send(("names", [list(r) for r in rules]))
 
     def set_metronome(self, on, target, level, rate):
         self.conn.send(("metronome", on, target, level, rate))

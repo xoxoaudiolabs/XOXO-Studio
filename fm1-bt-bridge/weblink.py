@@ -42,6 +42,7 @@ class WebLink:
                              arp=keys["arp"], arp_rate=keys["arp_rate"], chord=keys["chord"]),
             "routes": self.routes(), "presets": self.presets(), "wifi": self.wifi,
             "xo4": self.web_xo4(), "kits": self.web_kits(), "decks": self.web_decks(),
+            "plugins": {"list": self.plugin_host.listing(), "status": self.plugin_host.web_status()},
         }
 
     def web_mixer(self):
@@ -159,6 +160,11 @@ class WebLink:
             return None                       # preset_apply says it
         if cmd == "xo4":
             return self.web_xo4_command(c)
+        if cmd == "plugin":                   # a plug-in switched on or off, or one of its own commands
+            if "on" in c:
+                return "Web: " + self.plugin_host.set_on(c["id"], bool(c["on"]))
+            text = self.plugin_host.web_command(c["id"], c["name"], c.get("args") or {})
+            return text if isinstance(text, str) else None
         if cmd == "kit":
             import pads
             if c.get("name") not in pads.list_kits():
