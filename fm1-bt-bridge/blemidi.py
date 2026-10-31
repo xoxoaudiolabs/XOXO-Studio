@@ -795,7 +795,7 @@ class UsbControllers:
 SOURCES, DESTINATIONS = ("BT", "USB", "NET", "XO4", "Box"), ("BT", "USB", "NET", "SMP")
 COMPUTER = "COMPUTER"       # a computer on a Pi 4 Studio's USB-C: one more USB MIDI device, by this name
 # XO4: XO-4's MIDI track (xo4.py), on the Studio
-# SMP: the Studio's MPC-style sampler (pads.py): notes 36-51 play its 16 pads
+# SMP: the Studio's 4x4 sampler (pads.py): notes 36-51 play its 16 pads
 # NET: network MIDI (netmidi.py: a DAW on a computer, such as Kraken), on the desk box
 ROUTES = tuple(f"{s}>{d}" for s in SOURCES for d in DESTINATIONS if s != d)    # "Box": its clock, Start/Stop
 DEFAULT_ROUTE = {"on": True, "channels": "same", "transpose": 0, "velocity": "normal", "fixed": 100,

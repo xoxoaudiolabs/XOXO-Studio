@@ -1,4 +1,4 @@
-"""The Studio's MPC-style sampler: 16 pads in a kit, played from MIDI (notes 36-51 on any channel, as an MPC:
+"""The Studio's 4x4 sampler: 16 pads in a kit, played from MIDI (notes 36-51 on any channel, as an MPC:
 pad 1 is C1) and from the PADS tab.
 
 Each pad: a sample, its level, pan and tuning, one-shot (plays to its end), gate (stops when the note is let

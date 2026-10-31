@@ -1507,7 +1507,7 @@ def test_speaker_battery():
 
 
 def test_xo4_big_pads():
-    """XO-4's DRUMS > PADS: the 16 pads big, MPC style; a pad sounds while held and is picked for the steps; REC
+    """XO-4's DRUMS > PADS: the 16 pads big, 4x4; a pad sounds while held and is picked for the steps; REC
     reaches XO-4; FX opened from here comes back here; < XO-4 back to the steps"""
     import bridge
     import deskui
