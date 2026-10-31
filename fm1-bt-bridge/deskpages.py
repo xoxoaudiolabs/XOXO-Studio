@@ -163,7 +163,7 @@ class DeskPages:
         label = "KEEP HOLDING..." if held else "HOLD 2 S TO CONFIRM"
         self.centre(img, box, label, t.hi)
         self.widget(box, "hold", lambda: a.on_key("press", True), "confirm")
-        self.button(img, d, (8, H - 44, W - 8, H - 6), "CANCEL", lambda: a.on_key("left"), key="cancel")
+        self.button(img, d, (8, H - 44, W - 8, H - 6), "BACK", lambda: a.on_key("left"), key="cancel")
 
     def draw_player(self, img, d, now):
         from libui import short_date
