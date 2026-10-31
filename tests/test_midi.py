@@ -441,6 +441,15 @@ def test_a_computer_on_usb_c():
         "COMPUTER": "f_midi:f_midi 24:0", "EP-136": "EP-136:EP-136 MIDI 1 16:0"}
 
 
+def test_plugin_names_midi_devices():
+    """a plug-in's names (the FM-1 Companion's): two FM-1s are FM-1 A and FM-1 B, the same in and out"""
+    controllers = blemidi.UsbControllers(lambda message, name=None: None)
+    controllers.names = [["^(felucca|sloop)", "FM-1 {n}"]]
+    ports = ["Felucca:Felucca MIDI 1 24:0", "Felucca:Felucca MIDI 1 28:0", "EP-136:EP-136 MIDI 1 16:0"]
+    want = {"FM-1 A": ports[0], "FM-1 B": ports[1], "EP-136": ports[2]}
+    assert controllers.wanted(ports) == want and controllers.wanted(list(reversed(ports))) == want
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

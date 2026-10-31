@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 import battery
 import device
 import iocard
+import plugins
 from libui import LIBRARY_KEYS, LibraryScreens
 import meters
 from meters import MeterScreens
@@ -49,6 +50,7 @@ DEFAULTS = {
     "audio_rate": 48000,    # PipeWire's rate (Hz), 48000 or 44100: the USB sources are opened at this rate
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
+    "plugins": {},          # the plug-ins: {id: {"on": bool, "settings": {...}}} (plugins.py)
     "xo4_midi_in": False,   # XO-4's MIDI IN: the routes' notes (the SMP column) play its pads; off, they don't
     "routes": None,         # the MIDI matrix: {"BT>SMP": {...}, ...}; None = every route as it starts
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
@@ -256,11 +258,12 @@ def device_keys(nodes):
     return keys
 
 
-def pick_nodes(objects):
+def pick_nodes(objects, host=None):
     """From pw-dump's objects: (the Bluetooth speaker or headphones, [the sound sources: every USB audio input (a
     keyboard's own synth, an audio interface, a mic) and the Studio's pads]), each a dict, the sources with their
     capture ports ("ports")"""
     sources, sink = [], None
+    counts = {}                               # (plug-in, rule) -> sources it has named (FM-1 A, then FM-1 B)
     ports = capture_ports(objects)
     for o in objects:
         if o.get("type") != "PipeWire:Interface:Node":
@@ -270,7 +273,11 @@ def pick_nodes(objects):
         label = props.get("node.description") or props.get("node.nick") or name
         node = {"id": o.get("id"), "name": name, "label": label}
         text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name"))
-        if cls == "Audio/Source" and name.startswith("alsa_input.") and is_computer(text):
+        named = (host.source_label(props, counts) if host and cls == "Audio/Source" and name.startswith("alsa_input.")
+                 else None)
+        if named:                                  # a plug-in's device (the FM-1 Companion's FM-1s): its name
+            sources.append(dict(node, label=named, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name.startswith("alsa_input.") and is_computer(text):
             # the computer's sound over USB (a Pi 4 Studio as its interface): a source, COMPUTER
             sources.append(dict(node, label="COMPUTER", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name.startswith("alsa_input.") and ".usb-" in name:
@@ -413,12 +420,12 @@ def jack_node(objects):
     return None
 
 
-def pw_nodes(watch):
+def pw_nodes(watch, host=None):
     """-> (pick_nodes' answer, the objects), or None before PipeWire's picture is in (not "all unplugged")"""
     objects = watch.snapshot()
     if not objects:
         return None
-    return pick_nodes(objects), objects
+    return pick_nodes(objects, host), objects
 
 
 def get_volume(node_id):
@@ -855,6 +862,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.card = None                      # the I/O card's line out (iocard.sink_node), when it's plugged in
         self.card_loop = Loopback(state["audio_rate"])  # the main mix copied to the I/O card
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
+        self.plugin_host = plugins.Host(self)  # the plug-ins (plugins.py): started in main()
         self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
         self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
         self.copy_set = None                  # (node id, level) last set on the jack's copy of the main mix
@@ -940,6 +948,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     self.post("status", False)
                 self.battery_check()
             self.web_publish()
+            self.plugin_host.emit("tick")
             metro = (self.state["metronome"], self.cue_target(), self.state["click"],
                      self.state["audio_rate"])
             if self.midi and metro != self.metro_sent:      # the metronome runs in the MIDI process
@@ -950,7 +959,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def scan_devices(self):
         if self.midi:
             self.midi.poll()
-        found = pw_nodes(self.pw)
+        found = pw_nodes(self.pw, self.plugin_host)
         if found is None:
             return                            # couldn't look: keep everything as it is
         (sink, others), objects = found
@@ -1093,6 +1102,13 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.state["phones"] = max(0, min(100, int(level)))
         self.save_settings()
         self.scan_now = True
+
+    def plugins_changed(self):
+        """a plug-in switched on or off: its device names to the MIDI process, the sources scanned again"""
+        if self.midi and hasattr(self.midi, "set_names"):
+            self.midi.set_names(self.plugin_host.midi_names())
+        self.scan_now = True
+        self.post("status", True)
 
     def pocket_linked(self):
         """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket")"""
@@ -2092,6 +2108,8 @@ def main():
     state["touch_cal"] = list(state["touch_cal"])   # its own list: calibrating changes it in place
     app = App(display, state)
     app.midi, app.box = midi, box
+    app.plugin_host.start()                   # the plug-ins switched on (plugins.py)
+    app.plugins_changed()
     if midi:
         midi.on_note = lambda text: app.post("ble_note", text)
         midi.on_saved = lambda keys: app.post("ble_saved", keys)

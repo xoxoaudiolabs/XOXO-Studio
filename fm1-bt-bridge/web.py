@@ -109,6 +109,15 @@ def check_command(c):
         if not ok.get(action):
             raise ValueError("bad XO-4 command")
         return {"cmd": cmd, "action": action, "value": value, "track": c.get("track")}
+    if cmd == "plugin":                        # a plug-in: on / off, or one of its commands (plugins.py)
+        pid, on, name, args = c.get("id"), c.get("on"), c.get("name"), c.get("args")
+        if not isinstance(pid, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", pid):
+            raise ValueError("bad plug-in")
+        if isinstance(on, bool):
+            return {"cmd": cmd, "id": pid, "on": on}
+        if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9_-]{1,32}", name) or not isinstance(args or {}, dict)                 or len(json.dumps(args or {})) > 4096:
+            raise ValueError("bad plug-in command")
+        return {"cmd": cmd, "id": pid, "name": name, "args": args or {}}
     if cmd == "kit":
         if not isinstance(c.get("name"), str) or not 0 < len(c["name"]) <= 40:
             raise ValueError("bad kit")

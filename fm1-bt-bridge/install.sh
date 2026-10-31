@@ -198,6 +198,8 @@ install -D -m 644 "$DIR/xo4.py"                                 ~/.local/share/f
 install -D -m 644 "$DIR/xo4synth.py"                            ~/.local/share/fm1-bridge/xo4synth.py
 install -D -m 644 "$DIR/deskpads.py"                            ~/.local/share/fm1-bridge/deskpads.py
 install -D -m 644 "$DIR/deskxo4.py"                             ~/.local/share/fm1-bridge/deskxo4.py
+install -D -m 644 "$DIR/deskplugins.py"                             ~/.local/share/fm1-bridge/deskplugins.py
+install -D -m 644 "$DIR/plugins.py"                             ~/.local/share/fm1-bridge/plugins.py
 install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/fm1-bridge/deskdecks.py
 install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
 install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/fm1-bridge/deskboot.py
@@ -210,7 +212,7 @@ install -D -m 755 "$DIR/library.py"                             ~/.local/share/f
 install -D -m 644 "$DIR/decks.py"                               ~/.local/share/fm1-bridge/decks.py
 install -D -m 644 "$DIR/djlib.py"                               ~/.local/share/fm1-bridge/djlib.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
-mkdir -p ~/fm1-library/samples ~/fm1-library/recordings
+mkdir -p ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins   # (plug-ins: plugins.py)
 mkdir -p ~/.local/share/fm1-bridge/vendor/fonts
 install -m 644 "$DIR"/vendor/fonts/*                            ~/.local/share/fm1-bridge/vendor/fonts/
 mkdir -p ~/.local/share/fm1-bridge/icons
