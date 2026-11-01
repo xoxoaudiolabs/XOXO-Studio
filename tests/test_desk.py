@@ -148,11 +148,12 @@ def test_headphone_jack():
             "alsa.card_name": "vc4-hdmi"}}}]
     jack = bridge.jack_node(objects)
     assert jack["id"] == 9 and bridge.jack_node(objects[1:]) is None
-    dac = {"type": "PipeWire:Interface:Node", "id": 12, "info": {"props": {      # a DAC HAT: the jack, before the Pi's
+    dac = {"type": "PipeWire:Interface:Node", "id": 12, "info": {"props": {      # a DAC HAT: the master, not the jack
         "media.class": "Audio/Sink", "node.name": "alsa_output.platform-soc_sound.stereo-fallback",
-        "node.description": "BossDAC", "alsa.card_name": "BossDAC"}}}
-    assert bridge.jack_node(objects + [dac]) == {"id": 12, "name": "alsa_output.platform-soc_sound.stereo-fallback",
-                                                  "label": "DAC"}
+        "node.description": "Built-in Audio Stereo", "alsa.card_name": "BossDAC"}}}   # (as the Studio shows it)
+    assert bridge.jack_node(objects + [dac])["id"] == 9
+    assert bridge.dac_node(objects + [dac]) == {"id": 12, "name": "alsa_output.platform-soc_sound.stereo-fallback",
+                                                 "label": "DAC"}
     assert bridge.dac_node(objects) is None
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.save_settings = lambda: None
@@ -1799,3 +1800,55 @@ def test_receive_only_device_a_column_only():
     assert "U:nanoKEY2>U:SYNTH A" in app.routes() and not any(k.endswith(">U:nanoKEY2") for k in app.routes())
     web = app.web_status()["matrix"]
     assert "U:SYNTH A" in web["dests"] and "U:SYNTH A" not in web["sources"]
+
+
+
+def test_dac_is_the_master_out():
+    """a DAC HAT: the master out (its headphone and RCA outs), whatever else is there; the Pi's jack the phones (a
+    copy, CUE, the click); a Bluetooth speaker a copy; MASTER its level, on MIXER, HOME and the web page"""
+    import bridge
+    import deskui
+    import web
+    dac = {"id": 12, "name": "alsa_output.platform-soc_sound.stereo-fallback", "label": "DAC"}
+    jack = {"id": 9, "name": "alsa_output.platform-bcm2835_audio.stereo-fallback", "label": "PHONES"}
+    sink = {"id": 5, "name": "bluez_output.AA", "label": "JBL Go 3"}
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.dac, app.jack, app.sink = dac, jack, sink
+    assert app.outputs() == (dac["name"], jack["name"]) and app.bt_copy() == sink["name"]   # "both"
+    app.state["output"] = "speaker"
+    assert app.outputs() == (dac["name"], None) and app.bt_copy() == sink["name"]
+    app.state["output"] = "phones"
+    assert app.outputs() == (dac["name"], jack["name"]) and app.bt_copy() is None
+    app.state["output"], app.state["cue"] = "both", True
+    assert app.cue_target() == jack["name"]                          # the click: the phones, not the master
+    app.state["cue"] = False
+    assert app.cue_target() == dac["name"]
+    app.sink = None
+    assert app.outputs() == (dac["name"], jack["name"]) and app.bt_copy() is None
+    app.dac = None                                                   # no DAC: as before
+    assert app.outputs() == (jack["name"], None)
+    app.dac, app.sink = dac, sink
+
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+    ui.open_tab("MIX")
+    ui.render(0.0, force=True)
+    slider = next(w for w in ui.widgets if w[3] == ("slide", "master"))
+    box = slider[0]
+    ui.touch("down", (box[0] + box[2]) // 2, box[3] - 10, 0.0)        # dragged to the bottom: 0
+    ui.touch("up", (box[0] + box[2]) // 2, box[3] - 10, 0.0)
+    assert app.state["master"] == 0
+    assert any(w[3] == ("slide", "spk") for w in ui.widgets) and any(w[3] == ("slide", "phones") for w in ui.widgets)
+    rows = [r[0] for r in ui.home_rows()]
+    assert rows[-2:] == ["master", "spk"]
+    app.sink = None
+    assert [r[0] for r in ui.home_rows()][-1] == "master"            # no speaker: no SPEAKER row
+    ui.render(0.0, force=True)
+    assert not any(w[3] == ("slide", "spk") for w in ui.widgets)
+
+    app.web_command({"cmd": "set", "key": "master", "value": 64})       # the web page
+    assert app.state["master"] == 64 and app.web_status()["master"] == 64
+    assert web.check_command({"cmd": "set", "key": "master", "value": 64})["value"] == 64
+    app.dac = None
+    assert app.web_status()["master"] is None

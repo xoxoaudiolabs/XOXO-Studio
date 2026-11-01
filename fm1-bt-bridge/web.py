@@ -104,7 +104,8 @@ def check_command(c):
               "chord_on": isinstance(value, bool), "bpm": number and 30 <= value <= 300,
               "clock_mode": value in ("follow", "box"), "click": value in ("low", "mid", "high"),
               "audio_rate": value in (44100, 48000),
-              "volume": number and int(value) == value and 0 <= value <= 100}.get(key)
+              "volume": number and int(value) == value and 0 <= value <= 100,
+              "master": number and int(value) == value and 0 <= value <= 100}.get(key)
         if isinstance(key, str) and re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):
@@ -477,6 +478,8 @@ details summary{cursor:pointer}
   <div class="line" id="s-outline" hidden><span class="k">Output</span><div class="seg" id="s-out"><button data-v="speaker">Speaker</button><button data-v="phones">Jack</button><button data-v="both">Both</button></div></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2" aria-label="Volume"></div>
+  <div class="line" id="s-masterline" style="display:block" hidden><div class="row" style="justify-content:space-between"><span class="k">Master out (DAC)</span><b id="s-masterv">–</b></div>
+    <input type="range" id="s-master" min="0" max="100" step="2" aria-label="Master out"></div>
   <div id="s-mix"></div>
   <div class="line"><span class="k">Audio rate</span><div class="seg" id="s-rate"><button data-v="44100">44.1</button><button data-v="48000">48 kHz</button></div></div>
 </section>
@@ -710,6 +713,8 @@ function renderStatus() {
     + (st.speaker && st.speaker_battery != null ? ` · battery ${st.speaker_battery}%` : "");
   if (Date.now() > editingUntil) { if (st.volume != null) $("s-vol").value = st.volume; $("s-tempo").value = s.bpm; }
   $("s-volv").textContent = st.volume != null ? st.volume + "%" : "–"; $("s-vol").disabled = st.volume == null;
+  $("s-masterline").hidden = st.master == null;
+  if (st.master != null && Date.now() > editingUntil) { $("s-master").value = st.master; $("s-masterv").textContent = st.master + "%"; }
   renderMixer(st);
   seg("s-rate", s.audio_rate, (v) => set("audio_rate", +v));
   const c = st.clock;
@@ -759,6 +764,7 @@ function mixSet(k, v) {
   mixUntil = Date.now() + 2500; $(`mx-${k}v`).textContent = v + "%";
   clearTimeout(mixTimer); mixTimer = setTimeout(() => set(`mix_${k}`, +v), 250);
 }
+$("s-master").oninput = (e) => { editingUntil = Date.now() + 2500; $("s-masterv").textContent = e.target.value + "%"; clearTimeout(volTimer); volTimer = setTimeout(() => set("master", +e.target.value), 250); };
 $("s-vol").oninput = (e) => { editingUntil = Date.now() + 2500; $("s-volv").textContent = e.target.value + "%"; clearTimeout(volTimer); volTimer = setTimeout(() => set("volume", +e.target.value), 250); };
 $("s-tempo").onchange = (e) => { const v = Math.max(30, Math.min(300, Math.round(+e.target.value || 120))); e.target.value = v; set("bpm", v); };
 function bump(d) { editingUntil = Date.now() + 2500; const el = $("s-tempo"); el.value = Math.max(30, Math.min(300, (+el.value || 120) + d)); clearTimeout(tempoTimer); tempoTimer = setTimeout(() => set("bpm", +el.value), 350); }
