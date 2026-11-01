@@ -11,7 +11,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
 - **Raspberry Pi 4** (1 GB is enough), the planned build: its USB-C port makes the Studio a USB audio + MIDI interface for a computer. A Raspberry Pi 3 B+ runs everything else (the Studio so far has run on one)
 - A 3.5" SPI touchscreen on the pins (ILI9486 display, XPT2046 touch): the Hosyond / Waveshare (A) "3.5 inch RPi LCD" (tested), or the Waveshare (C) (not yet tried)
 - A microSD card (16 GB or more)
-- A Bluetooth speaker or headphones, or a wired one (the Pi's 3.5 mm jack, or the DAC HAT)
+- A Bluetooth speaker or headphones, or a wired one (the DAC HAT's outs, or the Pi's 3.5 mm jack)
 - Optional: the InnoMaker HiFi DAC HAT (headphones and RCA line out), USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar 3 Plus battery
 
 ## Set up
@@ -37,7 +37,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
    sudo reboot
    ```
    Options, for the parts you have (e.g. `bash fm1-bt-bridge/install.sh --dac --screen c`):
-   - `--dac`: the InnoMaker HiFi DAC HAT (it adds the DAC's driver to `config.txt`). The Studio then uses the DAC as its headphone jack (PHONES in the mixer shows as DAC), instead of the Pi's own.
+   - `--dac`: the InnoMaker HiFi DAC HAT (it adds the DAC's driver to `config.txt`). The DAC is then the Studio's master out: its headphone (aux) and RCA outs both carry the main mix, MASTER in the mixer sets its level, and the Pi's own 3.5 mm jack stays PHONES (CUE and the click). A Bluetooth speaker gets a copy of the master.
    - `--screen c`: the Waveshare 3.5" (C). Without it, the Hosyond / Waveshare (A).
    - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose.
    On the first start the Studio asks for the touch setup (four targets) before HOME.
@@ -145,6 +145,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - the Pocket on a direct Ethernet cable (2026-10-29): the Studio's eth0 takes 169.254.115.88 and keeps it past NetworkManager's DHCP timeout, the Pocket finds the Studio there by DNS-SD and links over it, and the Pocket answers a ping over the cable in about 1.5 ms. The Pocket's sound over the cable: "seems good now" (the user's report, after the Pocket's bridge restarted; before that it sent only silence, which the Pocket session traces to the FM-1's input needing to be opened afresh). Not yet tried after a reboot
 - the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error
 - the DJ decks played by touch alone (no controller), music from a USB drive, out of a JBL Go 3 over Bluetooth (the user's report, 2026-10-28, after the fix for their volume starting at 0)
+- the InnoMaker HiFi DAC HAT on the Pi 3 B+ (2026-11-01): `install.sh --dac` adds its driver, the Pi lists it as BossDAC, the Studio makes it the master out (every mixer channel linked to it, the Pi's jack a copy) and both its headphone (aux) and RCA outs play (the user's report). Not yet tried: CUE on the Pi's jack beside it, a Bluetooth speaker's copy
 
 **Not yet tried on hardware:** sound out heard (a Bluetooth speaker, the jack), XO-4 by ear (its timing against the pads, the MIDI track to real gear), USB sound sources, the mixer and CUE, mute and solo, a Pocket's FM-1s on their own, recording, XO-4's DRUMS by hand (finger drumming, levels, ratchets, nudge, live REC, RPT, FX, the kit pages from XO-4), the EDITOR tab, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks with a controller (MIDI learn, a Hercules), shutting down from the screen.
 

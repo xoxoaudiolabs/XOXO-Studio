@@ -65,6 +65,7 @@ DEFAULTS = {
     "output": "both",       # the Studio's sound: "speaker" (Bluetooth), "phones" (the 3.5 mm jack) or "both"
     "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)
+    "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike
     "cue": False,           # the click and previews on the jack only, not the speaker
     "cues": [],             # mixer keys cued to the jack, as on a DJ mixer: heard there before their fader
     "cue_mix": 50,          # the jack's blend while something's cued: 0 the cued sources only, 100 the main mix
@@ -421,12 +422,9 @@ def dac_node(objects):
 
 
 def jack_node(objects):
-    """the Studio's headphone jack as {"id", "name", "label"}, or None: a DAC HAT's when there's one (dac_node:
-    better sound, its own headphone amp, and line out beside it), else the Pi's own 3.5 mm jack (bcm2835
-    Headphones; the Zero has none; HDMI sound is left out)"""
-    dac = dac_node(objects)
-    if dac:
-        return dac
+    """the Studio's headphone jack as {"id", "name", "label"}, or None: the Pi's own 3.5 mm jack (bcm2835
+    Headphones; the Zero has none; HDMI sound is left out). With a DAC HAT (dac_node) the DAC is the master out
+    and this jack stays the phones: CUE and the click"""
     for o in objects:
         if o.get("type") != "PipeWire:Interface:Node":
             continue
@@ -888,6 +886,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
         self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
         self.copy_set = None                  # (node id, level) last set on the jack's copy of the main mix
+        self.dac, self.dac_set = None, None   # a DAC HAT (dac_node): the master out; (node id, level) last set
+        self.default_set = None               # the DAC's node id last made PipeWire's default (the decks play there)
+        self.bt_loop = Loopback(state["audio_rate"])   # with a DAC: the master copied to the Bluetooth speaker
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
         self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
@@ -994,6 +995,18 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
+        if dac_node(objects) != self.dac:
+            plugged = self.dac is None
+            self.dac = dac_node(objects)
+            if plugged != (self.dac is None):
+                self.say("DAC: the master out" if self.dac else "DAC gone", 2)
+            self.post("status", True)
+        if self.dac and self.dac_set != (self.dac["id"], self.state["master"]):
+            run(["wpctl", "set-volume", str(self.dac["id"]), f"{self.state['master'] / 100:.2f}"], timeout=5)
+            self.dac_set = (self.dac["id"], self.state["master"])
+        if self.dac and self.default_set != self.dac["id"]:   # the Studio's apps (the decks) play to the default
+            run(["wpctl", "set-default", str(self.dac["id"])], timeout=5)
+            self.default_set = self.dac["id"]
         if computer_node(objects) != self.computer:
             plugged = self.computer is None
             self.computer = computer_node(objects)
@@ -1021,13 +1034,15 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.sink, self.others, self.volume = sink, others, volume
             self.post("status", changed)
         channels = self.mix_channels()
-        loops = [self.loop, self.jack_loop, self.card_loop]
+        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop]
         mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
                 self.post("status", False)
         main, copy = self.outputs()
         self.jack_loop.ensure(copy and "monitor:" + main, copy, "fm1-phones")
+        bt = self.bt_copy()
+        self.bt_loop.ensure(bt and "monitor:" + main, bt, "fm1-bt")
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
         app_ids = {key: next((o.get("id") for o in objects
@@ -1077,19 +1092,34 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
 
     def outputs(self):
-        """(the node name the sound goes to, a second one that gets a copy of it, or None): the Bluetooth
-        speaker, the Studio's 3.5 mm jack, or both (the speaker's sound copied to the jack: no Bluetooth delay
-        on it). Either one alone when the other isn't there. The I/O card's line out gets a copy of the first
-        (scan_devices), or is the first itself when there's neither."""
+        """(the node name the sound goes to, a second one that gets a copy of it, or None): with a DAC HAT, the DAC
+        (the master out: its headphone and RCA outs), the jack a copy (the phones: Output "both" or "phones", or
+        something cued; the Bluetooth speaker gets its own copy, bt_copy). Without one: the Bluetooth speaker, the
+        Studio's 3.5 mm jack, or both (the speaker's sound copied to the jack: no Bluetooth delay on it). Either one
+        alone when the other isn't there. The I/O card's line out gets a copy of the first (scan_devices), or is the
+        first itself when there's none."""
         bt, jack = self.sink and self.sink["name"], self.jack and self.jack["name"]
+        out = self.state.get("output", "both")
+        if self.dac:
+            return self.dac["name"], (jack if jack and (out != "speaker" or self.cued()) else None)
         if not bt and not jack:
             return (self.card and self.card["name"]), None
-        out = self.state.get("output", "both")
         if (out == "phones" and jack) or not bt:
             return jack, None
         if jack and (out == "both" or self.cued()):    # cueing: the main mix too, for the blend
             return bt, jack
         return bt, None
+
+    def bt_copy(self):
+        """with a DAC as the master: the Bluetooth speaker gets a copy of it (Output "both" or "speaker"), or None"""
+        if self.dac and self.sink and self.state.get("output", "both") != "phones":
+            return self.sink["name"]
+        return None
+
+    def set_master(self, level):
+        self.state["master"] = max(0, min(100, int(level)))
+        self.save_settings()
+        self.scan_now = True
 
     def cued(self):
         """the mixer keys cued to the jack that are plugged in (none without a jack)"""
@@ -1617,6 +1647,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.loop.reopen(rate)
             self.mixer.reopen(rate)
             self.jack_loop.reopen(rate)
+            self.bt_loop.reopen(rate)
             self.card_loop.reopen(rate)
             self.cue_mixer.reopen(rate)
             self.pc_mixer.reopen(rate)
@@ -2197,6 +2228,7 @@ def main():
         app.recorder.stop()
         app.loop.stop()
         app.jack_loop.stop()
+        app.bt_loop.stop()
         app.card_loop.stop()
         app.cue_mixer.stop()
         app.pc_mixer.stop()
