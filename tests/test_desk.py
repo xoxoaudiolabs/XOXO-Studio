@@ -1779,3 +1779,23 @@ def test_plugin_detail_beside_a_source():
     assert details()["FM-1 A"] == "FELUCCA 1.0.12 A"                  # (16 at most)
     app.plugin_host.loaded.clear()                                    # switched off
     assert details()["FM-1 A"] == "USB"
+
+
+def test_receive_only_device_a_column_only():
+    """the MIDI tab and the web page: a device that only receives (SYNTH A) is a column, not a row; one that only
+    sends (nanoKEY2) a row, not a column; one both ways (EP-136) both"""
+    import bridge
+
+    class Midi:
+        pads, xo4, net, mcu, clock, split = True, True, [], None, None, True
+        controllers, receive_only, send_only = ["EP-136", "SYNTH A", "nanoKEY2"], ["SYNTH A"], ["nanoKEY2"]
+        peer, enabled, error = None, True, None
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings, app.midi = (lambda: None), Midi()
+    sources, dests = app.matrix_lists()
+    assert "U:SYNTH A" in dests and "U:SYNTH A" not in sources and "U:EP-136" in sources
+    assert "U:nanoKEY2" in sources and "U:nanoKEY2" not in dests and "U:EP-136" in dests
+    assert "U:EP-136>U:SYNTH A" in app.routes() and not any(k.startswith("U:SYNTH A>") for k in app.routes())
+    assert "U:nanoKEY2>U:SYNTH A" in app.routes() and not any(k.endswith(">U:nanoKEY2") for k in app.routes())
+    web = app.web_status()["matrix"]
+    assert "U:SYNTH A" in web["dests"] and "U:SYNTH A" not in web["sources"]
