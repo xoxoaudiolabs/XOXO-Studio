@@ -1852,3 +1852,25 @@ def test_dac_is_the_master_out():
     assert web.check_command({"cmd": "set", "key": "master", "value": 64})["value"] == 64
     app.dac = None
     assert app.web_status()["master"] is None
+
+
+def test_charging_bolt_by_the_battery():
+    """the battery's percent with a green bolt beside it while it charges (PiSugar: external power plugged in), on
+    HOME, the tabs' headers and RECORD; none on battery"""
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def bolt(tab):
+        ui.open_tab(tab)
+        app.screen = "status"
+        ui.render(0.0, force=True)
+        img = app.display.image
+        return any(img.getpixel((x, y)) == deskui.CHARGING for x in range(300, 480) for y in range(0, 30))
+    app.battery = {"percent": 86, "mv": 3890, "plugged": True}
+    assert bolt("HOME") and bolt("MIX") and bolt("MORE") and bolt("REC")
+    app.battery = {"percent": 86, "mv": 3890, "plugged": False}
+    assert not bolt("HOME") and not bolt("MIX")

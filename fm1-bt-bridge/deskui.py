@@ -32,6 +32,7 @@ from deskxo4 import DeskXO4
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
 MUTE_COLOUR, SOLO_COLOUR = st.rgb(255, 59, 31), st.rgb(255, 198, 24)   # the mixer's M and S lit, in any theme
+CHARGING = st.rgb(80, 220, 120)                 # the battery's bolt while it charges, in any theme
 TABS = ("HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
 FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
@@ -411,7 +412,18 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         st.text(img, (74, 8), title, t.hi)
         if right:                                  # (a recording's time in the signal colour)
             st.text(img, (W - 10 - st.text_size(right)[0], 8), right, t.track[0] if right.startswith("REC") else t.c[2])
+            self.charge_bolt(d, W - 10, 8, right)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0])
+
+    def charge_bolt(self, d, end, y, text):
+        """a bolt just left of the battery's percent (text ends with it at x end, its line from y) while the
+        battery charges"""
+        bat = self.app.battery
+        if not bat or not bat.get("plugged") or not text.endswith(f"{bat['percent']}%"):
+            return
+        x = end - st.text_size(f"{bat['percent']}%")[0] - 10
+        d.polygon([(x + 5, y + 2), (x + 1, y + 9), (x + 4, y + 9), (x + 3, y + 14), (x + 8, y + 6), (x + 5, y + 6),
+                   (x + 7, y + 2)], fill=CHARGING)
 
     def status_right(self):
         a = self.app
@@ -511,6 +523,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
                         long=lambda s=step: self.tempo_step(s * 10))                                    # held: 10
         right = self.status_right()
         st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
+        self.charge_bolt(d, W - 10, 9, right)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         self.draw_home_rows(img, d)
         top = H - TAB_H - 62
@@ -587,6 +600,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
                         self.toggle_parts, on=parts, key="rec-parts")
         right = f"{a.battery['percent']}%" if a.battery else ""
         st.text(img, (W - 10 - st.text_size(right)[0], 9), right, t.c[3])
+        self.charge_bolt(d, W - 10, 9, right)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         self.meters.draw(a, img, (0, HDR_H + 1, W, H - 62), t, now, style="Tape")
         top = H - 56
