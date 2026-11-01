@@ -29,6 +29,9 @@ class WebLink:
             "mixer": self.web_mixer(),
             "pocket": self.pocket_link(),
             "pocket_fm1s": True,              # a linked Pocket may send its FM-1s each on its own (sound and MIDI)
+            "link_return": 46010 if self.state.get("link_return", True) else None,   # the Studio's master back to
+                                              # a linked Pocket on this UDP port (bridge.RETURN_PORT), or None: off
+            "latency": self.state.get("latency", "SAFE"),   # bridge.LATENCY's step
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
             "speaker_battery": getattr(self, "spk_battery", None),
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,

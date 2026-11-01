@@ -1854,6 +1854,68 @@ def test_dac_is_the_master_out():
     assert app.web_status()["master"] is None
 
 
+def test_latency_steps_and_the_link_buffer():
+    """MORE > AUDIO > Latency: PipeWire's block and the Pocket link's buffer lowered together, a step a press,
+    round to SAFE; the installed receiver's buffer rewritten (and only when it changes)"""
+    import bridge
+    calls = []
+    run, bridge.run = bridge.run, lambda cmd, **kw: (calls.append(cmd), (0, ""))[1]
+    try:
+        for name, quantum, ms in bridge.LATENCY:
+            assert ms > quantum * 1000 / 48000          # the buffer holds more than a block: no resets
+        conf = Path(tempfile.mkdtemp()) / "pocket-in.conf"
+        conf.write_text((Path(__file__).parent.parent / "fm1-bt-bridge" / "config"
+                         / "pipewire-fm1-pocket-in.conf").read_text(encoding="utf-8"), encoding="utf-8")
+        assert not bridge.set_link_buffer(40, conf) and not calls          # as shipped: nothing to do
+        assert bridge.set_link_buffer(10, conf)
+        text = conf.read_text(encoding="utf-8")
+        assert text.count("sess.latency.msec = 10") == 4 and "msec = 40" not in text
+        assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
+
+        app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+        app.save_settings = lambda: None
+        app.settings_menu = "audio"
+        rows = {r[0]: r[2] for r in app.settings_rows()}
+        assert rows["latency"] == "safe 40ms" and rows["link_return"] == "on"
+        calls.clear()
+        app.setting = [r[0] for r in app.settings_rows()].index("latency")
+        app.change_setting()
+        assert app.state["latency"] == "LOW" and bridge.AUDIO["quantum"] == 512
+        assert ["pw-metadata", "-n", "settings", "0", "clock.force-quantum", "512"] in calls
+        for _ in range(3):
+            app.change_setting()
+        assert app.state["latency"] == "SAFE" and bridge.AUDIO["quantum"] == 1024
+        assert bridge.latency_step("nonsense")[0] == "SAFE"
+        assert app.web_status()["latency"] == "SAFE"
+    finally:
+        bridge.run = run
+        bridge.AUDIO["quantum"] = 1024
+
+
+def test_mix_back_to_the_pocket():
+    """a linked Pocket gets the Studio's master back over the link (RTP to RETURN_PORT, its own format, 1-2 ms
+    packets), Mix to Pocket on; off, or no Pocket: nothing sent"""
+    import bridge
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    assert app.return_address() is None                               # no Pocket
+    app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"],
+                              "net_hosts": {"FM-1 Companion Pocket": "169.254.10.20"}})()
+    assert app.return_address() == "169.254.10.20"
+    midi, app.midi = app.midi, None                                   # (the web status with no MIDI process)
+    conf = bridge.return_config("169.254.10.20")
+    for want in ('destination.ip = "169.254.10.20"', "destination.port = 46010", 'audio.format = "S16BE"',
+                 "audio.rate = 48000", "sess.max-ptime = 2", 'node.name = "fm1-pocket-return"'):
+        assert want in conf
+    assert app.web_status()["link_return"] == bridge.RETURN_PORT
+    app.settings_menu = "audio"
+    app.setting = [r[0] for r in app.settings_rows()].index("link_return")
+    app.change_setting()
+    assert app.web_status()["link_return"] is None
+    app.midi = midi
+    assert app.return_address() is None
+
+
 def test_charging_bolt_by_the_battery():
     """the battery's percent with a green bolt beside it while it charges (PiSugar: external power plugged in), on
     HOME, the tabs' headers and RECORD; none on battery"""

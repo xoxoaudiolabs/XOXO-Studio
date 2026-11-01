@@ -19,10 +19,13 @@ import json
 import os
 import queue
 import re
+import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -66,6 +69,8 @@ DEFAULTS = {
     "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)
     "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike
+    "latency": "SAFE",      # LATENCY's step: PipeWire's block and the Pocket link's buffer, lowered together
+    "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones
     "cue": False,           # the click and previews on the jack only, not the speaker
     "cues": [],             # mixer keys cued to the jack, as on a DJ mixer: heard there before their fader
     "cue_mix": 50,          # the jack's blend while something's cued: 0 the cued sources only, 100 the main mix
@@ -473,11 +478,114 @@ def wifi_enabled():
     return {"enabled": True, "disabled": False}.get(out.strip()) if code == 0 else None
 
 
+# the Studio's latency, in steps: (name, PipeWire's block in samples, the Pocket link's receive buffer in ms).
+# The buffer has to hold more than a block (less, and PipeWire's RTP receiver empties and starts again: dropouts),
+# so the two come down together. SAFE is what the Studio always ran (a Zero W's block); the rest are to be tried
+# by ear on the Studio, the lowest a Pi 3 keeps up with without clicks.
+LATENCY = [("SAFE", 1024, 40), ("LOW", 512, 20), ("LOWER", 256, 10), ("LOWEST", 128, 6)]
+AUDIO = {"quantum": 1024}               # the block set_rate locks PipeWire to (the LATENCY step's)
+POCKET_IN = Path.home() / ".local" / "share" / "fm1-bridge" / "pipewire-fm1-pocket-in.conf"   # (install.sh)
+
+
+def latency_step(name):
+    """LATENCY's (name, block, buffer ms) by name; SAFE for one that isn't there"""
+    return next((step for step in LATENCY if step[0] == name), LATENCY[0])
+
+
 def set_rate(rate):
     """Lock PipeWire to rate (until PipeWire restarts; Loopback sets it again before each start), in blocks of
-    1024 samples: left alone, at 48 kHz it picks 2048, ~20 ms more delay at every stage (keys feel laggy)."""
+    AUDIO["quantum"] samples: left alone, at 48 kHz it picks 2048, ~20 ms more delay at every stage (keys feel
+    laggy)."""
     run(["pw-metadata", "-n", "settings", "0", "clock.force-rate", str(rate)], timeout=5)
-    run(["pw-metadata", "-n", "settings", "0", "clock.force-quantum", "1024"], timeout=5)
+    run(["pw-metadata", "-n", "settings", "0", "clock.force-quantum", str(AUDIO["quantum"])], timeout=5)
+
+
+def pocket_in_conf(text, ms):
+    """the Pocket link's receiver configuration (pipewire-fm1-pocket-in.conf) with a buffer of ms"""
+    return re.sub(r"sess\.latency\.msec = [0-9.]+", f"sess.latency.msec = {ms}", text)
+
+
+def set_link_buffer(ms, path=None):
+    """the installed receiver's buffer made ms, and its PipeWire started again (fm1-pocket-in.service: the
+    link's sound gone a moment); nothing when it's that already. True if it changed"""
+    path = path or POCKET_IN
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    new = pocket_in_conf(text, ms)
+    if new == text:
+        return False
+    path.write_text(new, encoding="utf-8")
+    run(["systemctl", "--user", "restart", "fm1-pocket-in.service"], timeout=15)
+    return True
+
+
+RETURN_PORT = 46010                     # the Studio's master to a linked Pocket (its headphones): RTP, as the
+RETURN_SINK = "fm1-pocket-return"       # Pocket's own sound comes in (pipewire-fm1-pocket-in.conf), the other way
+
+
+def return_config(address, port=RETURN_PORT):
+    """a PipeWire hosting one RTP sender, RETURN_SINK, to the Pocket at address: L16, 48 kHz, stereo, the
+    Pocket's own link format (netaudio.py in FM-1-Companion), in packets of 1-2 ms (the default is as many as
+    the MTU holds, ~6.5 ms: delay a snake doesn't need)"""
+    ssrc = zlib.crc32((socket.gethostname() + "/return").encode()) or 1
+    return f"""context.properties = {{ core.daemon = false core.name = fm1-pocket-return }}
+context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
+context.modules = [
+  {{ name = libpipewire-module-rt args = {{ }} flags = [ ifexists nofail ] }}
+  {{ name = libpipewire-module-protocol-native }}
+  {{ name = libpipewire-module-client-node }}
+  {{ name = libpipewire-module-adapter }}
+  {{ name = libpipewire-module-rtp-sink
+    args = {{
+      destination.ip = "{address}"
+      destination.port = {port}
+      rtp.ssrc = {ssrc}
+      net.mtu = 1280
+      sess.min-ptime = 1
+      sess.max-ptime = 2
+      sess.media = "audio"
+      stream.props = {{ node.name = "{RETURN_SINK}" node.description = "Pocket (link return)" media.class = "Audio/Sink" }}
+      audio.format = "S16BE"
+      audio.rate = 48000
+      audio.channels = 2
+      audio.position = [ FL FR ]
+    }}
+  }}
+]
+"""
+
+
+class LinkReturn:
+    """the PipeWire that hosts RETURN_SINK while a Pocket is linked: started again for a new address, or when it
+    stops"""
+
+    def __init__(self):
+        self.proc, self.address = None, None
+        self.path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / "fm1-pocket-return.conf"
+
+    def ensure(self, address):
+        if address == self.address and (address is None or self.running()):
+            return
+        self.stop()
+        if address:
+            self.path.write_text(return_config(address), encoding="utf-8")
+            self.proc = subprocess.Popen(["pipewire", "-c", str(self.path)],
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.address = address
+
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def stop(self):
+        if self.running():
+            self.proc.terminate()
+            try:
+                self.proc.wait(3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.proc, self.address = None, None
 
 
 def set_wifi(on):
@@ -889,6 +997,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.dac, self.dac_set = None, None   # a DAC HAT (dac_node): the master out; (node id, level) last set
         self.default_set = None               # the DAC's node id last made PipeWire's default (the decks play there)
         self.bt_loop = Loopback(state["audio_rate"])   # with a DAC: the master copied to the Bluetooth speaker
+        self.link_return = LinkReturn()       # a linked Pocket: the master back to it over the link
+        self.return_loop = Loopback(state["audio_rate"])   # the master copied to the link's return
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
         self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
@@ -1034,7 +1144,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.sink, self.others, self.volume = sink, others, volume
             self.post("status", changed)
         channels = self.mix_channels()
-        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop]
+        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop]
         mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
@@ -1043,6 +1153,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.jack_loop.ensure(copy and "monitor:" + main, copy, "fm1-phones")
         bt = self.bt_copy()
         self.bt_loop.ensure(bt and "monitor:" + main, bt, "fm1-bt")
+        address = self.return_address()
+        self.link_return.ensure(address)
+        back = address and any(((o.get("info") or {}).get("props") or {}).get("node.name") == RETURN_SINK
+                               for o in objects)   # (its sender up: a loop started before it would stay unlinked)
+        self.return_loop.ensure(back and main and "monitor:" + main, back and RETURN_SINK, "fm1-return")
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
         app_ids = {key: next((o.get("id") for o in objects
@@ -1109,6 +1224,20 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if jack and (out == "both" or self.cued()):    # cueing: the main mix too, for the blend
             return bt, jack
         return bt, None
+
+    def return_address(self):
+        """where the master goes back over the link: a linked Pocket's address (Mix to Pocket on), or None"""
+        return self.pocket_address() if self.state.get("link_return", True) else None
+
+    def set_latency(self, name):
+        """a LATENCY step: PipeWire's block at once, the link's buffer (its receiver started again)"""
+        name, quantum, ms = latency_step(name)
+        self.state["latency"] = name
+        self.save_settings()
+        AUDIO["quantum"] = quantum
+        set_rate(self.state["audio_rate"])
+        threading.Thread(target=set_link_buffer, args=(ms,), daemon=True).start()
+        self.say(f"Latency {name}: blocks of {quantum}, link buffer {ms} ms", 3)
 
     def bt_copy(self):
         """with a DAC as the master: the Bluetooth speaker gets a copy of it (Output "both" or "speaker"), or None"""
@@ -1598,8 +1727,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             jack = ([("output", "Output", self.state["output"]), ("cue", "Click to phones", onoff(self.state["cue"]))]
                     if self.jack else [])           # the Studio's 3.5 mm jack
             decks = [("decks_out", "DJ decks out", self.state.get("decks_out", "studio"))] if self.desk else []
+            latency = latency_step(self.state.get("latency"))
             return ([("speaker", "Speaker", speaker), ("audio", "BT audio", audio)] + jack
-                    + [("rate", "Audio rate", rate)] + mix + parts + decks)
+                    + [("rate", "Audio rate", rate), ("latency", "Latency", f"{latency[0].lower()} {latency[2]}ms"),
+                       ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True)))]
+                    + mix + parts + decks)
         if self.settings_menu == "midi":
             keys = getattr(self.midi, "controllers", None) or []
             bt_keys = getattr(self.midi, "ble_keys", None) or []
@@ -1652,6 +1784,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.cue_mixer.reopen(rate)
             self.pc_mixer.reopen(rate)
             self.say(f"{rate / 1000:g} kHz: audio restarts")
+        elif key == "latency":
+            names = [step[0] for step in LATENCY]
+            self.set_latency(names[(names.index(latency_step(self.state.get("latency"))[0]) + 1) % len(names)])
+        elif key == "link_return":
+            self.state["link_return"] = not self.state.get("link_return", True)
+            self.save_settings()
+            self.scan_now = True
+            self.say("Mix to Pocket: on (over the link)" if self.state["link_return"] else "Mix to Pocket: off", 2)
         elif key == "clock":
             self.set_clock("box" if self.state["clock_mode"] == "follow" else "follow")
         elif key == "tempo" or key.startswith("mix_"):
@@ -2072,6 +2212,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     # ---- main loop
 
     def run(self):
+        _, AUDIO["quantum"], ms = latency_step(self.state.get("latency"))   # (before any pw-loopback starts)
+        threading.Thread(target=set_link_buffer, args=(ms,), daemon=True).start()
         threading.Thread(target=self.monitor, daemon=True).start()   # starts pw-loopback: keeps priority
         if hasattr(os, "nice"):
             os.nice(5)      # Linux: this thread only (drawing, keys), and threads it starts later; MIDI and
