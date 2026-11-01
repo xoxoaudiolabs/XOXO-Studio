@@ -29,6 +29,12 @@ class FakeControllers:
     def names(self):
         return ["SMK-37+VA"]
 
+    def receive_only(self):
+        return []
+
+    def send_only(self):
+        return []
+
     def poll(self):
         pass
 
@@ -449,6 +455,65 @@ def test_plugin_names_midi_devices():
     ports = ["Felucca:Felucca MIDI 1 24:0", "Felucca:Felucca MIDI 1 28:0", "EP-136:EP-136 MIDI 1 16:0"]
     want = {"FM-1 A": ports[0], "FM-1 B": ports[1], "EP-136": ports[2]}
     assert controllers.wanted(ports) == want and controllers.wanted(list(reversed(ports))) == want
+
+
+
+def test_a_device_that_only_receives():
+    """a device with MIDI in but none out (a plug-in's synth: FluidSynth's ALSA client, named SYNTH A by its rule) is
+    a destination only: opened for output, in the matrix's columns but not its rows, its routes' notes reach it; it
+    goes when its port does"""
+    class Port:
+        def __init__(self, name):
+            self.name, self.sent, self.closed = name, [], False
+
+        def send(self, msg):
+            self.sent.append(msg.bytes())
+
+        def close(self):
+            self.closed = True
+
+    class Mido:
+        Message = __import__("mido").Message
+        ins, outs, opened = [], [], {}
+
+        def get_input_names(self):
+            return list(self.ins)
+
+        def get_output_names(self):
+            return list(self.outs)
+
+        def open_input(self, name, callback=None):
+            return Port(name)
+
+        def open_output(self, name):
+            self.opened[name] = Port(name)
+            return self.opened[name]
+    fluid = "FLUID Synth (synths-a):Synth input port (synths-a:0) 130:0"
+    keys = "EP-136:EP-136 MIDI 1 16:0"
+    b = blemidi.MidiBridge(net=True)
+    b.controllers.mido = mido = Mido()
+    b.controllers.rules = [[r"^FLUID Synth \(synths-a\)", "SYNTH A"]]
+    mido.ins, mido.outs = [keys], [keys, fluid, "RtMidiIn Client:RtMidi input 128:0"]
+    b.controllers.poll()
+    assert b.controllers.names() == ["EP-136", "SYNTH A"] and b.controllers.receive_only() == ["SYNTH A"]
+    sources, dests = blemidi.matrix(b.device_names(), b.controllers.receive_only())
+    assert "U:SYNTH A" in dests and "U:SYNTH A" not in sources and "U:EP-136" in sources
+    assert "U:SYNTH A>SMP" not in blemidi.route_keys(b.device_names(), ["SYNTH A"])
+    b.set_routes({"U:EP-136>U:SYNTH A": {"on": True}})
+    b.from_controllers(bytes([0x90, 60, 100]), "EP-136")              # the keys play SYNTH A
+    assert mido.opened[fluid].sent == [[0x90, 60, 100]]
+    b.deliver("BT>USB", [bytes([0x90, 62, 90])])                    # USB (all of them) reaches it too
+    assert mido.opened[fluid].sent[-1] == [0x90, 62, 90]
+    mido.outs = [keys]                                              # the synth stopped
+    b.controllers.poll()
+    assert b.controllers.names() == ["EP-136"] and mido.opened[fluid].closed
+    nano = "nanoKEY2:nanoKEY2 KEYBOARD 20:0"                         # a controller that only sends: a row only
+    mido.ins = [keys, nano]
+    b.controllers.poll()
+    assert b.controllers.send_only() == ["nanoKEY2"]
+    sources, dests = blemidi.matrix(b.device_names(), (), b.controllers.send_only())
+    assert "U:nanoKEY2" in sources and "U:nanoKEY2" not in dests and "U:nanoKEY2" not in b.dests()
+    assert "U:EP-136" in sources and "U:EP-136" in dests
 
 
 if __name__ == "__main__":

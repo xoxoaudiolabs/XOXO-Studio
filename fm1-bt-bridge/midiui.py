@@ -42,7 +42,8 @@ class MidiScreens:
         """every route of the matrix as it is now (the USB devices plugged in)"""
         saved = self.state.get("routes") or {}
         return {key: dict(blemidi.route_default(key), **saved.get(key, {}))
-                for key in blemidi.route_keys(self.usb_devices())}
+                for key in blemidi.route_keys(self.usb_devices(), getattr(self.midi, "receive_only", None) or (),
+                                              getattr(self.midi, "send_only", None) or ())}
 
     def keep_routes(self, routes):
         """the routes saved: these, and those of USB devices not plugged in now (kept for when they're back)"""
@@ -73,7 +74,9 @@ class MidiScreens:
             hide.add("SMP")
         if not getattr(self.midi, "xo4", False):           # XO-4's MIDI track: the Studio's
             hide.add("XO4")
-        sources, dests = blemidi.matrix(self.usb_devices())     # (the Studio: each USB device, by name)
+        sources, dests = blemidi.matrix(self.usb_devices(),       # (the Studio: each USB device, by name; one that
+                                        getattr(self.midi, "receive_only", None) or (),   # only receives: a column,
+                                        getattr(self.midi, "send_only", None) or ())      # one that only sends: a row)
         return [s for s in sources if s not in hide], [d for d in dests if d not in hide]
 
     def cell(self):

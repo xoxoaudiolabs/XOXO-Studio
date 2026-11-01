@@ -732,8 +732,19 @@ class UsbControllers:
             outs = self.wanted(self.mido.get_output_names())
         except Exception:
             return
-        for name in [n for n in self.ports if n not in ins]:
+        for name in [n for n in self.ports if n not in ins and n not in outs]:
             self.close(name)
+        for name in [n for n, p in self.ports.items() if p["in"] is None and n in ins]:
+            self.close(name)                  # (one that only received has an input now: opened again, both ways)
+        for name, port in outs.items():       # a device that only receives (a plug-in's synth): a destination
+            if name in ins or name in self.ports or len(self.ports) >= self.MAX:
+                continue
+            try:
+                out = self.mido.open_output(port)
+            except Exception:
+                continue
+            with self.lock:
+                self.ports[name] = {"in": None, "out": out}
         for name, port in ins.items():
             if name in self.ports or len(self.ports) >= self.MAX:
                 continue
@@ -778,6 +789,14 @@ class UsbControllers:
 
     def names(self):
         return sorted(self.ports)
+
+    def receive_only(self):
+        """the devices that only take MIDI in (no MIDI of their own to route): destinations, not sources"""
+        return sorted(n for n, p in self.ports.items() if p["in"] is None)
+
+    def send_only(self):
+        """the devices with no MIDI in (a keyboard controller that only sends): sources, not destinations"""
+        return sorted(n for n, p in self.ports.items() if p["out"] is None)
 
     def close(self, name):
         with self.lock:
@@ -832,21 +851,22 @@ def generic(end):
     return "USB" if end.startswith(DEVICE) else end
 
 
-def matrix(devices=None):
+def matrix(devices=None, receive_only=(), send_only=()):
     """(sources, destinations): devices None, the Pocket's (USB, all of them as one); a list of USB MIDI device
-    names, the Studio's (each its own, where USB is)"""
+    names, the Studio's (each its own, where USB is; those in receive_only a destination only, those in send_only
+    a source only)"""
     if devices is None:
         return SOURCES, DESTINATIONS
-    keys = [device_key(n) for n in devices]
 
-    def put(ends):
+    def put(ends, names):
         i = ends.index("USB")
-        return ends[:i] + tuple(keys) + ends[i + 1:]
-    return put(SOURCES), put(DESTINATIONS)
+        return ends[:i] + tuple(device_key(n) for n in names) + ends[i + 1:]
+    return (put(SOURCES, [n for n in devices if n not in receive_only]),
+            put(DESTINATIONS, [n for n in devices if n not in send_only]))
 
 
-def route_keys(devices=None):
-    sources, dests = matrix(devices)
+def route_keys(devices=None, receive_only=(), send_only=()):
+    sources, dests = matrix(devices, receive_only, send_only)
     return [f"{s}>{d}" for s in sources for d in dests if s != d]
 
 
@@ -1144,7 +1164,7 @@ class MidiBridge:
         return r
 
     def dests(self):
-        return matrix(self.device_names() if self.split else None)[1]
+        return matrix(self.device_names() if self.split else None, (), self.controllers.send_only())[1]
 
     def pocket_fm1s(self):
         """{device name: network MIDI peer} of a linked Pocket's FM-1s, each on a session of its own: named by the
@@ -1612,6 +1632,7 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
             next_poll = now + 3                # a USB controller plugged in shows up within 3 s
         metro.ensure(*wanted)                  # starts, stops, or restarts it if its stream ended
         status = {"peer": bridge.peer, "error": bridge.error, "controllers": bridge.device_names(),
+                  "receive_only": bridge.controllers.receive_only(), "send_only": bridge.controllers.send_only(),
                   "activity": round(bridge.activity(), 1),  # 0.1 s steps: at most ~5 updates a second
                   "clock": bridge.clock_status(now)}
         status["notes"], status["chans"] = bridge.notes_status(now)
@@ -1694,6 +1715,8 @@ class MidiProcess:
         self.pairing_until = 0.0
         self.last_activity = 0.0
         self.controllers = []               # USB MIDI controllers' names
+        self.receive_only = []              # those of them that only take MIDI in (destinations only)
+        self.send_only = []                 # those with no MIDI in (sources only)
         self.clock = None                   # {"bpm", "source", "playing"} while there's a clock
         self.notes, self.chans = [], 0      # for the MIDI meter
         self.ble_keys, self.ble_found, self.ble_scanning = [], [], False   # Bluetooth MIDI keyboards (MidiBridge's)
@@ -1714,6 +1737,8 @@ class MidiProcess:
             self.peer, self.error = status["peer"], status["error"]
             self.last_activity = status["activity"]
             self.controllers = status.get("controllers") or []
+            self.receive_only = status.get("receive_only") or []
+            self.send_only = status.get("send_only") or []
             self.split = status.get("split", False)
             self.clock = status.get("clock")
             self.notes, self.chans = status.get("notes") or [], status.get("chans", 0)
