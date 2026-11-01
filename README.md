@@ -57,6 +57,7 @@ The web page's tabs: **Status** (speaker, volume, the mixer with DECKS while the
 - **DECKS:** two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch, a Hercules DJControl Inpulse 200 MK2, or any controller after MIDI LEARN; each deck its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out)
 - **MIDI:** routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route
 - **The Pocket by Ethernet:** an FM-1 Companion Pocket on a cable straight to the Studio (no router needed: both take a link-local address) joins the Studio's network MIDI as NET. MIDI goes both ways, and the Studio's clock leads: its clock to NET (Box>NET) is on from the start. The Pocket's sound comes over the link too (RTP on UDP 46000) and shows as POCKET in HOME, the mixer and recordings while the Pocket is linked; the Studio keeps the Bluetooth speaker, and the Pocket lets go of its own. A Pocket that splits its FM-1s (up to three) sends each on a stream of its own (UDP 46002, 46004, 46006) and a network MIDI session of its own: each FM-1 plugged into it is then a mixer channel and a device in the routes, POCKET FM-1 A-C (FM-1 E-G with the FM-1 Companion plug-in), and POCKET leaves the mixer
+- **The link as a snake:** the Studio's master goes back to a linked Pocket over the same cable (RTP on UDP 46010, the Pocket's own format, in 1-2 ms packets), for headphones at the Pocket: MORE > AUDIO > **Mix to Pocket**, on at first. (The Pocket has to listen on 46010 for it: work on the Pocket's side.) MORE > AUDIO > **Latency** lowers the Studio's audio block and the link's receive buffer together: SAFE (1024 samples, 40 ms, what the Studio always ran), LOW (512, 20 ms), LOWER (256, 10 ms), LOWEST (128, 6 ms). The lowest a Pi 3 plays without clicks is to be found by ear
 - **MORE:** settings, themes, Wi-Fi, touch setup, shut down
 
 EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
@@ -128,7 +129,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 **On hardware** (2026-10-28: a Raspberry Pi 3 B+ on Raspberry Pi OS Lite, Trixie, 64-bit; a 3.5" ILI9486 / ADS7846 touchscreen; a PiSugar battery):
 - installed from the GitHub ZIP as above: the installer ran to the end with no errors in its log
 - after the reboot the app, its sampler and the web page start; the screen and the touch are found; the settings hold a touch calibration and a theme picked on the screen
-- the battery's charge is read
+- the battery's charge is read, with a green bolt beside its percent while it charges that goes when the charger is unplugged (2026-11-01, the user's report)
 - the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
 - the tab bar with DECKS on it looks right on the Studio's screen
 - XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
