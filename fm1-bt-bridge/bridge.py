@@ -527,8 +527,10 @@ RETURN_SINK = "fm1-pocket-return"       # Pocket's own sound comes in (pipewire-
 
 def return_config(address, port=RETURN_PORT):
     """a PipeWire hosting one RTP sender, RETURN_SINK, to the Pocket at address: L16, 48 kHz, stereo, the
-    Pocket's own link format (netaudio.py in FM-1-Companion), in packets of 1-2 ms (the default is as many as
-    the MTU holds, ~6.5 ms: delay a snake doesn't need)"""
+    Pocket's own link format (netaudio.py in FM-1-Companion), in packets as big as the MTU holds (~6.5 ms).
+    (Packets of 1-2 ms, sess.min-ptime 1 / max-ptime 2, made it dirty on the Studio: the sender's buffer is a
+    packet's length unless set, a block of 1024 overran it, ~45 "overrun" and "missing timeout" a second; the
+    Pocket's sender did the same)"""
     ssrc = zlib.crc32((socket.gethostname() + "/return").encode()) or 1
     return f"""context.properties = {{ core.daemon = false core.name = fm1-pocket-return }}
 context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
@@ -543,8 +545,6 @@ context.modules = [
       destination.port = {port}
       rtp.ssrc = {ssrc}
       net.mtu = 1280
-      sess.min-ptime = 1
-      sess.max-ptime = 2
       sess.media = "audio"
       stream.props = {{ node.name = "{RETURN_SINK}" node.description = "Pocket (link return)" media.class = "Audio/Sink" }}
       audio.format = "S16BE"

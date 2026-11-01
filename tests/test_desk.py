@@ -1905,8 +1905,9 @@ def test_mix_back_to_the_pocket():
     midi, app.midi = app.midi, None                                   # (the web status with no MIDI process)
     conf = bridge.return_config("169.254.10.20")
     for want in ('destination.ip = "169.254.10.20"', "destination.port = 46010", 'audio.format = "S16BE"',
-                 "audio.rate = 48000", "sess.max-ptime = 2", 'node.name = "fm1-pocket-return"'):
+                 "audio.rate = 48000", 'node.name = "fm1-pocket-return"'):
         assert want in conf
+    assert "ptime" not in conf                                        # (1-2 ms packets overran: dirty)
     assert app.web_status()["link_return"] == bridge.RETURN_PORT
     app.settings_menu = "audio"
     app.setting = [r[0] for r in app.settings_rows()].index("link_return")
