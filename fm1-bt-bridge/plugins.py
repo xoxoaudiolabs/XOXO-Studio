@@ -33,6 +33,10 @@ Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Stud
                                                  page's mixer, in place of "USB" (an FM-1's firmware: "SLOOP
                                                  2.8"); source its name ("FM-1 A"), text None to take it away.
                                                  Gone when the plug-in is switched off
+  add_sound_source(node_name, label)             its own sound process as a mixer source: the PipeWire Audio/Source
+                                                 node of exactly that name (a pw-loopback's, as XO-4's), under label
+                                                 ("SYNTH A"), its mixer level kept by the node's name; there while
+                                                 the node is
   pocket()                                       a linked Pocket's IP address (its network MIDI session's), or
                                                  None. Its FM-1s A-C come as sound sources fm1-pocket-a/b/c and
                                                  MIDI devices "FM-1 Companion Pocket FM-1 A/B/C": name them with
@@ -117,6 +121,7 @@ class Studio:
         self.audio, self.midi, self.screens, self.events, self.cards = [], [], [], {}, []
         self.web_status, self.web_commands = None, {}
         self.details = {}                     # source name (upper case) -> its few words (set_detail)
+        self.nodes = {}                       # its own sound processes' node names -> their labels
 
     def save(self):
         self._host.save()
@@ -126,6 +131,9 @@ class Studio:
 
     def sources(self):
         return [str(n.get("label", "")) for n in (getattr(self._host.app, "others", None) or [])]
+
+    def add_sound_source(self, node_name, label):
+        self.nodes[str(node_name)] = str(label)[:16]
 
     def set_detail(self, source, text):
         key = str(source).strip().upper()
@@ -287,6 +295,10 @@ class Host:
                     counts[(pid, i)] = n + 1
                     return str(self.call(pid, label, n, default=pid) if callable(label) else label)[:16]
         return None
+
+    def sound_source(self, node_name):
+        """the label a plug-in gives its own sound process's node (add_sound_source), or None"""
+        return next((s.nodes[node_name] for s in list(self.loaded.values()) if node_name in s.nodes), None)
 
     def source_detail(self, name):
         """a plug-in's few words for a sound source (set_detail), or None"""

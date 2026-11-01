@@ -250,6 +250,8 @@ def device_keys(nodes):
     keys, used = [], set()
     for node in nodes:
         slug = re.sub(r"[^a-z0-9]", "", str(node.get("label", "")).lower())[:10] or "usb"
+        if node.get("plugin"):                # a plug-in's own sound: by its node's name, whatever it's called
+            slug = re.sub(r"[^a-z0-9]", "", str(node.get("name", "")).lower())[:10] or "plugin"
         key, n = f"u-{slug}", 2
         while key in used:
             key, n = f"u-{slug}{n}", n + 1
@@ -275,7 +277,10 @@ def pick_nodes(objects, host=None):
         text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name"))
         named = (host.source_label(props, counts) if host and cls == "Audio/Source" and name.startswith("alsa_input.")
                  else None)
-        if named:                                  # a plug-in's device (the FM-1 Companion's FM-1s): its name
+        own = host.sound_source(name) if host and cls == "Audio/Source" and hasattr(host, "sound_source") else None
+        if own:                                    # a plug-in's own sound process (add_sound_source)
+            sources.append(dict(node, label=own, internal=True, plugin=True, ports=ports.get(o.get("id"), [])))
+        elif named:                                  # a plug-in's device (the FM-1 Companion's FM-1s): its name
             sources.append(dict(node, label=named, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name.startswith("alsa_input.") and is_computer(text):
             # the computer's sound over USB (a Pi 4 Studio as its interface): a source, COMPUTER

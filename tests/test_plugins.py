@@ -155,6 +155,40 @@ def test_confirm_and_library_folders():
     assert done == [1]
 
 
+SYNTHS = '''
+API = 1
+def setup(studio):
+    studio.add_sound_source("synths-a", "SYNTH A")
+    studio.add_sound_source("synths-b", "SYNTH B")
+'''
+
+
+def test_sound_source_of_its_own():
+    """add_sound_source: a plug-in's own sound process (a pw-loopback's Audio/Source) is a mixer source under its
+    label, internal, its key from the node's name (so its level stays, whatever it's called); only while the
+    plug-in is on and the node is there"""
+    import bridge
+    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
+    make(base, "synths", SYNTHS)
+    host = plugins.Host(App(), [base])
+    host.start()
+
+    def node(i, name, cls="Audio/Source"):
+        return {"id": i, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": cls, "node.name": name}}}
+    port = {"type": "PipeWire:Interface:Port", "info": {"props": {"port.direction": "out", "port.name": "capture_FL",
+                                                                   "node.id": 7, "port.id": 0}}}
+    objects = [node(7, "synths-a"), node(8, "synths-a-in", "Audio/Sink"), port]
+    assert bridge.pick_nodes(objects, host)[1] == []                 # off: not a source
+    host.set_on("synths", True)
+    _, sources = bridge.pick_nodes(objects, host)
+    assert [(n["label"], n["internal"], n["ports"]) for n in sources] == [("SYNTH A", True, ["capture_FL"])]
+    assert bridge.device_keys(sources) == ["u-synthsa"]
+    assert bridge.device_keys([dict(sources[0], label="RENAMED")]) == ["u-synthsa"]   # (by the node's name)
+    assert host.sound_source("synths-b") == "SYNTH B" and host.sound_source("fm1-xo4") is None
+    host.set_on("synths", False)
+    assert bridge.pick_nodes(objects, host)[1] == []
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:
