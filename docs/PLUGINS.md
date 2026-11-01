@@ -76,6 +76,9 @@ an older Studio):
   name}`, asked on each device scan; the same name in the mixer and the MIDI routes (the FM-1 Companion's FM-1 A-D
   by USB port, as the Pocket names them), before the rules of `add_audio_source` and `add_midi_device`
 - `confirm(title, lines, fn)`: the Studio's hold-to-confirm screen, then `fn()` (a write the web page asked for)
+- `add_sound_source(node_name, label)` (2026-11-01): a plug-in's own sound process as a mixer source: the
+  Audio/Source node of exactly that name (a pw-loopback's, as XO-4's), under that label, internal; its mixer
+  level kept by the node's name; there while the node is (the Synths plug-in's SYNTH A and B)
 - `"library": {folder: [".suffix"]}` in `plugin.json`: folders of its own in `~/fm1-library` the web page lists,
   uploads to, downloads from and deletes from (never the Studio's own samples and recordings)
 
