@@ -21,10 +21,19 @@ def board(path=MODEL):
         return ""
 
 
+def hdmi35(width, height):
+    """the 3.5" HDMI touchscreen's framebuffer: HDMI set to a whole multiple of its 480x320 panel, or 1.5x
+    (install.sh --screen hdmi: the screen shows no signal at 480x320 itself, and scales what it gets down to its
+    panel). From FM-1 Companion (its Studio's), 2026-10-29"""
+    return (width, height) in ((720, 480), (960, 640), (1440, 960))
+
+
 def touchscreen(root=FRAMEBUFFERS):
     """(framebuffer device, width, height) of a small SPI screen (480x320), or None: fbtft's (fb_ili9486) or the
     kernel's DRM driver's (ili9486drmfb: the piscreen overlay's, Raspberry Pi OS from 2026), which is /dev/fb0
-    when no HDMI monitor was there at boot, else /dev/fb1"""
+    when no HDMI monitor was there at boot, else /dev/fb1. Else the 3.5" HDMI touchscreen's (hdmi35): an SPI
+    screen first, so an HDMI monitor that happens to run at 720x480 beside one isn't taken for it"""
+    found = []
     for fb in sorted(root.glob("fb[0-9]")):
         try:
             width, height = (int(v) for v in (fb / "virtual_size").read_text().strip().split(","))
@@ -36,8 +45,10 @@ def touchscreen(root=FRAMEBUFFERS):
             name = ""
         spi = any(k in name for k in ("fb_", "ili94", "piscreen", "mipi-dbi"))
         if spi or (fb.name != "fb0" and width * height <= 800 * 480):   # (fb0 unnamed: an HDMI monitor)
-            return f"/dev/{fb.name}", width, height
-    return None
+            found.append((0, f"/dev/{fb.name}", width, height))
+        elif hdmi35(width, height):
+            found.append((1, f"/dev/{fb.name}", width, height))
+    return min(found)[1:] if found else None
 
 
 def detect(setting="auto", model=None, screen="look"):

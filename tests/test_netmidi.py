@@ -28,7 +28,7 @@ def test_packets():
     assert netmidi.decode(b"\xff\xffIN") == []                      # a session command: not MIDI
 
 
-def test_session():
+def test_session(capsys):
     got = []
     session = netmidi.Session("FM-1 Companion", 15004, got.append)
     assert session.start()
@@ -57,11 +57,14 @@ def test_session():
     mac.sendto(b"\xff\xffBY" + struct.pack(">III", 2, 0xABCD, 0x5151), ("127.0.0.1", 15004))
     time.sleep(0.1)
     assert session.names() == []
+    log = capsys.readouterr().err                                    # the journal: linked once, then left
+    assert "Pat's Mac linked from 127.0.0.1" in log and "Pat's Mac left (BY)" in log and "linked again" not in log
 
 
 
-def test_a_pocket_forgotten_sooner():
-    """a peer gone without BY: a computer forgotten after 90 s, a Pocket (syncing every 10 s) after 25 s"""
+def test_a_pocket_forgotten_sooner(capsys):
+    """a peer gone without BY: a computer forgotten after 90 s, a Pocket (syncing every 10 s) after 25 s, and the
+    journal told"""
     import time
     s = netmidi.Session("XOXO Studio", 0, lambda m: None)
     now = time.monotonic()
@@ -69,6 +72,58 @@ def test_a_pocket_forgotten_sooner():
                2: {"name": "FM-1 Companion Pocket", "data": ("b", 1), "seen": now - 30}}
     s.expire()
     assert s.names() == ["Mac"]
+    assert "FM-1 Companion Pocket forgotten: no sync for 30 s" in capsys.readouterr().err
+
+
+def test_follow_studio_names():
+    """Follow Studio: the leader takes a following Studio as it takes a Pocket; a Studio finds the others, not
+    itself nor one that's following a Studio itself"""
+    assert netmidi.linked_box("FM-1 Companion Pocket") and netmidi.linked_box("XOXO Studio Link on studio2")
+    assert not netmidi.linked_box("Pat's Mac") and not netmidi.linked_box("XOXO Studio")
+    assert netmidi.follow_name("studio2") == "XOXO Studio Link on studio2"
+    assert not netmidi.is_studio("XOXO Studio Link on studio2._apple-midi._udp.local")
+    found = lambda: [("XOXO Studio on Studio1", "10.0.0.1", 5004), ("XOXO Studio on studio2", "10.0.0.2", 5004),  # noqa
+                     ("XOXO Studio on studio3", "10.0.0.3", 5004)]
+    find = netmidi.other_studios(found, host="studio2", following=lambda address: address == "10.0.0.3")
+    assert find() == [("XOXO Studio on Studio1", "10.0.0.1", 5004)]
+
+
+
+def test_a_pocket_turned_away(capsys):
+    """a Studio following another turns a Pocket's invitation down (NO), so the Pocket links to the one leading"""
+    session = netmidi.Session("XOXO Studio", 15008, lambda m, p=None: None, by_peer=True)
+    session.refuse = lambda name: "Pocket" in name
+    assert session.start()
+    pocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    pocket.settimeout(2)
+    invite = b"\xff\xffIN" + struct.pack(">III", 2, 0x1234, 0x77) + b"FM-1 Companion Pocket\0"
+    pocket.sendto(invite, ("127.0.0.1", 15009))
+    reply = pocket.recvfrom(256)[0]
+    assert reply[:4] == b"\xff\xffNO" and struct.unpack(">I", reply[8:12])[0] == 0x1234
+    assert session.names() == [] and "FM-1 Companion Pocket turned away" in capsys.readouterr().err
+
+
+def test_following_sends_no_clock_back():
+    """a Studio following another sends it notes (NET), never clock or start / stop: the other leads"""
+    import blemidi
+
+    class Link:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, messages):
+            self.sent.append(messages)
+
+        def names(self):
+            return ["XOXO Studio"]
+
+    bridge = blemidi.MidiBridge.__new__(blemidi.MidiBridge)
+    bridge.net, bridge.follow = None, Link()
+    bridge.pocket_fm1s = lambda: {}
+    bridge.deliver("BT>NET", [b"\xf8", b"\x90\x3c\x64", b"\xfa"])
+    assert bridge.follow.sent == [[b"\x90\x3c\x64"]] and bridge.leader() == "XOXO Studio"
+    bridge.deliver("Box>NET", [b"\xf8", b"\xfc"])
+    assert len(bridge.follow.sent) == 1
 
 def test_mackie():
     m = netmidi.Mackie()

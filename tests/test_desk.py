@@ -40,6 +40,25 @@ def test_which_box():
         (root / "fb0" / "virtual_size").write_text("480,320\n")
         (root / "fb0" / "name").write_text("ili9486drmfb\n")
         assert device.touchscreen(root) == ("/dev/fb0", 480, 320)
+    with tempfile.TemporaryDirectory() as tmp:                       # the 3.5" HDMI touchscreen: HDMI at 720x480
+        root = Path(tmp)
+        (root / "fb0").mkdir()
+        (root / "fb0" / "virtual_size").write_text("720,480\n")
+        (root / "fb0" / "name").write_text("vc4drmfb\n")
+        assert device.touchscreen(root) == ("/dev/fb0", 720, 480) and device.hdmi35(720, 480)
+        (root / "fb1").mkdir()                                       # with an SPI screen too: the SPI one
+        (root / "fb1" / "virtual_size").write_text("480,320\n")
+        (root / "fb1" / "name").write_text("fb_ili9486\n")
+        assert device.touchscreen(root) == ("/dev/fb1", 480, 320)
+    with tempfile.TemporaryDirectory() as tmp:                       # its frames: 1.5x, turned round
+        fb = Path(tmp) / "fb"
+        fb.write_bytes(bytes(720 * 480 * 2))
+        scaled = desk.ScaledFb(str(fb), (720, 480), flip=True)
+        scaled.seek(0)
+        scaled.write(b"\x34\x12")                                    # the top-left pixel...
+        scaled.out.close()
+        data = fb.read_bytes()
+        assert data[-2:] == b"\x34\x12" and data[:2] == b"\0\0"       # ...bottom-right on the panel
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         model = root / "model"
@@ -464,7 +483,25 @@ def test_hdmi_mirror():
     assert data[at + 8:at + 12] == bytes(4) and data[:4] == bytes(4)
     m16 = desk.HdmiMirror("/dev/fb0", (480, 320), 16, 960)
     assert m16.pixels(frame)[0, 0] == (31 << 11) | (32 << 5) | 0       # RGB565 when the monitor runs 16-bit
+    m15 = desk.HdmiMirror("/dev/fb0", (720, 480), 16, 1440)           # 720x480 (a boot line's): 1.5x, the whole of it
+    assert m15.scale == 1.5 and m15.at == (0, 0) and m15.pixels(frame).shape == (480, 720)
+    assert m15.pixels(frame)[0, 0] == m15.pixels(frame)[1, 1] != m15.pixels(frame)[2, 2]
 
+
+def test_find_touch():
+    """the touchscreen's input device; two touch chips listed (an old ads7846 overlay on spi0.0 left beside
+    piscreen's, on a box set up before): the screen's own, spi0.1, whichever comes first"""
+    block = lambda n, spi: (f'I: Bus=001c\nN: Name="ADS7846 Touchscreen"\nP: Phys={spi}/input0\n'   # noqa: E731
+                            f"S: Sysfs=/devices/platform/soc/3f204000.spi/spi_master/spi0/{spi}/input/input{n}\n"
+                            f"H: Handlers=mouse{n} event{n} \nB: EV=b\n")
+    root = Path(tempfile.mkdtemp(prefix="fm1-touch-"))
+    devices = root / "devices"
+    devices.write_text(block(0, "spi0.0") + "\n" + block(1, "spi0.1"))
+    assert desk.find_touch(devices) == "/dev/input/event1"
+    devices.write_text(block(0, "spi0.1"))
+    assert desk.find_touch(devices) == "/dev/input/event0"
+    devices.write_text('I: Bus=0003\nN: Name="USB Keyboard"\nH: Handlers=kbd event3 \n')
+    assert desk.find_touch(devices) is None
 
 def test_screen_writes():
     frame = Image.new("1", (128, 64))
@@ -1875,7 +1912,7 @@ def test_latency_steps_and_the_link_buffer():
         assert not bridge.set_link_buffer(44, conf) and not calls          # as shipped: nothing to do
         assert bridge.set_link_buffer(10, conf)
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 10") == 4 and "msec = 44" not in text
+        assert text.count("sess.latency.msec = 10") == 5 and "msec = 44" not in text
         assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
 
         app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
@@ -1908,6 +1945,47 @@ def test_latency_steps_and_the_link_buffer():
         bridge.run = run
         bridge.AUDIO["quantum"] = 1024
 
+
+def test_a_studio_following():
+    """Follow Studio: on the leader, a following Studio's mix (a port of its own, 46020) is a channel, STUDIO,
+    beside a Pocket's; on the follower, its master goes to the leader's 46020 while linked"""
+    import bridge
+    nodes = [{"name": "fm1-pocket", "label": "POCKET"}, {"name": "xoxo-studio-in", "label": "STUDIO"},
+             {"name": "alsa_input.usb-x", "label": "EP-136"}]
+    label = lambda peers: [n["label"] for n in bridge.pocket_sources(nodes, peers, "mix")]   # noqa: E731
+    assert label(["XOXO Studio Link on studio2"]) == ["STUDIO", "EP-136"]
+    assert label(["FM-1 Companion Pocket"]) == ["POCKET", "EP-136"]
+    assert label(["FM-1 Companion Pocket", "XOXO Studio Link on studio2"]) == ["POCKET", "STUDIO", "EP-136"]
+    assert label([]) == ["EP-136"]
+    conf = (Path(bridge.__file__).parent / "config" / "pipewire-fm1-pocket-in.conf").read_text()
+    assert "source.port = 46020" in conf and 'node.name = "xoxo-studio-in"' in conf
+    text = bridge.return_config("10.0.0.1", bridge.FOLLOW_PORT, bridge.FOLLOW_SINK, "Studio it follows (link)",
+                                "xoxo-studio-link")
+    assert 'destination.port = 46020' in text and 'node.name = "xoxo-studio-link"' in text
+    assert "core.name = xoxo-studio-link" in text and 'node.name = "fm1-pocket-return"' in bridge.return_config("x")
+
+    class Midi:
+        net, follows, follow_address = [], None, None
+
+        def __init__(self):
+            self.follow = []
+
+        def set_follow(self, on):
+            self.follow.append(on)
+
+        def set_clock(self, mode, bpm):
+            self.clock = mode
+
+    app = bridge.App(None, dict(bridge.DEFAULTS, clock_mode="box"))
+    app.save_settings = lambda: None
+    app.midi = Midi()
+    assert app.follow_text() == "OFF" and app.follow_address() is None
+    app.set_follow(True)
+    assert app.midi.follow == [True] and app.state["clock_mode"] == "follow" and app.follow_text() == "LINKING"
+    app.midi.follows, app.midi.follow_address = "XOXO Studio", "10.0.0.1"
+    assert app.follow_text() == "ON" and app.follow_address() == "10.0.0.1"
+    app.state["link_rec"] = True
+    assert app.link_rec_peer() == "XOXO Studio"
 
 def test_mix_back_to_the_pocket():
     """a linked Pocket gets the Studio's master back over the link (RTP to RETURN_PORT, its own format, 1-2 ms

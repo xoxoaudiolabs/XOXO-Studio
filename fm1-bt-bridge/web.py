@@ -108,7 +108,7 @@ def check_command(c):
               "master": number and int(value) == value and 0 <= value <= 100,
               "latency": value in ("SAFE", "LOW", "LOWER", "LOWEST"),
               "link_return": isinstance(value, bool), "link_audio": value in ("mix", "fm1s", "midi"),
-              "link_rec": isinstance(value, bool)}.get(key)
+              "link_rec": isinstance(value, bool), "follow_studio": isinstance(value, bool)}.get(key)
         if isinstance(key, str) and re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):

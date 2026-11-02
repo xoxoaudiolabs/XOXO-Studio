@@ -35,6 +35,9 @@ class WebLink:
             "link_return": 46010 if self.state.get("link_return", True) else None,   # the Studio's master back to
                                               # a linked Pocket on this UDP port (bridge.RETURN_PORT), or None: off
             "latency": self.state.get("latency", "SAFE"),   # bridge.LATENCY's step
+            "follow_studio": bool(self.state.get("follow_studio")),   # Follow Studio: on
+            "follows": getattr(self.midi, "follows", None) if self.state.get("follow_studio") else None,   # the
+                                              # Studio it follows, while linked (a Studio following can't lead)
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
             "speaker_battery": getattr(self, "spk_battery", None),
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,
@@ -153,6 +156,9 @@ class WebLink:
                 return pair and f"Web: inputs {pair}"
             if key == "latency" and value in ("SAFE", "LOW", "LOWER", "LOWEST"):   # (bridge.LATENCY's steps)
                 self.set_latency(value)
+                return None
+            if key == "follow_studio" and isinstance(value, bool):
+                self.set_follow(value)
                 return None
             if key == "link_rec" and isinstance(value, bool):
                 self.state["link_rec"] = value

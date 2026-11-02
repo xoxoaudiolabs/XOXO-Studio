@@ -6,6 +6,7 @@
 #   --dac          the InnoMaker HiFi DAC HAT (PCM5122) under the screen
 #   --screen a     the 3.5" touchscreen: the Hosyond / Waveshare (A) (the default)
 #   --screen c     the Waveshare 3.5" (C), 125 MHz SPI
+#   --screen hdmi  the 3.5" HDMI touchscreen (UCTRONICS): the picture on HDMI, touch on the GPIO pins
 # e.g.  bash install.sh --dac --screen c
 set -euo pipefail
 DAC=0
@@ -16,8 +17,9 @@ while [ $# -gt 0 ]; do
         --screen)
             shift
             case "${1:-}" in
-                a|c) SCREEN_KIND="$1" ;;
-                *) echo "--screen takes a (the Hosyond / Waveshare A) or c (the Waveshare C)" >&2; exit 1 ;;
+                a|c|hdmi) SCREEN_KIND="$1" ;;
+                *) echo "--screen takes a (the Hosyond / Waveshare A), c (the Waveshare C) or hdmi (the 3.5\" HDMI)" >&2
+                   exit 1 ;;
             esac ;;
         *) echo "Unknown option: $1 (there are: --dac, --screen a, --screen c)" >&2; exit 1 ;;
     esac
@@ -97,7 +99,32 @@ else
     SCREEN="dtoverlay=piscreen,speed=24000000,rotate=90"
 fi
 SCREEN_LINE="^dtoverlay=\(waveshare35a\|waveshare35c\|piscreen\|mipi-dbi-spi\)"
-if [ "$BUILD" = desk ] && ! grep -q "$SCREEN_LINE" "$CONFIG"; then
+# The 3.5" HDMI touchscreen (--screen hdmi; UCTRONICS 3.5" HDMI): a 480x320 panel on HDMI, sent 720x480 (at
+# 480x320 it shows "no signal"), which it scales back to its panel; the Studio draws its 480x320 larger and turned
+# round (desk.ScaledFb: the panel is upside down on the Pi). Its XPT2046 touch on SPI CE0, its interrupt on GPIO25,
+# as the pins under it are marked: so no SPI screen's overlay (piscreen holds CE0 and GPIO25, and touch was dead
+# with both: 2026-11-01). As FM-1 Companion's Studio sets it up (tested there 2026-10-29).
+HDMI_TOUCH="dtoverlay=ads7846,cs=0,penirq=25,penirq_pull=2,speed=50000,keep_vref_on=0,swapxy=0,pmax=255,xohms=150"
+VIDEO="video=HDMI-A-1:720x480M@60"
+if [ "$BUILD" = desk ] && [ "$SCREEN_KIND" = hdmi ]; then
+    if grep -q "$SCREEN_LINE" "$CONFIG"; then             # an SPI screen's overlay from before: switched off
+        sudo cp "$CONFIG" "$CONFIG.bak"
+        sudo sed -i "s/$SCREEN_LINE/# (off: XOXO Studio, the HDMI touchscreen) &/" "$CONFIG"
+    fi
+    if ! grep -q "^dtoverlay=ads7846" "$CONFIG"; then
+        sudo cp "$CONFIG" "$CONFIG.bak"
+        printf '
+[all]
+# XOXO Studio: the 3.5" HDMI touchscreen'"'"'s touch
+dtparam=spi=on
+%s
+' "$HDMI_TOUCH" | sudo tee -a "$CONFIG" >/dev/null
+    fi
+    if ! grep -q "video=HDMI-A-1:" "$CMDLINE"; then
+        sudo cp "$CMDLINE" "$CMDLINE.bak"
+        sudo sed -i "1 s/\$/ $VIDEO/" "$CMDLINE"
+    fi
+elif [ "$BUILD" = desk ] && ! grep -q "$SCREEN_LINE" "$CONFIG"; then
     sudo cp "$CONFIG" "$CONFIG.bak"
     printf '
 [all]
@@ -108,6 +135,14 @@ dtparam=spi=on
 elif [ "$BUILD" = desk ] && [ -n "$SCREEN_KIND" ]; then     # a screen named: its line in place of the one there
     sudo cp "$CONFIG" "$CONFIG.bak"
     sudo sed -i "s#$SCREEN_LINE.*#$SCREEN#" "$CONFIG"
+fi
+# A touch overlay of its own (dtoverlay=ads7846, left by an earlier setup) beside the screen's: a second touch chip
+# on the display's SPI line (CE0) and its reset pin, and touch dead (seen on a box that ran FM-1 Companion Studio
+# before, 2026-11-01). The screen's overlays bring their own touch: that one switched off.
+if [ "$BUILD" = desk ] && [ "$SCREEN_KIND" != hdmi ] && grep -q "$SCREEN_LINE" "$CONFIG" \
+        && grep -q "^dtoverlay=ads7846" "$CONFIG"; then
+    sudo cp "$CONFIG" "$CONFIG.bak"
+    sudo sed -i 's/^dtoverlay=ads7846/# (off: XOXO Studio, the screen has its own touch) &/' "$CONFIG"
 fi
 # The InnoMaker HiFi DAC HAT (bash install.sh --dac): its PCM5122 on I2S (GPIO 18, 19, 21; mute GPIO 6; the DAC
 # on I2C), none of them the screen's pins. Its ID EEPROM isn't fitted, so the driver is named here: the Allo
