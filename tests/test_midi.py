@@ -504,6 +504,8 @@ def test_a_device_that_only_receives():
     assert mido.opened[fluid].sent == [[0x90, 60, 100]]
     b.deliver("BT>USB", [bytes([0x90, 62, 90])])                    # USB (all of them) reaches it too
     assert mido.opened[fluid].sent[-1] == [0x90, 62, 90]
+    b.deliver("PLUGIN>U:SYNTH A", [bytes([0x90, 64, 80])])          # a plug-in's send_midi, to it alone
+    assert mido.opened[fluid].sent[-1] == [0x90, 64, 80] and [0x90, 64, 80] not in mido.opened[keys].sent
     mido.outs = [keys]                                              # the synth stopped
     b.controllers.poll()
     assert b.controllers.names() == ["EP-136"] and mido.opened[fluid].closed

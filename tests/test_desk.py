@@ -1734,7 +1734,9 @@ def test_pocket_fm1s_on_their_own():
 
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))               # status and the plug-ins' pocket()
     app.save_settings = lambda: None
-    assert app.web_status()["pocket_fm1s"] is True and app.pocket_address() is None
+    assert app.web_status()["pocket_fm1s"] is False and app.pocket_address() is None   # (Pocket sends: MIX)
+    app.set_link_audio("fm1s")
+    assert app.web_status()["pocket_fm1s"] is True and app.web_status()["link_audio"] == "fm1s"
     app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"], "net_hosts": {"Kraken": "10.0.0.9",
                               "FM-1 Companion Pocket": "169.254.66.49"}})()
     assert app.pocket_address() == "169.254.66.49"
@@ -1753,6 +1755,10 @@ def test_mixer_shows_only_the_pocket_fm1s_plugged_in():
     assert names(["FM-1 Companion Pocket"]) == ["alsa_input.usb-EP-136", "fm1-pocket"]
     assert names(["FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A", "FM-1 Companion Pocket FM-1 C"]) == [
         "alsa_input.usb-EP-136", "fm1-pocket-a", "fm1-pocket-c"]
+    split = ["FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A"]     # Pocket sends (the Studio's choice):
+    mode = lambda m: [n["name"] for n in bridge.pocket_sources(nodes, split, m)]   # noqa: E731
+    assert mode("mix") == ["alsa_input.usb-EP-136", "fm1-pocket"]          # MIX: POCKET alone, its FM-1s in it
+    assert mode("midi") == ["alsa_input.usb-EP-136"]                       # MIDI ONLY: no Pocket channel
 
 
 def test_plugin_detail_beside_a_source():
@@ -1861,22 +1867,22 @@ def test_latency_steps_and_the_link_buffer():
     calls = []
     run, bridge.run = bridge.run, lambda cmd, **kw: (calls.append(cmd), (0, ""))[1]
     try:
-        for name, quantum, ms in bridge.LATENCY:
-            assert ms > quantum * 1000 / 48000          # the buffer holds more than a block: no resets
+        for name, quantum, ms in bridge.LATENCY:      # a Pocket's block and the Studio's: no resets
+            assert ms > (max(quantum, bridge.POCKET_FLOOR) + quantum) * 1000 / 48000
         conf = Path(tempfile.mkdtemp()) / "pocket-in.conf"
         conf.write_text((Path(__file__).parent.parent / "fm1-bt-bridge" / "config"
                          / "pipewire-fm1-pocket-in.conf").read_text(encoding="utf-8"), encoding="utf-8")
-        assert not bridge.set_link_buffer(40, conf) and not calls          # as shipped: nothing to do
+        assert not bridge.set_link_buffer(44, conf) and not calls          # as shipped: nothing to do
         assert bridge.set_link_buffer(10, conf)
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 10") == 4 and "msec = 40" not in text
+        assert text.count("sess.latency.msec = 10") == 4 and "msec = 44" not in text
         assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
 
         app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
         app.save_settings = lambda: None
         app.settings_menu = "audio"
         rows = {r[0]: r[2] for r in app.settings_rows()}
-        assert rows["latency"] == "safe 40ms" and rows["link_return"] == "on"
+        assert rows["latency"] == "safe 44ms" and rows["link_return"] == "on" and rows["link_audio"] == "MIX"
         calls.clear()
         app.setting = [r[0] for r in app.settings_rows()].index("latency")
         app.change_setting()
@@ -1887,6 +1893,17 @@ def test_latency_steps_and_the_link_buffer():
         assert app.state["latency"] == "SAFE" and bridge.AUDIO["quantum"] == 1024
         assert bridge.latency_step("nonsense")[0] == "SAFE"
         assert app.web_status()["latency"] == "SAFE"
+        import web
+        assert web.check_command({"cmd": "set", "key": "latency", "value": "LOWER"})
+        try:
+            web.check_command({"cmd": "set", "key": "latency", "value": "FAST"})
+            assert False, "a step that isn't there"
+        except ValueError:
+            pass
+        app.web_command({"cmd": "set", "key": "latency", "value": "LOWER"})     # the web page (and the tester)
+        assert app.state["latency"] == "LOWER" and bridge.AUDIO["quantum"] == 256
+        app.web_command({"cmd": "set", "key": "link_return", "value": False})
+        assert app.state["link_return"] is False
     finally:
         bridge.run = run
         bridge.AUDIO["quantum"] = 1024
@@ -1915,6 +1932,88 @@ def test_mix_back_to_the_pocket():
     assert app.web_status()["link_return"] is None
     app.midi = midi
     assert app.return_address() is None
+
+
+def test_linked_rec():
+    """linked REC: REC here starts a take and sends MMC Record to the linked Pocket's own session (not its FM-1s');
+    the Pocket's Record (MMC, from the network) starts one here, not sent back; Stop likewise; Linked REC off: none.
+    A linked take notes where its first sample landed after its trigger"""
+    import json
+    import wave
+    import blemidi
+    import bridge
+    import library
+    import meters
+    assert blemidi.mmc_command(bytes([0xF0, 0x7F, 0x7F, 0x06, 0x06, 0xF7])) == "record"
+    assert blemidi.mmc_command(bytes([0xF0, 0x7F, 0x00, 0x06, 0x01, 0xF7])) == "stop"     # (any device id)
+    assert blemidi.mmc_command(bytes([0x90, 60, 100])) is None
+    b = blemidi.MidiBridge(net=False)
+    routed = []
+    b.route_from = lambda source, message: routed.append(message)
+    b.from_net(blemidi.MMC["record"], "FM-1 Companion Pocket")
+    assert b.mmc == [1, "record", "FM-1 Companion Pocket"] and routed == []        # the app's, not routed
+
+    folder = Path(tempfile.mkdtemp())
+    root, library.LIBRARY = library.LIBRARY, folder
+    try:
+        app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+        app.save_settings = lambda: None
+        sent = []
+
+        class Midi:
+            net = ["Kraken", "FM-1 Companion Pocket", "FM-1 Companion Pocket FM-1 A"]
+
+            def send_mmc(self, command, peer):
+                sent.append((command, peer))
+        app.midi = Midi()
+        app.capture_target = lambda: "alsa_input.usb-Felucca"
+        takes = []
+
+        def start(target, path, rate=48000):
+            takes.append(path)
+            app.recorder.proc, app.recorder.path = type("P", (), {"poll": lambda self: None})(), path
+            return True
+
+        def stop():
+            path, app.recorder.proc = app.recorder.path, None
+            with wave.open(str(path), "wb") as w:                       # a second of sound
+                w.setnchannels(2), w.setsampwidth(2), w.setframerate(48000)
+                w.writeframes(bytes(4 * 48000))
+            return path, 1.0
+        app.recorder.start, app.recorder.stop = start, stop
+        app.recorder.recording = lambda: app.recorder.proc is not None
+        app.check_clipping = lambda *a: None
+
+        app.toggle_recording()                                          # REC here
+        assert app.recorder.recording() and sent == [("record", "FM-1 Companion Pocket")]
+        app.link_rec("stop", "FM-1 Companion Pocket")                  # the Pocket's STOP
+        assert not app.recorder.recording() and sent == [("record", "FM-1 Companion Pocket")]   # (not back)
+        notes = json.loads(meters.link_file(takes[0]).read_text())
+        assert notes["trigger"] == "here" and notes["linked_with"] == "FM-1 Companion Pocket"
+        assert notes["seconds"] == 1.0 and isinstance(notes["first_sample_after_trigger_ms"], float)
+
+        app.link_rec("record", "FM-1 Companion Pocket")                # the Pocket's REC
+        assert app.recorder.recording() and len(sent) == 1
+        app.link_rec("record", "FM-1 Companion Pocket")                # (already recording: nothing)
+        assert app.recorder.recording() and len(takes) == 2
+        app.toggle_recording()                                          # STOP here: the Pocket told
+        assert not app.recorder.recording() and sent[-1] == ("stop", "FM-1 Companion Pocket")
+        assert json.loads(meters.link_file(takes[1]).read_text())["trigger"] == "linked box"
+        app.link_rec("record", "Kraken")                                # a DAW's MMC: not linked REC
+        assert not app.recorder.recording()
+
+        meters.link_file(takes[1]).unlink()                            # (takes a second apart share a name)
+        app.state["link_rec"] = False                                   # Linked REC off
+        app.link_rec("record", "FM-1 Companion Pocket")
+        assert not app.recorder.recording()
+        app.toggle_recording()
+        assert app.recorder.recording() and len(sent) == 2               # (nothing sent)
+        app.toggle_recording()
+        assert not meters.link_file(takes[2]).exists()                  # (not a linked take: no notes)
+        library.delete_recording(takes[0].name)
+        assert not meters.link_file(takes[0]).exists()                  # (its notes go with it)
+    finally:
+        library.LIBRARY = root
 
 
 def test_charging_bolt_by_the_battery():

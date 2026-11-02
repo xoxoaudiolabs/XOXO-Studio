@@ -79,6 +79,9 @@ an older Studio):
 - `add_sound_source(node_name, label)` (2026-11-01): a plug-in's own sound process as a mixer source: the
   Audio/Source node of exactly that name (a pw-loopback's, as XO-4's), under that label, internal; its mixer
   level kept by the node's name; there while the node is (the Synths plug-in's SYNTH A and B)
+- `midi_devices()`, `send_midi(device, messages)`, `source_nodes()`, `latency()` (2026-11-01, for Tester Tools):
+  the MIDI devices with a column in the routes; MIDI sent to one of them as a route would; the sound sources'
+  PipeWire node names by their full names (to record one); the Studio's latency step (block, link buffer, rate)
 - `"library": {folder: [".suffix"]}` in `plugin.json`: folders of its own in `~/fm1-library` the web page lists,
   uploads to, downloads from and deletes from (never the Studio's own samples and recordings)
 

@@ -7,7 +7,9 @@ read-only stream next to the headphone loopback). The sums run in numpy once per
 manages ~2 us a sample on a Zero W, too slow for 32,000 samples a second. numpy is imported the first time
 the meters open (it takes a few seconds on a Zero W), so it doesn't slow the bridge's start-up.
 """
+import json
 import math
+import re
 import shutil
 import subprocess
 import threading
@@ -323,6 +325,37 @@ def clipped(count, seconds):
     return count >= CLIP_WARN and count / max(seconds / 60, 1e-6) >= CLIP_RATE
 
 
+def link_file(path):
+    """a linked take's notes (linked REC), beside it"""
+    return Path(str(path) + ".link.json")
+
+
+def first_frame(wav, stopped):
+    """(when a take's first frame came in, its length): its length before it stopped; None if it can't be read"""
+    try:
+        with wave.open(str(wav)) as w:
+            length = w.getnframes() / w.getframerate()
+    except (OSError, EOFError, wave.Error):
+        return None
+    return stopped - length, length
+
+
+def write_link_file(path, first, trigger, skipped=0.0):
+    """a linked take's notes: when its first sample landed after the REC that started it (pressed here, or the
+    MMC Record from the linked box arriving: the two triggers are the cable's ~1 ms apart), to line the two boxes'
+    takes up by. first: first_frame's; skipped: seconds left out of its start (Record parts' silent start)"""
+    if not first:
+        return
+    first, length = first[0] + skipped, first[1] - skipped
+    try:
+        link_file(path).write_text(json.dumps({
+            "trigger": trigger["by"], "linked_with": trigger.get("peer"),
+            "first_sample_after_trigger_ms": round((first - trigger["at"]) * 1000, 1),
+            "seconds": round(length, 3)}, indent=1))
+    except (OSError, KeyError, TypeError):
+        pass
+
+
 def clips_file(path):
     """where a recording's clip count is kept, next to it"""
     return Path(str(path) + ".clips")
@@ -416,10 +449,11 @@ def link_parts(sources):
         pass
 
 
-def split_parts(raw, path, keys, levels):
+def split_parts(raw, path, keys, levels, skipped=None):
     """The parts recorder's take -> one stereo WAV a source (path with -<key>) and the mix at path (each at
-    its mixer level, added up). The frames before the links were made (all exact zeros) are left out.
-    -> [(key, part path)]. A second at a time: a long take is bigger than the Zero W's memory."""
+    its mixer level, added up). The frames before the links were made (all exact zeros) are left out (how many:
+    appended to skipped, a list). -> [(key, part path)]. A second at a time: a long take is bigger than the Zero
+    W's memory."""
     load_numpy()
     np = _np
     parts = [(key, path.with_name(f"{path.stem}-{key}.wav")) for key in keys]
@@ -431,7 +465,7 @@ def split_parts(raw, path, keys, levels):
             out.setnchannels(2)
             out.setsampwidth(2)
             out.setframerate(rate)
-        started = False
+        started, dropped = False, 0
         while True:
             data = src.readframes(rate)
             if not data:
@@ -440,7 +474,9 @@ def split_parts(raw, path, keys, levels):
             if not started:
                 moving = np.flatnonzero(np.any(x != 0, axis=1))
                 if not len(moving):
+                    dropped += len(x)
                     continue
+                dropped += int(moving[0])
                 x, started = x[moving[0]:], True
             pairs = x[:, :2 * len(keys)].reshape(len(x), len(keys), 2)
             for i, out in enumerate(outs[:-1]):
@@ -450,6 +486,8 @@ def split_parts(raw, path, keys, levels):
         for out in outs:
             out.close()
     raw.unlink(missing_ok=True)
+    if skipped is not None:
+        skipped.append(dropped / rate)
     return parts
 
 
@@ -547,23 +585,33 @@ class MeterScreens:
 
     # ---- recording
 
-    def finish_recording(self, text):
+    def finish_recording(self, text, remote=False):
         """stop, say text (with the length for {}), then check the take (and its parts) for clipping in the
-        background; the MIDI played meanwhile goes into a .mid beside it"""
+        background; the MIDI played meanwhile goes into a .mid beside it. remote: stopped by the linked box
+        (linked REC), which isn't told back"""
         stopped = time.monotonic()            # (the WAV ends here: its first frame is its length before this)
+        trigger = getattr(self, "rec_trigger", None)
+        if not remote:
+            self.link_rec_send("stop")
         raw, seconds = self.recorder.stop()
         midi = getattr(self, "midi", None) if self.rec_midi else None
         if midi is not None:
             midi.midi_record(False)
         job, self.parts_job = self.parts_job, None
         self.say(text.format(clock(seconds)) + (f" + {len(job['keys'])} parts" if job else ""))
+        first = trigger and raw and first_frame(raw, stopped)   # (a linked take: where its first sample landed)
+        if first and not job:
+            write_link_file(raw, first, trigger)
         if job and raw:                       # split the one take into the parts and the mix, then check them
             def finish():
+                skipped = []
                 try:
-                    parts = split_parts(raw, job["path"], job["keys"], job["levels"])
+                    parts = split_parts(raw, job["path"], job["keys"], job["levels"], skipped)
                 except (OSError, EOFError, wave.Error, ValueError):
                     self.say("Couldn't split the parts", 4)
                     return
+                if first:
+                    write_link_file(job["path"], first, trigger, skipped[0] if skipped else 0.0)
                 if midi is not None:          # (the mix: the take without its silent start, ending as it did)
                     self.write_take_midi(midi, job["path"], stopped)
                 self.check_clipping(job["path"], parts)
@@ -609,17 +657,47 @@ class MeterScreens:
         elif bad:                             # set FM-1 USB to master and turn it down, or lower its tracks
             self.say(f"Clipped {count}x: turn the source down", 6)
 
-    def toggle_recording(self):
+    def toggle_recording(self, remote=False):
+        """REC pressed (or, remote, the linked box's REC: linked REC). Started here, the linked box is told"""
         if self.recorder.recording():
-            self.finish_recording("Saved: {} recorded")
+            self.finish_recording("Saved: {} recorded", remote)
             return
         if not self.capture_target():
             self.say("Nothing to record")
             return
+        self.rec_trigger = None
+        if self.start_recording() and self.link_rec_peer():     # (a linked take: its start noted, the box told)
+            self.rec_trigger = {"at": time.monotonic(), "by": "linked box" if remote else "here",
+                                "peer": self.link_rec_peer()}
+            if not remote:
+                self.link_rec_send("record")
+
+    def link_rec_peer(self):
+        """the linked box REC goes to and comes from: a linked Pocket's network MIDI session, Linked REC on"""
+        if not self.state.get("link_rec", True):
+            return None
+        return next((p for p in (getattr(getattr(self, "midi", None), "net", None) or [])
+                     if "Pocket" in str(p) and not re.search(r"FM-1 [A-C]$", str(p))), None)
+
+    def link_rec_send(self, command):
+        peer = self.link_rec_peer()
+        midi = getattr(self, "midi", None)
+        if peer and midi is not None and hasattr(midi, "send_mmc"):
+            midi.send_mmc(command, peer)
+
+    def link_rec(self, command, peer=None):
+        """MMC from the network (linked REC): "record" starts a take here if none is going, "stop" ends one"""
+        if not self.state.get("link_rec", True) or (peer and "Pocket" not in str(peer)):
+            return
+        if (command == "record") != self.recorder.recording():
+            self.toggle_recording(remote=True)
+
+    def start_recording(self):
+        """a take started -> True, or False (said why)"""
         folder = library.folder("recordings")
         if shutil.disk_usage(folder).free < MIN_FREE:
             self.say("SD card full")
-            return
+            return False
         path = folder / f"{datetime.now():%Y-%m-%d_%H%M%S}_fm1.wav"
         channels = (self.mix_channels() if hasattr(self, "mix_channels") else [])[:len(PARTS_MAP) // 2]
         midi = getattr(self, "midi", None)
@@ -636,18 +714,20 @@ class MeterScreens:
             if not self.recorder.start_parts(raw, 2 * len(channels), self.state["audio_rate"]):
                 self.say("Can't record (pw-record?)")
                 self.rec_midi and self.midi.midi_record(False)
-                return
+                return False
             keys = [key for key, _ in channels]
             self.parts_job = {"path": path, "keys": keys, "levels": {k: self.mix_level(k) for k in keys}}
             self.rec_lag = 0.0                # (each source straight in: its delay not measured, so not shifted)
             sources = [(node["name"], *self.capture_ports_of(key, node)) for key, node in channels]
             threading.Thread(target=lambda: (time.sleep(1.5), link_parts(sources)), daemon=True).start()
-            return
+            return True
         target = self.capture_target()
         self.rec_lag = MIX_LAG if str(target).startswith("monitor:") else 0.0    # (straight from a source: not
         if not self.recorder.start(target, path, self.state["audio_rate"]):      # measured, so not shifted)
             self.say("Can't record (pw-record?)")
             self.rec_midi and self.midi.midi_record(False)
+            return False
+        return True
 
     def recording_tick(self, now):
         """Stops a recording whose pw-record died (the FM-1 went away) or that would fill the SD card;

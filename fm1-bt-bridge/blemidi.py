@@ -841,6 +841,18 @@ OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "N
 # device to another: off at first. Saved by name: a device keeps its routes when replugged.
 DEVICE = "U:"
 
+# MIDI Machine Control (SysEx, any device id): linked REC, the Studio and a Pocket each starting and stopping the
+# other's recorder over the link (Record Strobe, Stop)
+MMC = {"record": bytes([0xF0, 0x7F, 0x7F, 0x06, 0x06, 0xF7]), "stop": bytes([0xF0, 0x7F, 0x7F, 0x06, 0x01, 0xF7])}
+
+
+def mmc_command(message):
+    """"record" or "stop" for an MMC Record Strobe or Stop (any device id), else None"""
+    m = bytes(message or b"")
+    if len(m) == 6 and m[:2] == b"\xF0\x7F" and m[3] == 0x06 and m[5] == 0xF7:
+        return {0x06: "record", 0x01: "stop"}.get(m[4])
+    return None
+
 
 def device_key(name):
     return DEVICE + str(name).replace(">", "")[:32]
@@ -1150,6 +1162,7 @@ class MidiBridge:
         self.saved = {}                       # the routes as the app last sent them (a USB device's, made on use)
         self.held, self.chan_seen = {}, [0.0] * 16      # for the MIDI meter: notes down, channel traffic
         self.midi_log, self.source_names = None, {}   # MIDI recording (start_midi_log); a USB key's name by key
+        self.mmc = [0, None, None]            # MMC from the network: [count, "record" or "stop", its peer]
 
     def set_routes(self, routes):
         self.saved = dict(routes or {})
@@ -1402,7 +1415,12 @@ class MidiBridge:
 
     # network MIDI: a DAW's notes and clock (the routes' NET), and what it shows on the control surface
     def from_net(self, message, peer=None):
-        """peer: the session it came from; a linked Pocket's FM-1 on its own is a device of its own"""
+        """peer: the session it came from; a linked Pocket's FM-1 on its own is a device of its own. MMC Record
+        and Stop are the app's (linked REC), counted in self.mmc, not routed"""
+        command = mmc_command(message)
+        if command:
+            self.mmc = [self.mmc[0] + 1, command, peer]
+            return
         named = next((n for n, p in self.pocket_fm1s().items() if p == peer), None) if peer else None
         source = device_key(named) if named else "NET"
         if named:
@@ -1606,6 +1624,11 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.controllers.cards = {int(c): str(n) for c, n in command[1]}
             elif command[0] == "metronome":        # ("metronome", on, speaker, level, rate)
                 wanted[:] = command[1:5]
+            elif command[0] == "send":             # ("send", device, [messages]): a plug-in's, to one device
+                name = str(command[1])
+                bridge.deliver("PLUGIN>" + (name if name == "NET" else DEVICE + name), [bytes(m) for m in command[2]])
+            elif command[0] == "mmc" and bridge.net:   # ("mmc", "record" or "stop", peer): linked REC
+                bridge.net.send([MMC[command[1]]], to=command[2])
             elif command[0] == "mcu" and bridge.mcu:   # ("mcu", [messages]): the control surface, to the DAW
                 bridge.mcu.send([bytes(m) for m in command[1]])
             elif command[0] == "ble_saved":        # ("ble_saved", [[address, name]]): the keyboards, at start
@@ -1640,6 +1663,7 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
         status["pads"] = bridge.pads is not None
         status["xo4"] = bridge.xo4 is not None
         status["split"] = bridge.split
+        status["mmc"] = list(bridge.mmc)
         status.update(ble_keys=bridge.keyboard_list() if bridge.ble_loaded else None, ble_found=bridge.ble_found,
                       ble_scanning=bridge.ble_scanning, ble_note=bridge.ble_note)
         if status != last:
@@ -1722,6 +1746,7 @@ class MidiProcess:
         self.ble_keys, self.ble_found, self.ble_scanning = [], [], False   # Bluetooth MIDI keyboards (MidiBridge's)
         self.ble_note = 0
         self.on_note = self.on_saved = None  # the app's: a keyboard's news to say; the saved keyboards to keep
+        self.on_mmc, self.mmc_seen = None, 0  # the app's: MMC Record or Stop from the network (linked REC)
 
     def start(self):
         self.proc.start()
@@ -1750,6 +1775,10 @@ class MidiProcess:
                 if [k[:2] for k in keys] != [k[:2] for k in self.ble_keys] and self.on_saved:
                     self.on_saved([k[:2] for k in keys])
                 self.ble_keys = keys
+            mmc = status.get("mmc") or [0, None, None]
+            if mmc[0] > self.mmc_seen and mmc[1] and self.on_mmc:
+                self.on_mmc(mmc[1], mmc[2])
+            self.mmc_seen = max(self.mmc_seen, mmc[0])
             count, text = status.get("ble_note") or (0, None)
             if count != self.ble_note and text and self.on_note:
                 self.on_note(text)
@@ -1821,6 +1850,14 @@ class MidiProcess:
     def ble_forget(self, address):
         self.ble_keys = [k for k in self.ble_keys if k[0] != address]
         self.conn.send(("ble", "forget", address))
+
+    def send_to(self, device, messages):
+        """MIDI to one device in the routes (a plug-in's send_midi), as a route to it would"""
+        self.send_command(("send", str(device), [list(m) for m in messages]))
+
+    def send_mmc(self, command, peer):
+        """MMC Record or Stop ("record", "stop") to one network MIDI peer (linked REC)"""
+        self.send_command(("mmc", command, str(peer)))
 
     def mcu_send(self, messages):
         """the control surface's moves (netmidi.Mackie.fader / press) to the DAW"""

@@ -28,7 +28,10 @@ class WebLink:
             "live": self.live(),
             "mixer": self.web_mixer(),
             "pocket": self.pocket_link(),
-            "pocket_fm1s": True,              # a linked Pocket may send its FM-1s each on its own (sound and MIDI)
+            "pocket_fm1s": self.state.get("link_audio", "mix") == "fm1s",   # a linked Pocket's FM-1s' sound each on
+                                              # its own stream (Pocket sends: FM-1s)
+            "link_audio": self.state.get("link_audio", "mix"),
+            "link_rec": self.state.get("link_rec", True),   # linked REC: REC on either box records on both (MMC)   # what a linked Pocket sends: "mix", "fm1s", "midi"
             "link_return": 46010 if self.state.get("link_return", True) else None,   # the Studio's master back to
                                               # a linked Pocket on this UDP port (bridge.RETURN_PORT), or None: off
             "latency": self.state.get("latency", "SAFE"),   # bridge.LATENCY's step
@@ -148,6 +151,21 @@ class WebLink:
             if re.fullmatch(r"input_u-[a-z0-9]+", key):          # a multichannel source: its next pair
                 pair = self.next_input_pair(key[6:])
                 return pair and f"Web: inputs {pair}"
+            if key == "latency" and value in ("SAFE", "LOW", "LOWER", "LOWEST"):   # (bridge.LATENCY's steps)
+                self.set_latency(value)
+                return None
+            if key == "link_rec" and isinstance(value, bool):
+                self.state["link_rec"] = value
+                self.save_settings()
+                return None
+            if key == "link_audio" and value in ("mix", "fm1s", "midi"):
+                self.set_link_audio(value)
+                return None
+            if key == "link_return" and isinstance(value, bool):
+                self.state["link_return"] = value
+                self.save_settings()
+                self.scan_now = True
+                return None
             if key == "master" and isinstance(value, int) and 0 <= value <= 100 and self.dac:
                 self.set_master(value)
                 return None
