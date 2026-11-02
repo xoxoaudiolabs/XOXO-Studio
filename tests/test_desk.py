@@ -1,6 +1,8 @@
 """The desk box (Pi 3/4 + 3.5" touchscreen): which build a box is, the touch buttons, the screen writes.
 No touchscreen needed (needs Pillow and numpy)."""
 
+import io
+import json
 import sys
 import time
 import tempfile
@@ -1914,6 +1916,14 @@ def test_latency_steps_and_the_link_buffer():
         text = conf.read_text(encoding="utf-8")
         assert text.count("sess.latency.msec = 10") == 5 and "msec = 44" not in text
         assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
+        assert bridge.set_link_buffer(18, conf, studio_ms=14)               # a following Studio's: its own
+        text = conf.read_text(encoding="utf-8")
+        assert text.count("sess.latency.msec = 18") == 4 and text.count("sess.latency.msec = 14") == 1
+        assert "source.port = 46020\n      sess.latency.msec = 14" in text
+        for name, quantum, _ in bridge.LATENCY:                # a following Studio's: a packet (or a block) and one
+            packet = 1280 / 4 / 48                                    # of this Studio's blocks, no resets
+            assert bridge.STUDIO_BUFFER[name] > max(packet, quantum / 48) + quantum / 48
+        calls.clear()
 
         app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
         app.save_settings = lambda: None
@@ -1941,6 +1951,29 @@ def test_latency_steps_and_the_link_buffer():
         assert app.state["latency"] == "LOWER" and bridge.AUDIO["quantum"] == 256
         app.web_command({"cmd": "set", "key": "link_return", "value": False})
         assert app.state["link_return"] is False
+        app.midi = type("Midi", (), {"follow_address": "10.0.0.1", "follows": "XOXO Studio"})()   # Follow Studio
+        app.state["follow_studio"] = True
+        posted = []
+        app.post = lambda *event: posted.append(event)
+
+        class Reply(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        opened, bridge.urllib.request.urlopen = bridge.urllib.request.urlopen, \
+            lambda url, timeout: Reply(json.dumps({"latency": "LOWEST"}).encode())
+        try:
+            app.follow_latency()
+            assert posted == [("latency_follow", "LOWEST")]   # (this one is LOWER)
+            app.state["latency"] = "LOWEST"
+            posted.clear()
+            app.follow_latency()
+            assert posted == []                                  # the same step already: nothing
+        finally:
+            bridge.urllib.request.urlopen = opened
     finally:
         bridge.run = run
         bridge.AUDIO["quantum"] = 1024
