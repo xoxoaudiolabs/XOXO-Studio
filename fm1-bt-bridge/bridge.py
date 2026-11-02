@@ -70,7 +70,14 @@ DEFAULTS = {
     "phones": 80,           # the jack's level (%)
     "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike
     "latency": "SAFE",      # LATENCY's step: PipeWire's block and the Pocket link's buffer, lowered together
-    "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones
+    "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones:
+                            # linked, sound and MIDI go both ways (the user, 2026-11-01)
+    "link_rec": True,       # linked REC: REC on the Studio or a linked Pocket starts (and stops) both, each recording
+                            # its own gear (Record parts: a file a source), MMC over the link (meters.link_rec)
+    "link_audio": "mix",    # what a linked Pocket sends the Studio (LINK_AUDIO): "mix" (its own gear mixed, one
+                            # stream: the lightest, so a Zero W Pocket keeps up with the return too), "fm1s" (each
+                            # FM-1 a channel of its own: four streams, too much for a Zero W with the return) or
+                            # "midi" (no sound)
     "cue": False,           # the click and previews on the jack only, not the speaker
     "cues": [],             # mixer keys cued to the jack, as on a DJ mixer: heard there before their fader
     "cue_mix": 50,          # the jack's blend while something's cued: 0 the cued sources only, 100 the main mix
@@ -312,13 +319,17 @@ def pick_nodes(objects, host=None):
     return sink, sources
 
 
-def pocket_sources(sources, peers):
+LINK_AUDIO = {"mix": "MIX", "fm1s": "FM-1s", "midi": "MIDI ONLY"}   # Pocket sends: what a linked Pocket sends
+
+
+def pocket_sources(sources, peers, mode="fm1s"):
     """the sources, with a Pocket's only while it's linked (peers: the network MIDI session's names). A Pocket that
     sends its FM-1s apart has a session for each one plugged in ("FM-1 Companion Pocket FM-1 A"): then only those
-    FM-1s' channels, and not POCKET (the rest of its mix); else POCKET alone"""
-    if not any("Pocket" in str(p) for p in peers):
+    FM-1s' channels, and not POCKET (the rest of its mix); else POCKET alone. mode: the Studio's Pocket sends
+    (LINK_AUDIO): "mix" POCKET alone (the Pocket's whole mix), "midi" none of them"""
+    if not any("Pocket" in str(p) for p in peers) or mode == "midi":
         return [n for n in sources if not n["name"].startswith("fm1-pocket")]
-    split = {m.group(1).lower() for m in (POCKET_FM1.search(str(p)) for p in peers) if m}
+    split = {m.group(1).lower() for m in (POCKET_FM1.search(str(p)) for p in peers) if m} if mode == "fm1s" else set()
     return [n for n in sources if not n["name"].startswith("fm1-pocket")
             or (n["name"] in POCKET_FM1S and n["name"][-1] in split) or (n["name"] == "fm1-pocket" and not split)]
 
@@ -479,10 +490,12 @@ def wifi_enabled():
 
 
 # the Studio's latency, in steps: (name, PipeWire's block in samples, the Pocket link's receive buffer in ms).
-# The buffer has to hold more than a block (less, and PipeWire's RTP receiver empties and starts again: dropouts),
-# so the two come down together. SAFE is what the Studio always ran (a Zero W's block); the rest are to be tried
-# by ear on the Studio, the lowest a Pi 3 keeps up with without clicks.
-LATENCY = [("SAFE", 1024, 40), ("LOW", 512, 20), ("LOWER", 256, 10), ("LOWEST", 128, 6)]
+# The buffer has to hold one of the Pocket's blocks (its sound comes in a burst each) and one of the Studio's, or
+# PipeWire's RTP receiver runs dry and starts again (dropouts). The Pocket follows the step but not below 512 (a
+# Zero W: 256 overloaded it, 2026-11-01), so: SAFE 21.3 + 21.3 ms, LOW 10.7 + 10.7, LOWER 10.7 + 5.3, LOWEST
+# 10.7 + 2.7, each with a little to spare. SAFE is the block the Studio always ran; the rest to be tried by ear.
+LATENCY = [("SAFE", 1024, 44), ("LOW", 512, 24), ("LOWER", 256, 18), ("LOWEST", 128, 15)]
+POCKET_FLOOR = 512                      # the Pocket's smallest block (FM-1 Companion, a Zero W)
 AUDIO = {"quantum": 1024}               # the block set_rate locks PipeWire to (the LATENCY step's)
 POCKET_IN = Path.home() / ".local" / "share" / "fm1-bridge" / "pipewire-fm1-pocket-in.conf"   # (install.sh)
 
@@ -1101,7 +1114,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if found is None:
             return                            # couldn't look: keep everything as it is
         (sink, others), objects = found
-        others = pocket_sources(others, getattr(self.midi, "net", None) or [])   # (its receivers are always there)
+        others = pocket_sources(others, getattr(self.midi, "net", None) or [],   # (its receivers are always there)
+                                self.state.get("link_audio", "mix"))
         if jack_node(objects) != self.jack:
             self.jack = jack_node(objects)
             self.post("status", True)
@@ -1228,6 +1242,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def return_address(self):
         """where the master goes back over the link: a linked Pocket's address (Mix to Pocket on), or None"""
         return self.pocket_address() if self.state.get("link_return", True) else None
+
+    def set_link_audio(self, mode):
+        """what a linked Pocket sends (LINK_AUDIO): the Pocket reads it in /api/status and follows"""
+        self.state["link_audio"] = mode if mode in LINK_AUDIO else "mix"
+        self.save_settings()
+        self.scan_now = True
+        self.post("status", True)
+        self.say(f"Pocket sends: {LINK_AUDIO[self.state['link_audio']]}", 2)
 
     def set_latency(self, name):
         """a LATENCY step: PipeWire's block at once, the link's buffer (its receiver started again)"""
@@ -1730,7 +1752,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             latency = latency_step(self.state.get("latency"))
             return ([("speaker", "Speaker", speaker), ("audio", "BT audio", audio)] + jack
                     + [("rate", "Audio rate", rate), ("latency", "Latency", f"{latency[0].lower()} {latency[2]}ms"),
-                       ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True)))]
+                       ("link_audio", "Pocket sends", LINK_AUDIO.get(self.state.get("link_audio"), "MIX")),
+                       ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True))),
+                       ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True)))]
                     + mix + parts + decks)
         if self.settings_menu == "midi":
             keys = getattr(self.midi, "controllers", None) or []
@@ -1787,6 +1811,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         elif key == "latency":
             names = [step[0] for step in LATENCY]
             self.set_latency(names[(names.index(latency_step(self.state.get("latency"))[0]) + 1) % len(names)])
+        elif key == "link_rec":
+            self.state["link_rec"] = not self.state.get("link_rec", True)
+            self.save_settings()
+            self.say("Linked REC: on (REC starts the Pocket too)" if self.state["link_rec"] else "Linked REC: off", 2)
+        elif key == "link_audio":
+            modes = list(LINK_AUDIO)
+            now_mode = self.state.get("link_audio")
+            self.set_link_audio(modes[(modes.index(now_mode) + 1) % len(modes)] if now_mode in modes else "mix")
         elif key == "link_return":
             self.state["link_return"] = not self.state.get("link_return", True)
             self.save_settings()
@@ -2245,6 +2277,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             elif event and event[0] == "status" and event[1]:
                 self.last_activity = time.monotonic()     # connects and disconnects wake the screen
                 self.wake()
+            elif event and event[0] == "mmc":             # the linked Pocket's REC or STOP (linked REC)
+                self.link_rec(event[1], event[2])
+                self.last_activity = time.monotonic()
+                self.wake()
             elif event and event[0] == "ble_note":        # a Bluetooth MIDI keyboard connected, left, failed
                 self.last_activity = time.monotonic()
                 self.wake()
@@ -2340,6 +2376,7 @@ def main():
     if midi:
         midi.on_note = lambda text: app.post("ble_note", text)
         midi.on_saved = lambda keys: app.post("ble_saved", keys)
+        midi.on_mmc = lambda command, peer: app.post("mmc", command, peer)
     if not sim and box["build"] == "desk":
         app.pads = pad_process
         app.pads.send("kit", app.kit())

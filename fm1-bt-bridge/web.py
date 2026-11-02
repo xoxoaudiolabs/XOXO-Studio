@@ -105,7 +105,10 @@ def check_command(c):
               "clock_mode": value in ("follow", "box"), "click": value in ("low", "mid", "high"),
               "audio_rate": value in (44100, 48000),
               "volume": number and int(value) == value and 0 <= value <= 100,
-              "master": number and int(value) == value and 0 <= value <= 100}.get(key)
+              "master": number and int(value) == value and 0 <= value <= 100,
+              "latency": value in ("SAFE", "LOW", "LOWER", "LOWEST"),
+              "link_return": isinstance(value, bool), "link_audio": value in ("mix", "fm1s", "midi"),
+              "link_rec": isinstance(value, bool)}.get(key)
         if isinstance(key, str) and re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):

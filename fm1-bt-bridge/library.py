@@ -123,6 +123,7 @@ def delete_recording(name):
         path = folder("recordings") / n
         path.unlink(missing_ok=True)
         Path(str(path) + ".clips").unlink(missing_ok=True)
+        Path(str(path) + ".link.json").unlink(missing_ok=True)    # (a linked take's notes: meters.link_file)
 
 
 def recording_entry(path):

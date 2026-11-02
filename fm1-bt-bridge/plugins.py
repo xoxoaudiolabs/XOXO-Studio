@@ -42,6 +42,15 @@ Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Stud
                                                  MIDI devices "FM-1 Companion Pocket FM-1 A/B/C": name them with
                                                  add_audio_source(r"fm1-pocket-a", ...) and add_midi_device(r"Pocket
                                                  FM-1 A$", ...); unnamed they're POCKET FM-1 A-C
+  midi_devices()                                 the MIDI devices with a column in the routes now ("FM-1 A",
+                                                 "POCKET FM-1 A" ...), and NET (network MIDI: a linked Pocket's
+                                                 whole session, a computer) while it's there
+  send_midi(device, messages)                    MIDI to one of them, as a route to it would: messages a list of
+                                                 messages, each a list of bytes ([0x90, 60, 100])
+  source_nodes()                                 the sound sources now, {name: PipeWire node name}: to record one
+                                                 (pw-record --target <node>)
+  latency()                                      the Studio's latency step: {"name": "SAFE", "block": 1024 samples,
+                                                 "buffer_ms": 40 (the Pocket link's receive buffer), "rate": 48000}
   plugin.json "library": {folder: [".suffix"]}   folders of its own in ~/fm1-library the web page can list files
                                                  of, upload to, download from and delete from (not the Studio's
                                                  own: samples, recordings)
@@ -145,6 +154,32 @@ class Studio:
     def pocket(self):
         app = self._host.app
         return app.pocket_address() if hasattr(app, "pocket_address") else None
+
+    def midi_devices(self):
+        app = self._host.app
+        dests = app.matrix_lists()[1] if getattr(app, "midi", None) and hasattr(app, "matrix_lists") else []
+        return [d[2:] if d.startswith("U:") else d for d in dests if d.startswith("U:") or d == "NET"]
+
+    def send_midi(self, device, messages):
+        midi = getattr(self._host.app, "midi", None)
+        if midi and hasattr(midi, "send_to"):
+            midi.send_to(str(device), [[int(b) & 0xFF for b in m] for m in messages if m])
+
+    def source_nodes(self):
+        found = {}
+        for _, node in self._host.app.mix_channels():   # (their full names, as the MIDI devices': the mixer's
+            name = str(node.get("label") or "USB").upper()   # are cut to 10 letters)
+            n = 2
+            while name in found:
+                name, n = f"{str(node.get('label') or 'USB').upper()} #{n}", n + 1
+            found[name] = str(node.get("name"))
+        return found
+
+    def latency(self):
+        app = self._host.app
+        import bridge
+        name, block, ms = bridge.latency_step(app.state.get("latency"))
+        return {"name": name, "block": block, "buffer_ms": ms, "rate": app.state.get("audio_rate", 48000)}
 
     def add_audio_source(self, match, label):
         self.audio.append((re.compile(match, re.I) if isinstance(match, str) else match, label))
