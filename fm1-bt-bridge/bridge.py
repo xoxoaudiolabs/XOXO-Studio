@@ -25,6 +25,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.request
 import zlib
 from pathlib import Path
 
@@ -502,6 +503,12 @@ def wifi_enabled():
 # Zero W: 256 overloaded it, 2026-11-01), so: SAFE 21.3 + 21.3 ms, LOW 10.7 + 10.7, LOWER 10.7 + 5.3, LOWEST
 # 10.7 + 2.7, each with a little to spare. SAFE is the block the Studio always ran; the rest to be tried by ear.
 LATENCY = [("SAFE", 1024, 44), ("LOW", 512, 24), ("LOWER", 256, 18), ("LOWEST", 128, 15)]
+# A Studio following this one (Follow Studio, UDP 46020) works in the same step's block, so no Pocket floor: its
+# buffer holds one of its packets (6.458 ms of sound: the MTU's worth, PipeWire's rtp-sink) or one of its blocks,
+# whichever is longer, and one of this Studio's, in whole packets (PipeWire's receiver asks for a multiple of
+# them): SAFE 7, LOW 4, LOWER and LOWEST 2 (6.5 + 5.3, 6.5 + 2.7)
+PACKET_MS = 1240 / 4 / 48               # (the MTU 1280 less the headers, 4 bytes a frame, at 48 kHz)
+STUDIO_BUFFER = {name: round(n * PACKET_MS, 2) for name, n in (("SAFE", 7), ("LOW", 4), ("LOWER", 2), ("LOWEST", 2))}
 POCKET_FLOOR = 512                      # the Pocket's smallest block (FM-1 Companion, a Zero W)
 AUDIO = {"quantum": 1024}               # the block set_rate locks PipeWire to (the LATENCY step's)
 POCKET_IN = Path.home() / ".local" / "share" / "fm1-bridge" / "pipewire-fm1-pocket-in.conf"   # (install.sh)
@@ -520,20 +527,25 @@ def set_rate(rate):
     run(["pw-metadata", "-n", "settings", "0", "clock.force-quantum", str(AUDIO["quantum"])], timeout=5)
 
 
-def pocket_in_conf(text, ms):
-    """the Pocket link's receiver configuration (pipewire-fm1-pocket-in.conf) with a buffer of ms"""
-    return re.sub(r"sess\.latency\.msec = [0-9.]+", f"sess.latency.msec = {ms}", text)
+def pocket_in_conf(text, ms, studio_ms=None):
+    """the link's receiver configuration (pipewire-fm1-pocket-in.conf) with a buffer of ms on a Pocket's ports,
+    and of studio_ms (ms when None) on a following Studio's, FOLLOW_PORT"""
+    def one(m):
+        mine = studio_ms if studio_ms is not None and int(m.group(2)) == FOLLOW_PORT else ms
+        return f"{m.group(1)}{mine}"
+    return re.sub(r"(source\.port = (\d+)\s*\n\s*sess\.latency\.msec = )[0-9.]+", one, text)
 
 
-def set_link_buffer(ms, path=None):
-    """the installed receiver's buffer made ms, and its PipeWire started again (fm1-pocket-in.service: the
-    link's sound gone a moment); nothing when it's that already. True if it changed"""
+def set_link_buffer(ms, path=None, studio_ms=None):
+    """the installed receiver's buffers made ms (studio_ms: a following Studio's), and its PipeWire started again
+    (fm1-pocket-in.service: the link's sound gone a moment); nothing when they're that already. True if it
+    changed"""
     path = path or POCKET_IN
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    new = pocket_in_conf(text, ms)
+    new = pocket_in_conf(text, ms, studio_ms)
     if new == text:
         return False
     path.write_text(new, encoding="utf-8")
@@ -1082,7 +1094,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def monitor(self):
         """Scanning PipeWire and the MIDI ports costs the Zero W ~0.25 s of CPU, so scan when sysfs
         shows a USB or Bluetooth change (then a few times quickly), otherwise only now and then."""
-        next_scan = next_reconnect = 0.0
+        next_scan = next_reconnect = next_follow = 0.0
         fast_until, seen = 0.0, None
         self.pw.start()
         while True:
@@ -1103,6 +1115,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     and now >= next_reconnect and self.bt_lock.acquire(blocking=False)):
                 next_reconnect = now + RECONNECT_EVERY
                 threading.Thread(target=self.reconnect_quietly, daemon=True).start()
+            if now >= next_follow and self.follow_address():   # Follow Studio: the leader's Latency, every 10 s
+                next_follow = now + 10
+                threading.Thread(target=self.follow_latency, daemon=True).start()
             if now >= self.next_battery:
                 self.battery, self.next_battery = battery.read(), now + 10
             if now >= self.next_spk_battery:      # the speaker's battery: once a minute while it's connected
@@ -1287,8 +1302,23 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.save_settings()
         AUDIO["quantum"] = quantum
         set_rate(self.state["audio_rate"])
-        threading.Thread(target=set_link_buffer, args=(ms,), daemon=True).start()
+        threading.Thread(target=set_link_buffer, args=(ms, None, STUDIO_BUFFER[name]), daemon=True).start()
         self.say(f"Latency {name}: blocks of {quantum}, link buffer {ms} ms", 3)
+
+    def follow_latency(self):
+        """Follow Studio, linked: the Studio it follows' Latency step (its /api/status), taken here when it differs:
+        both Studios in the same block (in a thread: the network)"""
+        address = self.follow_address()
+        if not address:
+            return
+        try:
+            with urllib.request.urlopen(f"http://{address}/api/status", timeout=3) as reply:
+                status = json.loads(reply.read(1 << 20))
+        except (OSError, ValueError):
+            return
+        name = status.get("latency") if isinstance(status, dict) else None
+        if name in STUDIO_BUFFER and name != self.state.get("latency"):
+            self.post("latency_follow", name)
 
     def bt_copy(self):
         """with a DAC as the master: the Bluetooth speaker gets a copy of it (Output "both" or "speaker"), or None"""
@@ -2293,8 +2323,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     # ---- main loop
 
     def run(self):
-        _, AUDIO["quantum"], ms = latency_step(self.state.get("latency"))   # (before any pw-loopback starts)
-        threading.Thread(target=set_link_buffer, args=(ms,), daemon=True).start()
+        name, AUDIO["quantum"], ms = latency_step(self.state.get("latency"))   # (before any pw-loopback starts)
+        threading.Thread(target=set_link_buffer, args=(ms, None, STUDIO_BUFFER[name]), daemon=True).start()
         threading.Thread(target=self.monitor, daemon=True).start()   # starts pw-loopback: keeps priority
         if hasattr(os, "nice"):
             os.nice(5)      # Linux: this thread only (drawing, keys), and threads it starts later; MIDI and
@@ -2326,6 +2356,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             elif event and event[0] == "status" and event[1]:
                 self.last_activity = time.monotonic()     # connects and disconnects wake the screen
                 self.wake()
+            elif event and event[0] == "latency_follow":  # Follow Studio: the leader's Latency step
+                self.set_latency(event[1])
             elif event and event[0] == "mmc":             # the linked Pocket's REC or STOP (linked REC)
                 self.link_rec(event[1], event[2])
                 self.last_activity = time.monotonic()
