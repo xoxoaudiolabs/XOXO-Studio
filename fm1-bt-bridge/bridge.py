@@ -70,7 +70,8 @@ DEFAULTS = {
     "output": "both",       # the Studio's sound: "speaker" (Bluetooth), "phones" (the 3.5 mm jack) or "both"
     "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)
-    "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike
+    "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike; with
+                            # no DAC, USB out's (an interface left at PipeWire's 40% was all but silent)
     "latency": "SAFE",      # LATENCY's step: PipeWire's block and the Pocket link's buffer, lowered together
     "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones:
                             # linked, sound and MIDI go both ways (the user, 2026-11-01)
@@ -1068,6 +1069,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.card = None                      # the I/O card's line out (iocard.sink_node), when it's plugged in
         self.card_loop = Loopback(state["audio_rate"])  # the main mix copied to the I/O card
         self.usb_outs, self.usb_out = [], None  # USB interfaces' outputs; the one that gets the master (no DAC HAT)
+        self.usb_set = None                   # (its node id, level) last set: MASTER
         self.usb_loop = Loopback(state["audio_rate"])   # the master copied to it
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
         self.plugin_host = plugins.Host(self)  # the plug-ins (plugins.py): started in main()
@@ -1198,6 +1200,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             if plugged != (self.dac is None):
                 self.say("DAC: the master out" if self.dac else "DAC gone", 2)
             self.post("status", True)
+        usb = self.usb_out
+        if usb and self.usb_set != (usb["id"], self.state["master"]):    # USB out: MASTER sets its level
+            run(["wpctl", "set-volume", str(usb["id"]), f"{self.state['master'] / 100:.2f}"], timeout=5)
+            self.usb_set = (usb["id"], self.state["master"])
         if self.dac and self.dac_set != (self.dac["id"], self.state["master"]):
             run(["wpctl", "set-volume", str(self.dac["id"]), f"{self.state['master'] / 100:.2f}"], timeout=5)
             self.dac_set = (self.dac["id"], self.state["master"])

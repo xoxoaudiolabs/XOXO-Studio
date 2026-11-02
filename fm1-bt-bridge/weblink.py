@@ -44,7 +44,8 @@ class WebLink:
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
             "speaker_battery": getattr(self, "spk_battery", None),
             "connecting": self.connecting, "volume": self.volume, "battery": self.battery,
-            "master": self.state["master"] if self.dac else None,   # a DAC HAT's level: the master out
+            "master": self.state["master"] if self.dac or self.usb_out else None,   # a DAC HAT's level (the
+                                              # master out), or USB out's
             "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled),
                      "error": midi and midi.error, "controllers": list(getattr(midi, "controllers", None) or []),
                      "net": list(getattr(midi, "net", None) or []),
@@ -178,7 +179,7 @@ class WebLink:
                 self.save_settings()
                 self.scan_now = True
                 return None
-            if key == "master" and isinstance(value, int) and 0 <= value <= 100 and self.dac:
+            if key == "master" and isinstance(value, int) and 0 <= value <= 100 and (self.dac or self.usb_out):
                 self.set_master(value)
                 return None
             if key == "volume" and isinstance(value, int) and 0 <= value <= 100 and self.sink:
