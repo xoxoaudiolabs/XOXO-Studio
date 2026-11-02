@@ -599,6 +599,37 @@ RETURN_SINK = "fm1-pocket-return"       # Pocket's own sound comes in (pipewire-
 FOLLOW_SINK = "xoxo-studio-link"        # Follow Studio: this Studio's master to the one it follows (a port of
 FOLLOW_PORT = 46020                     # its own, beside a Pocket's 46000: there it's a channel, STUDIO)
 FOLLOW_IN = "xoxo-studio-in"            # the leader's: what a Studio following it sends (pipewire-fm1-pocket-in)
+STUDIO_RETURN_PORT = 46012              # the leader's mix back to a Studio following it, less that Studio's own
+STUDIO_RETURN_SINK = "xoxo-studio-return"   # (STUDIO: a mix-minus, so it never hears itself late or round again)
+LEADER_MIX = "xoxo-leader-mix"          # the follower's: that mix as it arrives, played on its outputs but the one
+                                        # its link sends from (else it would go round: echo, then feedback)
+
+
+def receiver_config(port, ms, node, description, core):
+    """a PipeWire hosting one RTP receiver on port (L16, 48 kHz, stereo: the link's format), a buffer of ms"""
+    return f"""context.properties = {{ core.daemon = false core.name = {core} }}
+context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
+context.modules = [
+  {{ name = libpipewire-module-rt args = {{ }} flags = [ ifexists nofail ] }}
+  {{ name = libpipewire-module-protocol-native }}
+  {{ name = libpipewire-module-client-node }}
+  {{ name = libpipewire-module-adapter }}
+  {{ name = libpipewire-module-rtp-source
+    args = {{
+      source.ip = "0.0.0.0"
+      source.port = {port}
+      sess.latency.msec = {ms}
+      sess.ignore-ssrc = true
+      sess.media = "audio"
+      stream.props = {{ node.name = "{node}" node.description = "{description}" media.class = "Audio/Source" }}
+      audio.format = "S16BE"
+      audio.rate = 48000
+      audio.channels = 2
+      audio.position = [ FL FR ]
+    }}
+  }}
+]
+"""
 
 
 def return_config(address, port=RETURN_PORT, sink=RETURN_SINK, description="Pocket (link return)",
@@ -644,12 +675,13 @@ class LinkReturn:
         self.port, self.sink, self.description, self.core = port, sink, description, core
         self.path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / f"{core}.conf"
 
-    def ensure(self, address):
+    def ensure(self, address, text=None):
+        """address: where to send (None: stop); text: a configuration of its own instead (LinkReceiver's)"""
         if address == self.address and (address is None or self.running()):
             return
         self.stop()
         if address:
-            self.path.write_text(return_config(address, self.port, self.sink, self.description, self.core),
+            self.path.write_text(text or return_config(address, self.port, self.sink, self.description, self.core),
                                  encoding="utf-8")
             self.proc = subprocess.Popen(["pipewire", "-c", str(self.path)],
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1084,6 +1116,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.return_loop = Loopback(state["audio_rate"])   # the master copied to the link's return
         self.follow_send = LinkReturn(FOLLOW_PORT, FOLLOW_SINK, "Studio it follows (link)", "xoxo-studio-link")
         self.follow_loop = Loopback(state["audio_rate"])   # Follow Studio: the master copied to FOLLOW_SINK
+        self.studio_return = LinkReturn(STUDIO_RETURN_PORT, STUDIO_RETURN_SINK, "Studio following (mix back)",
+                                        "xoxo-studio-return")   # the leader's: its mix-minus to a follower
+        self.studio_mixer = Mixer(state["audio_rate"], "xoxo-ret-")   # every source but STUDIO, into it
+        self.leader_in = LinkReturn(STUDIO_RETURN_PORT, LEADER_MIX, "", "xoxo-leader-mix")   # the follower's:
+        self.leader_loop = Loopback(state["audio_rate"])   # the leader's mix arriving, and to its outputs
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
         self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
@@ -1246,8 +1283,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.post("status", changed)
         channels = self.mix_channels()
         loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop, self.follow_loop,
-                 self.usb_loop]
-        mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
+                 self.usb_loop, self.leader_loop]
+        mixers = (self.mixer, self.cue_mixer, self.pc_mixer, self.studio_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
                 self.post("status", False)
@@ -1265,6 +1302,20 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         up = leader and any(((o.get("info") or {}).get("props") or {}).get("node.name") == FOLLOW_SINK
                             for o in objects)
         self.follow_loop.ensure(up and main and "monitor:" + main, up and FOLLOW_SINK, "xoxo-follow")
+        name = latency_step(self.state.get("latency"))[0]   # the follower: the leader's mix back, on the outputs
+        self.leader_in.ensure(leader, leader and receiver_config(   # its link doesn't send from
+            STUDIO_RETURN_PORT, STUDIO_BUFFER[name], LEADER_MIX, "Studio it follows (mix back)", "xoxo-leader-mix"))
+        here = leader and any(((o.get("info") or {}).get("props") or {}).get("node.name") == LEADER_MIX
+                              for o in objects)
+        hear = self.leader_out(main)
+        self.leader_loop.ensure(here and hear and LEADER_MIX, here and hear, "xoxo-leader-out")
+        follower = self.studio_return_address()   # the leader: its mix, less STUDIO, to a Studio following it
+        self.studio_return.ensure(follower)
+        sent = follower and any(((o.get("info") or {}).get("props") or {}).get("node.name") == STUDIO_RETURN_SINK
+                                for o in objects)
+        self.studio_mixer.ensure(sent and STUDIO_RETURN_SINK, self.studio_feeds(channels) if sent else [])
+        self.studio_mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels}
+                                     | {key: self.heard(key) for key in self.app_here})
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
         usb = self.usb_out and self.usb_out["name"]
@@ -1333,6 +1384,27 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if jack and (out == "both" or self.cued()):    # cueing: the main mix too, for the blend
             return bt, jack
         return bt, None
+
+    def studio_return_address(self):
+        """the leader (Mix to Pocket on): a Studio following this one's address, for its mix-minus, else None"""
+        if not self.state.get("link_return", True):
+            return None
+        hosts = getattr(self.midi, "net_hosts", None) or {}
+        return next((str(ip) for name, ip in sorted(hosts.items()) if netmidi.FOLLOW_NAME in name), None)
+
+    def studio_feeds(self, channels):
+        """the leader's mix back to a following Studio: every source at its mixer level, and the apps (the decks),
+        but not STUDIO, the follower's own sound (as the computer's: computer_feeds)"""
+        feeds = [(key, node["name"], self.input_pair(key, node)) for key, node in channels
+                 if node.get("name") != FOLLOW_IN and self.mix_level(key) > 0]
+        return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
+
+    def leader_out(self, main):
+        """the follower: where the leader's mix plays, an output its link doesn't send from (not main, whose
+        monitor goes to the leader): USB out, else the jack when it isn't main; None: nowhere to play it"""
+        usb = self.usb_out and self.usb_out["name"]
+        jack = self.jack and self.jack["name"]
+        return next((out for out in (usb, jack) if out and out != main), None)
 
     def return_address(self):
         """where the master goes back over the link: a linked Pocket's address (Mix to Pocket on), or None"""

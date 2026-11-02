@@ -100,7 +100,11 @@ def test_a_pocket_turned_away(capsys):
     pocket.sendto(invite, ("127.0.0.1", 15009))
     reply = pocket.recvfrom(256)[0]
     assert reply[:4] == b"\xff\xffNO" and struct.unpack(">I", reply[8:12])[0] == 0x1234
-    assert session.names() == [] and "FM-1 Companion Pocket turned away" in capsys.readouterr().err
+    log, end = "", time.monotonic() + 2                            # (logged just after the NO goes out)
+    while "turned away" not in log and time.monotonic() < end:
+        time.sleep(0.02)
+        log += capsys.readouterr().err
+    assert session.names() == [] and "FM-1 Companion Pocket turned away" in log
 
 
 def test_following_sends_no_clock_back():
