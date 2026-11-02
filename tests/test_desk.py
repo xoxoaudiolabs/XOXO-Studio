@@ -1979,6 +1979,53 @@ def test_latency_steps_and_the_link_buffer():
         bridge.AUDIO["quantum"] = 1024
 
 
+def test_usb_out():
+    """no DAC HAT: the master copied to a USB interface's output, the first whose card has no MIDI (an interface,
+    not a synth) at first; one picked by name, or none; MORE > AUDIO > USB out steps through them"""
+    import bridge
+    asound = Path(tempfile.mkdtemp(prefix="fm1-asound-"))
+    for card, midi in ((1, False), (4, True)):
+        (asound / f"card{card}").mkdir()
+        if midi:
+            (asound / f"card{card}" / "midi0").write_text("")
+
+    def sink(i, name, card, card_name):
+        return {"type": "PipeWire:Interface:Node", "id": i, "info": {"props": {
+            "media.class": "Audio/Sink", "node.name": name, "alsa.card": card, "alsa.card_name": card_name}}}
+    objects = [sink(64, "alsa_output.usb-Burr-Brown_from_TI_USB_Audio_CODEC-00.analog-stereo-output", 1,
+                    "USB Audio CODEC"),
+               sink(70, "alsa_output.usb-Some_Synth-00.analog-stereo", 4, "Some Synth"),
+               sink(71, "alsa_output.usb-Companion_I_O-00.analog-stereo", 5, "Companion I/O"),
+               sink(62, "alsa_output.platform-3f00b840.mailbox.stereo-fallback", 0, "bcm2835 Headphones")]
+    outs = bridge.usb_out_nodes(objects, asound)
+    assert [(o["label"], o["midi"]) for o in outs] == [("USB AUDIO CODEC", False), ("SOME SYNTH", True)]
+    assert bridge.pick_usb_out(outs, "auto")["id"] == 64
+    assert bridge.pick_usb_out(outs, outs[1]["name"])["id"] == 70 and bridge.pick_usb_out(outs, "off") is None
+    assert bridge.pick_usb_out(outs, "alsa_output.usb-gone") is None
+    assert bridge.pick_usb_out(outs[1:], "auto") is None              # a synth's output alone: not taken
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.settings_menu = "audio"
+    assert "usb_out" not in [r[0] for r in app.settings_rows()]       # none there: no row
+    app.usb_outs, app.usb_out = outs, outs[0]
+    app.jack = {"id": 62, "name": "alsa_output.platform-3f00b840.mailbox.stereo-fallback", "label": "PHONES"}
+    rows = {r[0]: r[2] for r in app.settings_rows()}
+    assert rows["usb_out"] == "AUTO: USB AUDIO CO"
+    assert app.outputs() == (app.jack["name"], None)                  # the jack stays the master; USB gets a copy
+    app.jack = None
+    assert app.outputs()[0] == outs[0]["name"]                        # nothing else: the interface is it
+    app.setting = [r[0] for r in app.settings_rows()].index("usb_out")
+    app.change_setting()
+    assert app.state["usb_out"] == outs[0]["name"]
+    app.change_setting()
+    app.change_setting()
+    assert app.state["usb_out"] == "off"
+    app.change_setting()
+    assert app.state["usb_out"] == "auto"
+    app.dac = {"id": 9, "name": "alsa_output.dac", "label": "DAC"}    # a DAC HAT: the master; no USB out row
+    assert "usb_out" not in [r[0] for r in app.settings_rows()]
+
 def test_a_studio_following():
     """Follow Studio: on the leader, a following Studio's mix (a port of its own, 46020) is a channel, STUDIO,
     beside a Pocket's; on the follower, its master goes to the leader's 46020 while linked"""

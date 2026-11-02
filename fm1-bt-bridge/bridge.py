@@ -76,6 +76,8 @@ DEFAULTS = {
                             # linked, sound and MIDI go both ways (the user, 2026-11-01)
     "follow_studio": False, # Follow Studio: this Studio linked to another as a Pocket is (its clock, its mixer: this
                             # one's mix a channel there, its REC starting both); the other leads
+    "usb_out": "auto",      # with no DAC HAT, the master copied to a USB audio interface's output: "auto" (the
+                            # first whose card has no MIDI: an interface, not a synth), "off", or a node name
     "link_rec": True,       # linked REC: REC on the Studio or a linked Pocket starts (and stops) both, each recording
                             # its own gear (Record parts: a file a source), MMC over the link (meters.link_rec)
     "link_audio": "mix",    # what a linked Pocket sends the Studio (LINK_AUDIO): "mix" (its own gear mixed, one
@@ -443,6 +445,42 @@ def dac_node(objects):
                 and any(k in text for k in ("bossdac", "boss dac", "pcm512x", "pcm5122"))):
             return {"id": o.get("id"), "name": name, "label": "DAC"}
     return None
+
+
+ASOUND = Path("/proc/asound")
+
+
+def usb_out_nodes(objects, asound=ASOUND):
+    """the USB sound cards' outputs, as [{"id", "name", "label", "midi"}]: midi, its card has MIDI too (a synth or
+    a keyboard's own sound, more likely than an interface; an FM-1 has no output at all). Not the Companion I/O
+    card's (iocard.py: a copy of its own)"""
+    found = []
+    for o in objects:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = (o.get("info") or {}).get("props") or {}
+        name = str(props.get("node.name", ""))
+        text = " ".join(str(props.get(k, "")) for k in ("node.name", "node.description", "alsa.card_name"))
+        if props.get("media.class") != "Audio/Sink" or not name.startswith("alsa_output.usb-") or iocard.is_card(text):
+            continue
+        card = props.get("alsa.card")
+        try:
+            midi = any((asound / f"card{int(card)}").glob("midi*"))
+        except (TypeError, ValueError, OSError):
+            midi = False
+        label = str(props.get("alsa.card_name") or props.get("node.nick") or "USB").upper()
+        found.append({"id": o.get("id"), "name": name, "label": label, "midi": midi})
+    return found
+
+
+def pick_usb_out(outs, setting):
+    """the USB output that gets the master (usb_out_nodes' one), or None: setting "off", a node name (while it's
+    there), or "auto": the first with no MIDI"""
+    if setting == "off":
+        return None
+    if setting not in (None, "auto"):
+        return next((o for o in outs if o["name"] == setting), None)
+    return next((o for o in outs if not o["midi"]), None)
 
 
 def jack_node(objects):
@@ -1029,6 +1067,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.jack_loop = Loopback(state["audio_rate"])  # output "both": the speaker's sound copied to the jack
         self.card = None                      # the I/O card's line out (iocard.sink_node), when it's plugged in
         self.card_loop = Loopback(state["audio_rate"])  # the main mix copied to the I/O card
+        self.usb_outs, self.usb_out = [], None  # USB interfaces' outputs; the one that gets the master (no DAC HAT)
+        self.usb_loop = Loopback(state["audio_rate"])   # the master copied to it
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
         self.plugin_host = plugins.Host(self)  # the plug-ins (plugins.py): started in main()
         self.cards_sent = None                # the plug-ins' {sound card: name} the MIDI process has
@@ -1170,6 +1210,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             if plugged != (self.computer is None):
                 self.say("Computer connected (USB)" if self.computer else "Computer disconnected", 2)
             self.post("status", True)
+        outs = usb_out_nodes(objects)
+        picked = None if self.dac else pick_usb_out(outs, self.state.get("usb_out", "auto"))
+        if outs != self.usb_outs or picked != self.usb_out:
+            was = self.usb_out
+            self.usb_outs, self.usb_out = outs, picked
+            if bool(was) != bool(picked):
+                self.say(f"Master to {picked['label']}" if picked else "USB out: none", 2)
+            self.post("status", True)
         if iocard.sink_node(objects) != self.card:
             plugged = self.card is None
             self.card = iocard.sink_node(objects)
@@ -1191,7 +1239,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.sink, self.others, self.volume = sink, others, volume
             self.post("status", changed)
         channels = self.mix_channels()
-        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop, self.follow_loop]
+        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop, self.follow_loop,
+                 self.usb_loop]
         mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
@@ -1212,6 +1261,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.follow_loop.ensure(up and main and "monitor:" + main, up and FOLLOW_SINK, "xoxo-follow")
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
+        usb = self.usb_out and self.usb_out["name"]
+        self.usb_loop.ensure(usb and main and main != usb and "monitor:" + main, usb, "fm1-usb-out")
         app_ids = {key: next((o.get("id") for o in objects
                               if ((o.get("info") or {}).get("props") or {}).get("node.name") == node), None)
                    for key, node in APP_NODES.items()}
@@ -1270,7 +1321,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         if self.dac:
             return self.dac["name"], (jack if jack and (out != "speaker" or self.cued()) else None)
         if not bt and not jack:
-            return (self.card and self.card["name"]), None
+            return (self.card and self.card["name"]) or (self.usb_out and self.usb_out["name"]), None
         if (out == "phones" and jack) or not bt:
             return jack, None
         if jack and (out == "both" or self.cued()):    # cueing: the main mix too, for the blend
@@ -1280,6 +1331,20 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def return_address(self):
         """where the master goes back over the link: a linked Pocket's address (Mix to Pocket on), or None"""
         return self.pocket_address() if self.state.get("link_return", True) else None
+
+    def usb_out_text(self):
+        """USB out's value: AUTO, OFF or the output picked, with the one getting the master"""
+        setting = self.state.get("usb_out", "auto")
+        name = self.usb_out["label"][:12] if self.usb_out else "none"
+        return "OFF" if setting == "off" else f"AUTO: {name}" if setting == "auto" else name
+
+    def set_usb_out(self, value):
+        """USB out: "auto", "off", or one USB output's node name"""
+        self.state["usb_out"] = value if value in ("auto", "off") or any(o["name"] == value for o in self.usb_outs) \
+            else "auto"
+        self.save_settings()
+        self.scan_now = True
+        self.post("status", True)
 
     def follow_text(self):
         """Follow Studio's value: OFF, LINKING (on, none found yet), or ON"""
@@ -1826,13 +1891,14 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     if self.jack else [])           # the Studio's 3.5 mm jack
             decks = [("decks_out", "DJ decks out", self.state.get("decks_out", "studio"))] if self.desk else []
             latency = latency_step(self.state.get("latency"))
+            usb_out = [("usb_out", "USB out", self.usb_out_text())] if self.usb_outs and not self.dac else []
             return ([("speaker", "Speaker", speaker), ("audio", "BT audio", audio)] + jack
                     + [("rate", "Audio rate", rate), ("latency", "Latency", f"{latency[0].lower()} {latency[2]}ms"),
                        ("link_audio", "Pocket sends", LINK_AUDIO.get(self.state.get("link_audio"), "MIX")),
                        ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True))),
                        ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True))),
                        ("follow_studio", "Follow Studio", self.follow_text())]
-                    + mix + parts + decks)
+                    + usb_out + mix + parts + decks)
         if self.settings_menu == "midi":
             keys = getattr(self.midi, "controllers", None) or []
             bt_keys = getattr(self.midi, "ble_keys", None) or []
@@ -1892,6 +1958,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.state["link_rec"] = not self.state.get("link_rec", True)
             self.save_settings()
             self.say("Linked REC: on (REC starts the Pocket too)" if self.state["link_rec"] else "Linked REC: off", 2)
+        elif key == "usb_out":
+            choices = ["auto"] + [o["name"] for o in self.usb_outs] + ["off"]
+            now_out = self.state.get("usb_out", "auto")
+            self.set_usb_out(choices[(choices.index(now_out) + 1) % len(choices)] if now_out in choices else "auto")
         elif key == "follow_studio":
             self.set_follow(not self.state.get("follow_studio"))
         elif key == "link_audio":
