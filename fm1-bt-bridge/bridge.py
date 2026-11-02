@@ -36,6 +36,7 @@ import iocard
 import plugins
 from libui import LIBRARY_KEYS, LibraryScreens
 import meters
+import netmidi
 from meters import MeterScreens
 from midiui import MidiScreens
 from sampleui import SampleEditor
@@ -72,6 +73,8 @@ DEFAULTS = {
     "latency": "SAFE",      # LATENCY's step: PipeWire's block and the Pocket link's buffer, lowered together
     "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones:
                             # linked, sound and MIDI go both ways (the user, 2026-11-01)
+    "follow_studio": False, # Follow Studio: this Studio linked to another as a Pocket is (its clock, its mixer: this
+                            # one's mix a channel there, its REC starting both); the other leads
     "link_rec": True,       # linked REC: REC on the Studio or a linked Pocket starts (and stops) both, each recording
                             # its own gear (Record parts: a file a source), MMC over the link (meters.link_rec)
     "link_audio": "mix",    # what a linked Pocket sends the Studio (LINK_AUDIO): "mix" (its own gear mixed, one
@@ -311,6 +314,8 @@ def pick_nodes(objects, host=None):
             sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name == FOLLOW_IN:        # a Studio following this one (port 46020)
+            sources.append(dict(node, label="STUDIO", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name in POCKET_FM1S:      # one of the Pocket's FM-1s on its own stream
             label = (host and host.source_label(props, counts)) or "POCKET FM-1 " + name[-1].upper()  # (46002-6)
             sources.append(dict(node, label=label, internal=True, ports=ports.get(o.get("id"), [])))
@@ -327,6 +332,8 @@ def pocket_sources(sources, peers, mode="fm1s"):
     sends its FM-1s apart has a session for each one plugged in ("FM-1 Companion Pocket FM-1 A"): then only those
     FM-1s' channels, and not POCKET (the rest of its mix); else POCKET alone. mode: the Studio's Pocket sends
     (LINK_AUDIO): "mix" POCKET alone (the Pocket's whole mix), "midi" none of them"""
+    if not any(netmidi.FOLLOW_NAME in str(p) for p in peers):    # STUDIO: only while a Studio follows this one
+        sources = [n for n in sources if n["name"] != FOLLOW_IN]
     if not any("Pocket" in str(p) for p in peers) or mode == "midi":
         return [n for n in sources if not n["name"].startswith("fm1-pocket")]
     split = {m.group(1).lower() for m in (POCKET_FM1.search(str(p)) for p in peers) if m} if mode == "fm1s" else set()
@@ -538,14 +545,20 @@ RETURN_PORT = 46010                     # the Studio's master to a linked Pocket
 RETURN_SINK = "fm1-pocket-return"       # Pocket's own sound comes in (pipewire-fm1-pocket-in.conf), the other way
 
 
-def return_config(address, port=RETURN_PORT):
+FOLLOW_SINK = "xoxo-studio-link"        # Follow Studio: this Studio's master to the one it follows (a port of
+FOLLOW_PORT = 46020                     # its own, beside a Pocket's 46000: there it's a channel, STUDIO)
+FOLLOW_IN = "xoxo-studio-in"            # the leader's: what a Studio following it sends (pipewire-fm1-pocket-in)
+
+
+def return_config(address, port=RETURN_PORT, sink=RETURN_SINK, description="Pocket (link return)",
+                  core="fm1-pocket-return"):
     """a PipeWire hosting one RTP sender, RETURN_SINK, to the Pocket at address: L16, 48 kHz, stereo, the
     Pocket's own link format (netaudio.py in FM-1-Companion), in packets as big as the MTU holds (~6.5 ms).
     (Packets of 1-2 ms, sess.min-ptime 1 / max-ptime 2, made it dirty on the Studio: the sender's buffer is a
     packet's length unless set, a block of 1024 overran it, ~45 "overrun" and "missing timeout" a second; the
     Pocket's sender did the same)"""
-    ssrc = zlib.crc32((socket.gethostname() + "/return").encode()) or 1
-    return f"""context.properties = {{ core.daemon = false core.name = fm1-pocket-return }}
+    ssrc = zlib.crc32((socket.gethostname() + ("/return" if core == "fm1-pocket-return" else "/" + core)).encode()) or 1
+    return f"""context.properties = {{ core.daemon = false core.name = {core} }}
 context.spa-libs = {{ audio.convert.* = audioconvert/libspa-audioconvert support.* = support/libspa-support }}
 context.modules = [
   {{ name = libpipewire-module-rt args = {{ }} flags = [ ifexists nofail ] }}
@@ -559,7 +572,7 @@ context.modules = [
       rtp.ssrc = {ssrc}
       net.mtu = 1280
       sess.media = "audio"
-      stream.props = {{ node.name = "{RETURN_SINK}" node.description = "Pocket (link return)" media.class = "Audio/Sink" }}
+      stream.props = {{ node.name = "{sink}" node.description = "{description}" media.class = "Audio/Sink" }}
       audio.format = "S16BE"
       audio.rate = 48000
       audio.channels = 2
@@ -571,19 +584,22 @@ context.modules = [
 
 
 class LinkReturn:
-    """the PipeWire that hosts RETURN_SINK while a Pocket is linked: started again for a new address, or when it
-    stops"""
+    """the PipeWire that hosts RETURN_SINK while a Pocket is linked (or, Follow Studio, FOLLOW_SINK to the Studio
+    this one follows): started again for a new address, or when it stops"""
 
-    def __init__(self):
+    def __init__(self, port=RETURN_PORT, sink=RETURN_SINK, description="Pocket (link return)",
+                 core="fm1-pocket-return"):
         self.proc, self.address = None, None
-        self.path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / "fm1-pocket-return.conf"
+        self.port, self.sink, self.description, self.core = port, sink, description, core
+        self.path = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir()) / f"{core}.conf"
 
     def ensure(self, address):
         if address == self.address and (address is None or self.running()):
             return
         self.stop()
         if address:
-            self.path.write_text(return_config(address), encoding="utf-8")
+            self.path.write_text(return_config(address, self.port, self.sink, self.description, self.core),
+                                 encoding="utf-8")
             self.proc = subprocess.Popen(["pipewire", "-c", str(self.path)],
                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.address = address
@@ -1012,6 +1028,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.bt_loop = Loopback(state["audio_rate"])   # with a DAC: the master copied to the Bluetooth speaker
         self.link_return = LinkReturn()       # a linked Pocket: the master back to it over the link
         self.return_loop = Loopback(state["audio_rate"])   # the master copied to the link's return
+        self.follow_send = LinkReturn(FOLLOW_PORT, FOLLOW_SINK, "Studio it follows (link)", "xoxo-studio-link")
+        self.follow_loop = Loopback(state["audio_rate"])   # Follow Studio: the master copied to FOLLOW_SINK
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
         self.app_here = set()                 # the Studio apps whose sound is there now (their mixer keys)
         self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
@@ -1158,7 +1176,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.sink, self.others, self.volume = sink, others, volume
             self.post("status", changed)
         channels = self.mix_channels()
-        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop]
+        loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop, self.follow_loop]
         mixers = (self.mixer, self.cue_mixer, self.pc_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
@@ -1172,6 +1190,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         back = address and any(((o.get("info") or {}).get("props") or {}).get("node.name") == RETURN_SINK
                                for o in objects)   # (its sender up: a loop started before it would stay unlinked)
         self.return_loop.ensure(back and main and "monitor:" + main, back and RETURN_SINK, "fm1-return")
+        leader = self.follow_address()
+        self.follow_send.ensure(leader)
+        up = leader and any(((o.get("info") or {}).get("props") or {}).get("node.name") == FOLLOW_SINK
+                            for o in objects)
+        self.follow_loop.ensure(up and main and "monitor:" + main, up and FOLLOW_SINK, "xoxo-follow")
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
         app_ids = {key: next((o.get("id") for o in objects
@@ -1242,6 +1265,12 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def return_address(self):
         """where the master goes back over the link: a linked Pocket's address (Mix to Pocket on), or None"""
         return self.pocket_address() if self.state.get("link_return", True) else None
+
+    def follow_text(self):
+        """Follow Studio's value: OFF, LINKING (on, none found yet), or ON"""
+        if not self.state.get("follow_studio"):
+            return "OFF"
+        return "ON" if getattr(self.midi, "follows", None) else "LINKING"
 
     def set_link_audio(self, mode):
         """what a linked Pocket sends (LINK_AUDIO): the Pocket reads it in /api/status and follows"""
@@ -1319,8 +1348,25 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.post("status", True)
 
     def pocket_linked(self):
-        """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket")"""
-        return any("Pocket" in str(n) for n in (getattr(self.midi, "net", None) or []))
+        """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket"), or a
+        Studio following this one"""
+        return any(netmidi.linked_box(n) for n in (getattr(self.midi, "net", None) or []))
+
+    def follow_address(self):
+        """Follow Studio on and linked: the address of the Studio this one follows, else None"""
+        return getattr(self.midi, "follow_address", None) if self.state.get("follow_studio") else None
+
+    def set_follow(self, on):
+        """Follow Studio: link to another Studio, which leads (its clock: Clock follow)"""
+        self.state["follow_studio"] = bool(on)
+        if on and self.state["clock_mode"] != "follow":
+            self.set_clock("follow")
+        self.save_settings()
+        if self.midi and hasattr(self.midi, "set_follow"):
+            self.midi.set_follow(on)
+        self.scan_now = True
+        self.post("status", True)
+        self.say("Follow Studio: on (linking to the other Studio)" if on else "Follow Studio: off", 2)
 
     def mix_channels(self):
         """[(key, node)] of the sound sources there are: USB audio (a keyboard's synth, an audio interface, a mic)
@@ -1426,7 +1472,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def pocket_link(self):
         """a linked Pocket: "cable" (a link-local address) or "network"; None: no Pocket"""
         hosts = getattr(self.midi, "net_hosts", None) or {}
-        here = [ip for name, ip in hosts.items() if "Pocket" in name]
+        here = [ip for name, ip in hosts.items() if netmidi.linked_box(name)]
         if not here and not self.pocket_linked():
             return None
         return "cable" if any(str(ip).startswith("169.254.") for ip in here) else "network"
@@ -1754,7 +1800,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     + [("rate", "Audio rate", rate), ("latency", "Latency", f"{latency[0].lower()} {latency[2]}ms"),
                        ("link_audio", "Pocket sends", LINK_AUDIO.get(self.state.get("link_audio"), "MIX")),
                        ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True))),
-                       ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True)))]
+                       ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True))),
+                       ("follow_studio", "Follow Studio", self.follow_text())]
                     + mix + parts + decks)
         if self.settings_menu == "midi":
             keys = getattr(self.midi, "controllers", None) or []
@@ -1815,6 +1862,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.state["link_rec"] = not self.state.get("link_rec", True)
             self.save_settings()
             self.say("Linked REC: on (REC starts the Pocket too)" if self.state["link_rec"] else "Linked REC: off", 2)
+        elif key == "follow_studio":
+            self.set_follow(not self.state.get("follow_studio"))
         elif key == "link_audio":
             modes = list(LINK_AUDIO)
             now_mode = self.state.get("link_audio")
@@ -2328,7 +2377,10 @@ def main():
         display = SimDisplay(sys.argv[sys.argv.index("--sim") + 1])
     elif box["build"] == "desk":              # Pi 3/4 + 3.5" touchscreen: the same screens, larger, in colour
         import desk
-        display = desk.TftDisplay(box["screen"][0] if box["screen"] else "/dev/fb1")
+        # screen_flip: the picture turned round (the 3.5" HDMI touchscreen: off, as its panel shows it unturned,
+        # the way Pat likes it, 2026-11-01)
+        display = desk.TftDisplay(box["screen"][0] if box["screen"] else "/dev/fb1",
+                                  flip=state.get("screen_flip", False))
     else:
         display = SH1106(state["rotate"], state["contrast"])
     if test:
@@ -2366,6 +2418,8 @@ def main():
         midi.set_clock(state["clock_mode"], state["bpm"])
         midi.set_routes(state["routes"])
         midi.set_xo4_in(state["xo4_midi_in"])
+        if state.get("follow_studio"):
+            midi.set_follow(True)
     if boot:
         deskboot.show(display, boot, 2)
     state["touch_cal"] = list(state["touch_cal"])   # its own list: calibrating changes it in place

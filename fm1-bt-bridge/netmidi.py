@@ -15,6 +15,7 @@ import random
 import select
 import socket
 import struct
+import sys
 import threading
 import time
 
@@ -111,6 +112,11 @@ class Session:
         self.lock = threading.Lock()
         self.sock = self.dsock = None
         self.error = None
+        self.refuse = None                    # (name) -> True: an invitation from it turned down (NO)
+
+    def log(self, text):
+        """a line in the journal (the service's stderr): a peer linked, left, forgotten"""
+        print(f"network MIDI {self.name}: {text}", file=sys.stderr, flush=True)
 
     def start(self):
         try:
@@ -163,12 +169,21 @@ class Session:
         if cmd == b"IN" and len(body) >= 12:                     # an invitation: accept it
             _, token, ssrc = struct.unpack(">III", body[:12])
             name = body[12:].split(b"\0")[0].decode("utf-8", "replace") or "computer"
+            if self.refuse and self.refuse(name):
+                sock.sendto(SIGN + b"NO" + struct.pack(">III", VERSION, token, self.ssrc) + self.name.encode() + b"\0",
+                            addr)
+                if data_port:
+                    self.log(f"{name} turned away")
+                return
             sock.sendto(SIGN + b"OK" + struct.pack(">III", VERSION, token, self.ssrc) + self.name.encode() + b"\0",
                         addr)
             with self.lock:
                 peer = self.peers.setdefault(ssrc, {"name": name, "control": None, "data": None})
+                again = data_port and peer["data"] is not None
                 peer["data" if data_port else "control"] = addr
                 peer["seen"] = time.monotonic()
+            if data_port:                                        # (linked once its data port has joined)
+                self.log(f"{name} {'linked again' if again else 'linked'} from {addr[0]}")
         elif cmd == b"CK" and len(body) >= 32:                   # clock sync: answer count 0 with count 1
             ssrc, count = struct.unpack(">IB", body[:5])
             stamps = list(struct.unpack(">QQQ", body[8:32]))
@@ -181,17 +196,23 @@ class Session:
         elif cmd == b"BY" and len(body) >= 12:                   # the computer ended the session
             _, _, ssrc = struct.unpack(">III", body[:12])
             with self.lock:
-                self.peers.pop(ssrc, None)
+                peer = self.peers.pop(ssrc, None)
+            if peer and peer.get("data"):
+                self.log(f"{peer['name']} left (BY)")
 
     def expire(self):
         """a computer that went away without saying (sleep, Wi-Fi off): forgotten after 90 s without a sync
-        (a session syncs at least every 10-60 s). A Pocket (its link syncs every 10 s): after 25 s, so an unplugged
-        one leaves the Studio's mixer (POCKET) soon"""
+        (a session syncs at least every 10-60 s). A Pocket or a Studio following this one (its link syncs every
+        10 s): after 25 s, so an unplugged one leaves the Studio's mixer (POCKET, STUDIO) soon"""
         now = time.monotonic()
         with self.lock:
-            for ssrc in [k for k, p in self.peers.items()
-                         if now - p.get("seen", now) > (25 if "Pocket" in p.get("name", "") else 90)]:
+            gone = [(k, p) for k, p in self.peers.items()
+                    if now - p.get("seen", now) > (25 if linked_box(p.get("name", "")) else 90)]
+            for ssrc, _ in gone:
                 del self.peers[ssrc]
+        for _, p in gone:
+            if p.get("data"):
+                self.log(f"{p['name']} forgotten: no sync for {now - p['seen']:.0f} s")
 
     def send(self, messages, to=None, skip=()):
         with self.lock:
@@ -207,6 +228,397 @@ class Session:
                     self.dsock.sendto(packet, addr)
                 except OSError:
                     pass
+
+
+# ---------------------------------------------------------------- the link: a Pocket's to a Studio, or a Studio's
+# following another (Follow Studio). From FM-1 Companion's netmidi.py (the Pocket's side), as it was 2026-11-01.
+
+MDNS = ("224.0.0.251", 5353)
+SERVICE = "_apple-midi._udp.local"
+LINK_NAME = "FM-1 Companion Pocket"
+FOLLOW_NAME = "XOXO Studio Link"   # a Studio following another: its session's name there ("... on <its host>")
+ASK_AGAIN = 1.2                 # s: find_studios asks a network again that hasn't answered
+
+
+def linked_box(name):
+    """a network MIDI peer that's a box linked to this Studio, which leads it: a Pocket ("FM-1 Companion Pocket"),
+    or a Studio following this one (FOLLOW_NAME)"""
+    return "Pocket" in str(name) or FOLLOW_NAME in str(name)
+
+
+def follow_name(host=None):
+    """this Studio's session name on the Studio it follows"""
+    return f"{FOLLOW_NAME} on {host or socket.gethostname()}"
+
+
+def follows(address, port=80, timeout=2.0):
+    """the Studio at address follows another (its /api/status "follows"): it can't lead too"""
+    import json
+    import urllib.request
+    try:
+        with urllib.request.urlopen(f"http://{address}:{port}/api/status", timeout=timeout) as reply:
+            status = json.loads(reply.read(1 << 20))
+    except (OSError, ValueError):
+        return False
+    return isinstance(status, dict) and bool(status.get("follows"))
+
+
+def other_studios(find=None, host=None, following=follows):
+    """-> a find for Invitation: the Studios on the network but this one (its own "XOXO Studio on <host>") and any
+    following a Studio itself (two set to follow: the first linked leads)"""
+    host = (host or socket.gethostname()).lower()
+    find = find or find_studios
+    return lambda: [s for s in find() if not s[0].lower().endswith(" on " + host) and not following(s[1])]
+
+
+def dns_name(packet, i):
+    """a DNS name at i (compressed names followed) -> (name, the index after it)"""
+    labels, end, jumps = [], None, 0
+    while i < len(packet):
+        n = packet[i]
+        if n == 0:
+            i += 1
+            break
+        if n & 0xC0 == 0xC0:
+            if i + 1 >= len(packet) or jumps > 20:
+                break
+            end = i + 2 if end is None else end
+            i, jumps = ((n & 0x3F) << 8) | packet[i + 1], jumps + 1
+            continue
+        labels.append(packet[i + 1:i + 1 + n].decode("utf-8", "replace"))
+        i += 1 + n
+    return ".".join(labels), (i if end is None else end)
+
+
+def mdns_query(name, qtype=12):
+    """a DNS query for name (12: PTR), asked from our own port: responders answer it to us (legacy unicast)"""
+    q = b"".join(bytes([len(part)]) + part.encode() for part in name.split(".")) + b"\0"
+    return struct.pack(">HHHHHH", 0, 0, 1, 0, 0, 0) + q + struct.pack(">HH", qtype, 1)
+
+
+def mdns_records(packet):
+    """a DNS reply -> [(name, type, data)]: PTR the instance name, SRV (port, target), A the address"""
+    out = []
+    try:
+        _, _, qd, an, ns, ar = struct.unpack(">HHHHHH", packet[:12])
+        i = 12
+        for _ in range(qd):
+            _, i = dns_name(packet, i)
+            i += 4
+        for _ in range(an + ns + ar):
+            name, i = dns_name(packet, i)
+            rtype, _, _, length = struct.unpack(">HHIH", packet[i:i + 10])
+            i += 10
+            data = packet[i:i + length]
+            if rtype == 12:
+                out.append((name, 12, dns_name(packet, i)[0]))
+            elif rtype == 33 and length >= 6:
+                out.append((name, 33, (struct.unpack(">H", data[4:6])[0], dns_name(packet, i + 6)[0])))
+            elif rtype == 1 and length == 4:
+                out.append((name, 1, socket.inet_ntoa(data)))
+            i += length
+    except (struct.error, IndexError):
+        pass
+    return out
+
+
+def is_studio(instance):
+    """a network MIDI session of a Studio's: the Companion Studio's music session ("FM-1 Companion on <its host>",
+    config/fm1-midi.service), XOXO Studio's ("XOXO Studio on ..."), or any whose name says Studio; not a control
+    surface's ("... MCU ...") nor a Pocket's"""
+    name = instance.split("._apple-midi")[0]
+    return ("MCU" not in name and "Pocket" not in name and FOLLOW_NAME not in name
+            and (name.startswith("FM-1 Companion") or "Studio" in name))
+
+
+def local_addresses():
+    """this box's IPv4 addresses, one a network (Wi-Fi, the cable's link-local one), not loopback"""
+    import re
+    import subprocess
+    try:
+        out = subprocess.run(["ip", "-4", "-o", "addr", "show", "up"], capture_output=True, text=True,
+                             timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [a for a in re.findall(r"inet (\d+\.\d+\.\d+\.\d+)", out) if not a.startswith("127.")]
+
+
+def studios_in(records):
+    """[(instance name, address, control port)] of the Studios in one network's DNS-SD answers"""
+    srv = {n: v for n, t, v in records if t == 33}
+    addresses = {n: v for n, t, v in records if t == 1}
+    found = []
+    for _, t, instance in records:
+        if t == 12 and is_studio(instance) and instance in srv:
+            port, target = srv[instance]
+            address = addresses.get(target)
+            if address is None:
+                try:
+                    address = socket.gethostbyname(target)
+                except OSError:
+                    continue
+            entry = (instance.split("._apple-midi")[0], address, port)
+            if entry not in found:
+                found.append(entry)
+    return found
+
+
+def find_studios(timeout=2.5, sock=None):
+    """the Studios' music sessions on the network: [(instance name, address, control port)], by DNS-SD, asked
+    on each network the box is on (a Studio answers each with its address there), one on a cable (link-local,
+    169.254.x.x) first: no router or Wi-Fi in the way. A network with no answer yet is asked again after ASK_AGAIN s:
+    a Studio answers the same question on a network only once a second or so (as mDNS responders do)"""
+    socks = [sock] if sock else []
+    if not sock:
+        for address in local_addresses():
+            try:
+                one = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                one.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(address))
+                one.bind((address, 0))
+                socks.append(one)
+            except OSError:
+                pass
+        socks = socks or [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]
+    records = {id(one): [] for one in socks}
+
+    def ask(which):
+        for one in which:
+            try:
+                one.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+                one.sendto(mdns_query(SERVICE), MDNS)
+            except OSError:
+                pass
+
+    try:
+        ask(socks)
+        start = time.monotonic()
+        end, again = start + timeout, start + ASK_AGAIN
+        while (left := end - time.monotonic()) > 0:
+            if again and time.monotonic() >= again:
+                ask([one for one in socks if not records[id(one)]])
+                again = None
+            ready, _, _ = select.select(socks, [], [], min(left, again - time.monotonic()) if again else left)
+            if not ready:
+                if again:
+                    continue
+                break
+            for one in ready:
+                try:
+                    records[id(one)] += mdns_records(one.recv(4096))
+                except OSError:
+                    pass
+    except (OSError, ValueError):
+        return []
+    finally:
+        if not sock:
+            for one in socks:
+                one.close()
+    found = []
+    for one in socks:
+        found += [entry for entry in studios_in(records[id(one)]) if entry not in found]
+    return sorted(found, key=lambda entry: not entry[1].startswith("169.254."))
+
+
+class Invitation:
+    """The Pocket's session to a Studio's music session (its Studio link): found by find_studios (or at host, a
+    name or address), invited as a computer invites (IN on its control port, then its data port), kept with a clock
+    sync (CK) every 10 s, started again when the Studio stops answering. The same calls as Session: on_message for
+    each MIDI message from the Studio, send(messages), names() (the Studio's, while linked), error."""
+
+    SYNC, LOST, RETRY, CABLE = 10.0, 30.0, 5.0, 30.0   # (CABLE: linked over Wi-Fi, look for it on a cable)
+
+    def __init__(self, name, on_message, host=None, port=5004, find=find_studios, on_thread=None):
+        """on_thread: called first on its own thread (the MIDI process makes it real-time: the Studio's clock comes
+        in on it, and late ticks on a busy Pocket made the FM-1's tempo jump)"""
+        self.name, self.on_message, self.host, self.port, self.find = name, on_message, host, port, find
+        self.on_thread = on_thread
+        self.ssrc, self.seq = random.getrandbits(32), random.getrandbits(16)
+        self.lock = threading.Lock()
+        self.peer = None                      # {"name", "control", "data", "ssrc"} while linked
+        self.studio_ssrc = None               # the session id in the Studio's last OK (invite)
+        self.error, self.running, self.heard = None, False, 0.0
+        self.sock = self.dsock = None
+
+    def start(self):
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.dsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.bind(("0.0.0.0", 0))
+            self.dsock.bind(("0.0.0.0", 0))
+        except OSError as e:
+            self.error = str(e)[:40]
+            return False
+        self.running = True
+        threading.Thread(target=self.run, daemon=True).start()
+        return True
+
+    def stop(self):
+        """the link ended: the Studio told (BY), the sockets closed"""
+        self.running = False
+        with self.lock:
+            peer, self.peer = self.peer, None
+        for sock, key in ((self.sock, "control"), (self.dsock, "data")):
+            try:
+                if peer:
+                    sock.sendto(SIGN + b"BY" + struct.pack(">III", VERSION, 0, self.ssrc), peer[key])
+                sock.close()
+            except OSError:
+                pass
+
+    def names(self):
+        with self.lock:
+            return [self.peer["name"]] if self.peer else []
+
+    def address(self):
+        """the Studio's address while linked (for the link's audio: netaudio.py), or None"""
+        with self.lock:
+            return self.peer["control"][0] if self.peer else None
+
+    def target(self):
+        """(name, address, control port) of the Studio to link to, or None"""
+        if self.host:
+            try:
+                return self.host, socket.gethostbyname(self.host), self.port
+            except OSError:
+                self.error = f"{self.host}: not found"[:40]
+                return None
+        found = self.find()
+        if not found:
+            self.error = "no Studio found"
+        return found[0] if found else None
+
+    def invite(self, sock, addr, timeout=1.5):
+        """IN to addr from sock -> the Studio's name once it's said OK, or None"""
+        token = random.getrandbits(32)
+        sock.sendto(SIGN + b"IN" + struct.pack(">III", VERSION, token, self.ssrc) + self.name.encode() + b"\0", addr)
+        end = time.monotonic() + timeout
+        while (left := end - time.monotonic()) > 0:
+            ready, _, _ = select.select([sock], [], [], left)
+            if not ready:
+                break
+            packet, _ = sock.recvfrom(2048)
+            if packet[:4] == SIGN + b"OK" and len(packet) >= 16 and struct.unpack(">I", packet[8:12])[0] == token:
+                self.studio_ssrc = struct.unpack(">I", packet[12:16])[0]
+                return packet[16:].split(b"\0")[0].decode("utf-8", "replace") or "Studio"
+        return None
+
+    def connect(self):
+        found = self.target()
+        if not found:
+            return False
+        name, address, port = found
+        control, data = (address, port), (address, port + 1)
+        try:
+            studio = self.invite(self.sock, control) and self.invite(self.dsock, data)
+        except OSError as e:
+            self.error = str(e)[:40]
+            return False
+        if not studio:
+            self.error = f"{name}: no answer"[:40]
+            return False
+        with self.lock:
+            self.peer = {"name": studio, "control": control, "data": data, "ssrc": self.studio_ssrc}
+        self.error, self.heard = None, time.monotonic()
+        return True
+
+    def sync(self):
+        with self.lock:
+            peer = self.peer
+        if peer:
+            self.dsock.sendto(SIGN + b"CK" + struct.pack(">IB3xQQQ", self.ssrc, 0, now_100us(), 0, 0), peer["data"])
+
+    def to_cable(self):
+        """linked over Wi-Fi (or a router) to a Studio that's on a cable too (it blinked, and the link came back
+        the other way): True, the link ended so it's made again over the cable (find_studios puts it first)"""
+        address = self.address()
+        if self.host or not address or address.startswith("169.254."):
+            return False
+        name = self.names()[0] if self.names() else ""
+        if not any(a.startswith("169.254.") and (n == name or n.startswith(name)) for n, a, _ in self.find()):
+            return False
+        with self.lock:
+            peer, self.peer = self.peer, None
+        for sock, key in ((self.sock, "control"), (self.dsock, "data")):
+            try:
+                sock.sendto(SIGN + b"BY" + struct.pack(">III", VERSION, 0, self.ssrc), peer[key])
+            except (OSError, TypeError):
+                pass
+        return True
+
+    def run(self):
+        if self.on_thread:
+            self.on_thread()
+        next_sync = 0.0
+        next_cable = time.monotonic() + self.CABLE
+        while self.running:
+            if not self.peer:
+                if not self.connect():
+                    time.sleep(self.RETRY)
+                    continue
+                next_sync = 0.0
+                next_cable = time.monotonic() + self.CABLE
+            now = time.monotonic()
+            if now >= next_cable:
+                next_cable = now + self.CABLE
+                if self.to_cable():
+                    continue
+            if now >= next_sync:
+                try:
+                    self.sync()
+                except OSError:
+                    pass
+                next_sync = now + self.SYNC
+            if now - self.heard > self.LOST:  # the Studio went away: find it and invite again
+                with self.lock:
+                    self.peer = None
+                self.error = "Studio lost"
+                continue
+            try:
+                ready, _, _ = select.select([self.sock, self.dsock], [], [], 1.0)
+            except (OSError, ValueError):     # (closed by stop)
+                return
+            for sock in ready:
+                try:
+                    packet, _ = sock.recvfrom(2048)
+                except OSError:
+                    continue
+                self.received(packet, sock is self.dsock)
+
+    def received(self, packet, data_port):
+        if packet[:2] == SIGN:
+            if packet[2:4] == b"CK" and len(packet) >= 8 and self.restarted(struct.unpack(">I", packet[4:8])[0]):
+                with self.lock:                   # the Studio started again: its session is a new one that doesn't
+                    self.peer = None              # know this one (though it answers its syncs): invite again
+                self.error = "Studio restarted"
+            elif packet[2:4] in (b"CK", b"OK"):
+                self.heard = time.monotonic()
+            elif packet[2:4] == b"BY":            # the Studio ended it: find it and invite again
+                with self.lock:
+                    self.peer = None
+        elif data_port:
+            self.heard = time.monotonic()
+            for m in decode(packet):
+                self.on_message(m)
+
+    def restarted(self, ssrc):
+        """a sync answered by a session other than the one that accepted the invitation: the Studio restarted
+        (its session answers anyone's syncs, so going quiet never shows it)"""
+        with self.lock:
+            known = self.peer and self.peer.get("ssrc")
+        return bool(known) and ssrc != known
+
+    def send(self, messages):
+        with self.lock:
+            peer = self.peer
+            if not peer:
+                return
+            self.seq = (self.seq + 1) & 0xFFFF
+            packet = encode(messages, self.seq, self.ssrc)
+        if packet:
+            try:
+                self.dsock.sendto(packet, peer["data"])
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------- the control surface (Mackie Control)

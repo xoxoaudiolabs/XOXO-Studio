@@ -98,13 +98,17 @@ MIRROR_FPS = 10
 
 class HdmiMirror:
     """the touchscreen's frames, copied to the HDMI framebuffer: the largest whole-number scale that fits,
-    centred on black. Its own thread, the newest frame only: the touchscreen never waits for it."""
+    centred on black; below 2x, as big as fits (720x480: 1.5x, the whole monitor; at 1x it was a small picture in
+    the middle). Its own thread, the newest frame only: the touchscreen never waits for it."""
 
     def __init__(self, device, size, bpp, stride, status=None):
         self.device, self.size, self.bpp, self.stride, self.status = device, size, bpp, stride, status
         self.frame, self.event = None, threading.Event()
         self.scale = max(1, min(size[0] // W, size[1] // H))
-        self.at = ((size[0] - W * self.scale) // 2, (size[1] - H * self.scale) // 2)
+        if self.scale < 2:                      # (nearest pixel: a few rows and columns doubled)
+            self.scale = max(1.0, min(size[0] / W, size[1] / H))
+        self.out = (int(W * self.scale), int(H * self.scale))
+        self.at = ((size[0] - self.out[0]) // 2, (size[1] - self.out[1]) // 2)
         self.connected, self.checked, self.cleared = False, 0.0, False
 
     @classmethod
@@ -149,7 +153,12 @@ class HdmiMirror:
 
     def pixels(self, rgb):
         import numpy as np
-        big = rgb.repeat(self.scale, axis=0).repeat(self.scale, axis=1)
+        if isinstance(self.scale, int):
+            big = rgb.repeat(self.scale, axis=0).repeat(self.scale, axis=1)
+        else:
+            rows = (np.arange(self.out[1]) * H // self.out[1]).clip(0, H - 1)
+            cols = (np.arange(self.out[0]) * W // self.out[0]).clip(0, W - 1)
+            big = rgb[rows][:, cols]
         if self.bpp == 16:
             a = big.astype(np.uint16)
             return (((a[..., 0] >> 3) << 11) | ((a[..., 1] >> 2) << 5) | (a[..., 2] >> 3)).astype("<u2")
@@ -213,14 +222,59 @@ def changed_strips(changed, gap=8):
     return [tuple(s) for s in strips]
 
 
+class ScaledFb:
+    """A 480x320 RGB565 framebuffer file (seek, write) shown on a larger one, scaled up and turned round if
+    asked: the 3.5" HDMI touchscreen, sent a standard 720x480 or 960x640 (HDMI won't carry 480x320: the screen
+    scales it back down to its panel), its panel upside down on the Pi (flip). Each write sends the rows it touched
+    on at once. From FM-1 Companion (its Studio's), 2026-10-29."""
+
+    def __init__(self, device, size, flip=False):
+        import numpy as np
+        self.out = open(device, "r+b", buffering=0)
+        self.size, self.pos = size, 0
+        self.frame = np.zeros((H, W), "<u2")
+        rows, cols = np.arange(size[1]) * H // size[1], np.arange(size[0]) * W // size[0]
+        if flip:
+            rows, cols = H - 1 - rows, W - 1 - cols
+        self.rows, self.cols = rows, cols
+
+    def seek(self, pos):
+        self.pos = pos
+
+    def write(self, data):
+        import numpy as np
+        flat = self.frame.reshape(-1)
+        start = self.pos // 2
+        words = np.frombuffer(bytes(data), "<u2")
+        flat[start:start + len(words)] = words
+        self.pos += len(data)
+        top, bottom = start // W, (start + len(words) - 1) // W + 1
+        out = np.nonzero((self.rows >= top) & (self.rows < bottom))[0]
+        if len(out):
+            first, last = out.min(), out.max() + 1
+            band = self.frame[self.rows[first:last]][:, self.cols]
+            self.out.seek(int(first) * self.size[0] * 2)
+            self.out.write(band.astype("<u2").tobytes())
+
+
+def fb_size(device):
+    try:
+        name = Path(device).name
+        return tuple(int(v) for v in (Path("/sys/class/graphics") / name / "virtual_size").read_text().split(","))
+    except (OSError, ValueError):
+        return (W, H)
+
+
 class TftDisplay:
     """The app's display (show, contrast, power) on the touchscreen's framebuffer. Only what changed is
     written: the picture's band of rows on a redraw, the buttons' rows when one is pressed (SPI moves a whole
     480x320 frame, 300 KB, in ~0.1 s; the picture's band is 60% of that, a press 40%)."""
 
-    def __init__(self, device="/dev/fb1"):
+    def __init__(self, device="/dev/fb1", flip=False):
         self.device = device                  # (SLOOP on the Studio draws on it too: deskui.start_sloop)
-        self.fb = open(device, "r+b", buffering=0)
+        size = fb_size(device)
+        self.fb = (ScaledFb(device, size, flip) if size != (W, H) or flip   # (the 3.5" HDMI touchscreen)
+                   else open(device, "r+b", buffering=0))
         self.frame, self.pressed, self.lock = Image.new("1", (128, 64)), None, threading.Lock()
         self.blank_path = Path("/sys/class/graphics") / Path(device).name / "blank"
         self.bases = {}                       # (pressed button, theme) -> the whole screen with no picture in it
@@ -321,19 +375,21 @@ ABS_X, ABS_Y, BTN_TOUCH = 0, 1, 330
 
 
 def find_touch(devices=Path("/proc/bus/input/devices")):
-    """/dev/input/eventN of the touchscreen (ADS7846 / XPT2046), or None"""
+    """/dev/input/eventN of the touchscreen (ADS7846 / XPT2046), or None. Two of them (a box set up before with a
+    touch overlay of its own, ads7846 on spi0.0, besides piscreen's): the screen's own, on spi0.1, first"""
     try:
         text = devices.read_text()
     except OSError:
         return None
+    found = []
     for block in text.split("\n\n"):
         if "ADS7846" in block or "XPT2046" in block or "Touchscreen" in block:
             for line in block.splitlines():
                 if line.startswith("H: Handlers="):
-                    for handler in line.split("=", 1)[1].split():
-                        if handler.startswith("event"):
-                            return f"/dev/input/{handler}"
-    return None
+                    event = next((h for h in line.split("=", 1)[1].split() if h.startswith("event")), None)
+                    if event:
+                        found.append((0 if "spi0.1" in block else 1, f"/dev/input/{event}"))
+    return min(found)[1] if found else None
 
 
 def to_screen(raw_x, raw_y, cal):

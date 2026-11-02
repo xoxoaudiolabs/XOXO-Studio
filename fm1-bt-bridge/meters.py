@@ -21,6 +21,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 import library
+import netmidi
 
 METERS = ("Bars", "VU", "Spectrum", "Scope", "Tape", "Tuner", "MIDI", "Waterfall", "Stereo", "History", "Beat")
 NO_AUDIO = ("MIDI", "Beat")             # meters drawn from MIDI alone: no audio stream while they show
@@ -676,8 +677,11 @@ class MeterScreens:
         """the linked box REC goes to and comes from: a linked Pocket's network MIDI session, Linked REC on"""
         if not self.state.get("link_rec", True):
             return None
-        return next((p for p in (getattr(getattr(self, "midi", None), "net", None) or [])
-                     if "Pocket" in str(p) and not re.search(r"FM-1 [A-C]$", str(p))), None)
+        midi = getattr(self, "midi", None)
+        if self.state.get("follow_studio") and getattr(midi, "follows", None):
+            return midi.follows               # (Follow Studio: the one it follows)
+        return next((p for p in (getattr(midi, "net", None) or [])
+                     if netmidi.linked_box(p) and not re.search(r"FM-1 [A-C]$", str(p))), None)
 
     def link_rec_send(self, command):
         peer = self.link_rec_peer()
@@ -687,7 +691,8 @@ class MeterScreens:
 
     def link_rec(self, command, peer=None):
         """MMC from the network (linked REC): "record" starts a take here if none is going, "stop" ends one"""
-        if not self.state.get("link_rec", True) or (peer and "Pocket" not in str(peer)):
+        leader = getattr(getattr(self, "midi", None), "follows", None)
+        if not self.state.get("link_rec", True) or (peer and not netmidi.linked_box(peer) and peer != leader):
             return
         if (command == "record") != self.recorder.recording():
             self.toggle_recording(remote=True)

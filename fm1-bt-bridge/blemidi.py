@@ -1130,6 +1130,7 @@ class MidiBridge:
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
         self.xo4_in = False                 # XO-4's MIDI IN (its DRUMS row): off, the routes' notes don't play its pads
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
+        self.follow = None                    # Follow Studio: this Studio's link to the one it follows (Invitation)
         if net:
             import netmidi
             self.net = netmidi.Session("XOXO Studio", 5004, self.from_net, by_peer=True)
@@ -1212,6 +1213,10 @@ class MidiBridge:
         elif dest == "NET":
             if self.net:                      # (not a Pocket's FM-1s: they have their own routes)
                 self.net.send(messages, skip=set(self.pocket_fm1s().values()))
+            if self.follow:                   # the Studio it follows leads: no clock or start / stop back to it
+                ahead = [m for m in messages if m and not 0xF8 <= m[0] <= 0xFC]
+                if ahead:
+                    self.follow.send(ahead)
         elif dest == "SMP":
             if not self.xo4_in:               # MIDI IN off: only real-time (clock, start, stop) reaches the pads
                 messages = [m for m in messages if m and m[0] >= 0xF8]
@@ -1429,6 +1434,29 @@ class MidiBridge:
             return
         self.route_from(source, message)
 
+    def set_follow(self, on):
+        """Follow Studio: link to another Studio on the network (or the cable) as a Pocket does, its clock, MIDI
+        and MMC in as NET from it (peer: its name)"""
+        if bool(on) == bool(self.follow) or not self.net:
+            return
+        if self.follow:
+            self.follow.stop()
+            self.follow = None
+            return
+        import netmidi
+        self.follow = netmidi.Invitation(netmidi.follow_name(), self.from_leader, find=netmidi.other_studios())
+        self.net.refuse = lambda name: bool(self.follow) and "Pocket" in name   # (it links to the leader)
+        if not self.follow.start():
+            self.follow = None
+
+    def leader(self):
+        """the name of the Studio this one follows, while linked, else None"""
+        names = self.follow.names() if self.follow else []
+        return names[0] if names else None
+
+    def from_leader(self, message):
+        self.from_net(message, self.leader())
+
     def from_mcu(self, message):
         replies = self.mackie.feed(message)
         if replies:                           # the handshake some DAWs make before they use a surface
@@ -1439,7 +1467,9 @@ class MidiBridge:
         if not self.net:
             return {}
         mcu = self.mackie.state() if self.mcu.names() else None
-        return {"net": self.net.names(), "net_hosts": self.net.hosts(), "mcu": mcu, "net_error": self.net.error}
+        return {"net": self.net.names(), "net_hosts": self.net.hosts(), "mcu": mcu, "net_error": self.net.error,
+                "follows": self.leader(), "follow_address": self.follow.address() if self.follow else None,
+                "follow_error": self.follow.error if self.follow else None}
 
     # ---- MIDI recording: what's played in, while the recorder records, kept for a .mid beside the take
 
@@ -1628,7 +1658,12 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 name = str(command[1])
                 bridge.deliver("PLUGIN>" + (name if name == "NET" else DEVICE + name), [bytes(m) for m in command[2]])
             elif command[0] == "mmc" and bridge.net:   # ("mmc", "record" or "stop", peer): linked REC
-                bridge.net.send([MMC[command[1]]], to=command[2])
+                if bridge.follow and command[2] == bridge.leader():
+                    bridge.follow.send([MMC[command[1]]])
+                else:
+                    bridge.net.send([MMC[command[1]]], to=command[2])
+            elif command[0] == "follow":           # ("follow", on): Follow Studio
+                bridge.set_follow(command[1])
             elif command[0] == "mcu" and bridge.mcu:   # ("mcu", [messages]): the control surface, to the DAW
                 bridge.mcu.send([bytes(m) for m in command[1]])
             elif command[0] == "ble_saved":        # ("ble_saved", [[address, name]]): the keyboards, at start
@@ -1735,6 +1770,7 @@ class MidiProcess:
         self.xo4 = xo4 is not None            # XO-4's MIDI track plays through the routes (their XO4)
         self.net, self.mcu = [], None        # network MIDI: computers connected; the control surface's state
         self.net_hosts = {}                  # their addresses, by name
+        self.follows = self.follow_address = self.follow_error = None   # Follow Studio: the one it follows
         self.enabled, self.peer, self.error = enabled, None, None
         self.pairing_until = 0.0
         self.last_activity = 0.0
@@ -1769,6 +1805,8 @@ class MidiProcess:
             self.notes, self.chans = status.get("notes") or [], status.get("chans", 0)
             self.net, self.mcu = status.get("net") or [], status.get("mcu")
             self.net_hosts = status.get("net_hosts") or {}
+            self.follows, self.follow_address = status.get("follows"), status.get("follow_address")
+            self.follow_error = status.get("follow_error")
             self.ble_found, self.ble_scanning = status.get("ble_found") or [], status.get("ble_scanning", False)
             keys = status.get("ble_keys")
             if keys is not None:              # None: the saved ones not sent yet (not "none saved")
@@ -1854,6 +1892,10 @@ class MidiProcess:
     def send_to(self, device, messages):
         """MIDI to one device in the routes (a plug-in's send_midi), as a route to it would"""
         self.send_command(("send", str(device), [list(m) for m in messages]))
+
+    def set_follow(self, on):
+        """Follow Studio on or off"""
+        self.send_command(("follow", bool(on)))
 
     def send_mmc(self, command, peer):
         """MMC Record or Stop ("record", "stop") to one network MIDI peer (linked REC)"""
