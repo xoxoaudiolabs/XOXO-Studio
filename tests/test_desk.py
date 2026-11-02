@@ -2026,6 +2026,31 @@ def test_usb_out():
     app.dac = {"id": 9, "name": "alsa_output.dac", "label": "DAC"}    # a DAC HAT: the master; no USB out row
     assert "usb_out" not in [r[0] for r in app.settings_rows()]
 
+def test_the_mix_back_to_a_following_studio():
+    """the leader sends a following Studio its mix less STUDIO (a mix-minus: it never hears itself late) on
+    46012, Mix to Pocket on; the follower plays it on an output its link doesn't send from, or nowhere"""
+    import bridge
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.midi = type("Midi", (), {"net_hosts": {"XOXO Studio Link on studio2": "169.254.40.59",
+                                               "FM-1 Companion Pocket": "169.254.1.2"}})()
+    assert app.studio_return_address() == "169.254.40.59"
+    app.state["link_return"] = False
+    assert app.studio_return_address() is None
+    channels = [("u-felucca", {"name": "alsa_input.usb-Felucca", "label": "FELUCCA"}),
+                ("u-studio", {"name": "xoxo-studio-in", "label": "STUDIO"}),
+                ("u-xo4", {"name": "fm1-xo4", "label": "XO-4"})]
+    app.app_here = set()
+    assert [k for k, _, _ in app.studio_feeds(channels)] == ["u-felucca", "u-xo4"]
+    text = bridge.receiver_config(bridge.STUDIO_RETURN_PORT, 12.92, bridge.LEADER_MIX, "x", "xoxo-leader-mix")
+    assert "source.port = 46012" in text and "sess.latency.msec = 12.92" in text and '"xoxo-leader-mix"' in text
+    jack = "alsa_output.platform-3f00b840.mailbox.stereo-fallback"
+    usb = "alsa_output.usb-Burr-Brown_from_TI_USB_Audio_CODEC-00.analog-stereo-output"
+    app.jack, app.usb_out = {"id": 62, "name": jack}, {"id": 140, "name": usb}
+    assert app.leader_out(jack) == usb                                # the jack is the master: the interface
+    app.usb_out = None
+    assert app.leader_out(jack) is None                               # only the master itself: nowhere (round)
+    assert app.leader_out("alsa_output.dac") == jack                  # a DAC the master: the jack
+
 def test_a_studio_following():
     """Follow Studio: on the leader, a following Studio's mix (a port of its own, 46020) is a channel, STUDIO,
     beside a Pocket's; on the follower, its master goes to the leader's 46020 while linked"""
