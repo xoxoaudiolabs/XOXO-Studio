@@ -125,6 +125,20 @@ def test_following_sends_no_clock_back():
     bridge.deliver("Box>NET", [b"\xf8", b"\xfc"])
     assert len(bridge.follow.sent) == 1
 
+
+def test_the_leaders_clock_out_the_box_routes():
+    """a Studio following another: the leader's clock and Start / Stop go out its Box routes (its FM-1 on Box>
+    follows the leader), never back to NET, and not twice where NET's own route to it is on"""
+    import blemidi
+    bridge = blemidi.MidiBridge.__new__(blemidi.MidiBridge)
+    bridge.routes, bridge.saved = {}, {"Box>U:FM-1": {"on": True}, "Box>U:EP-136": {"on": True},
+                                       "NET>U:EP-136": {"on": True}}
+    bridge.dests = lambda: ["BT", "U:FM-1", "U:EP-136", "U:Off", "NET", "SMP"]
+    sent = []
+    bridge.deliver = lambda key, messages: messages and sent.append((key, messages))
+    bridge.leader_clock(b"\xf8")
+    assert [k for k, _ in sent] == ["Box>BT", "Box>U:FM-1"] and sent[1][1] == [b"\xf8"]   # (Box>BT: on at first)
+
 def test_mackie():
     m = netmidi.Mackie()
     m.feed(bytes([0xE2, 0x7F, 0x3F]))                               # strip 3's fader

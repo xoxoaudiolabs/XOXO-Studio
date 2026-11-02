@@ -1433,6 +1433,16 @@ class MidiBridge:
         if not self.passes(source, message):
             return
         self.route_from(source, message)
+        if self.follow and peer is not None and peer == self.leader() and message and message[0] in TRANSPORT:
+            self.leader_clock(message)
+
+    def leader_clock(self, message):
+        """Follow Studio: the leader's clock and Start / Stop go out the Box routes as this Studio's own would (an
+        FM-1 that follows the box's clock follows the leader's), but not back to the network (the leader leads)
+        nor where NET's own route already carries it (no clock twice)"""
+        for dest in self.dests():
+            if dest not in ("NET", "Box") and not self.route(f"NET>{dest}").s["on"]:
+                self.deliver(f"Box>{dest}", self.route(f"Box>{dest}").apply_all(message))
 
     def set_follow(self, on):
         """Follow Studio: link to another Studio on the network (or the cable) as a Pocket does, its clock, MIDI
