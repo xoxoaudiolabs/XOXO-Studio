@@ -545,8 +545,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         if self.decks_proc and self.decks_proc.running():
             rows.append(("decks", "DECKS", "", len(rows) % 3, a.mix_level("decks") / 200,   # (not the speaker's colour)
                          level("decks")))
-        master = ([("master", "MASTER", "DAC", 2, a.state.get("master", 100) / 100, f"{a.state.get('master', 100)}%")]
-                  if a.dac else [])          # a DAC HAT: the master out, above the speaker
+        master = ([("master", "MASTER", "DAC" if a.dac else "USB", 2, a.state.get("master", 100) / 100,
+                    f"{a.state.get('master', 100)}%")]
+                  if a.dac or getattr(a, "usb_out", None) else [])   # a DAC HAT (or USB out): the master out
         speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
         if a.sink and getattr(a, "spk_battery", None) is not None:   # the speaker reports its battery
             speaker = f"{speaker}  BAT {a.spk_battery}%"
@@ -618,8 +619,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins):
         cols = [(key, label, k, a.mix_level(key), 200) for key, label, _, k in self.sources()][:6]
         if self.decks_proc and self.decks_proc.running():   # the DJ decks (the DECKS tab), while they run
             cols.append(("decks", "DECKS", 0, a.mix_level("decks"), 200))
-        if a.dac:                            # a DAC HAT: the master out (its headphone and RCA outs)
-            cols.append(("master", "MASTER", 2, a.state.get("master", 100), 100))
+        if a.dac or getattr(a, "usb_out", None):   # a DAC HAT: the master out (its headphone and RCA outs); or
+            cols.append(("master", "MASTER", 2, a.state.get("master", 100), 100))   # USB out's level
         if a.sink or not a.dac:              # (with a DAC and no Bluetooth speaker: no SPKR to set)
             cols.append(("spk", "SPKR", 3, a.volume or 0, 100))
         if a.jack:                           # the Pi's 3.5 mm jack: the phones (with a DAC: CUE and the click)
