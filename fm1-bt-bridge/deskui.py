@@ -347,7 +347,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             return self.ed_wave[1]
         x = ed["x"]
         if "peak" not in ed:
-            ed["peak"] = max(1.0, float(np.abs(x).max()))
+            ed["peak"] = max(1.0, float(np.abs(x).max())) if len(x) else 1.0   # (an empty file: a flat line, not a
+                                                                                   # crash: the app died on one, 2026-11-03)
         part = x[int(v0 * ed["rate"]):max(int(v0 * ed["rate"]) + W, int(v1 * ed["rate"]))]
         edges = np.linspace(0, len(part), W + 1).astype(int)[:-1]
         if len(part) < W:

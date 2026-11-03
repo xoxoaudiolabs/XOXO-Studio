@@ -27,6 +27,9 @@ LIMITS = {"ratio": (0.25, 16.0), "index": (0.0, 12.0), "mod_decay": (0.005, 10.0
           "attack": (0.0, 10.0), "decay": (0.005, 10.0), "sustain": (0.0, 1.0), "release": (0.005, 10.0),
           "level": (0.0, 1.0)}
 TWO_PI = 2.0 * math.pi
+CUT = 0.005                                 # s: a voice let go for another (the same note again, a fifth note)
+                                            # fades this fast; gone at once it was a click mid-wave (112 a minute
+                                            # in "Pocket Groove", 2026-11-03)
 
 
 def np():
@@ -58,6 +61,7 @@ class Voice:
         self.level = 0.0                                # the ADSR's level now
         self.stage = "attack"                           # attack, decay, sustain, release, done
         self.from_level = 0.0                           # where the release ramp starts
+        self.cut = False                                # let go for another note: released in CUT, not RELEASE
 
 
 class Synth:
@@ -72,15 +76,27 @@ class Synth:
         self.patch = clean_patch(dict(self.patch, **(patch or {})))
 
     def note_on(self, note, velocity=100):
-        """a note starts; the same note again restarts; past VOICES, the oldest stops for it"""
-        self.voices = [v for v in self.voices if v.note != note]
-        if len(self.voices) >= self.max:
-            self.voices.pop(0)
+        """a note starts; the same note again restarts; past VOICES, the oldest stops for it (those let go fade
+        out in CUT, beside the new one)"""
+        for v in self.voices:
+            if v.note == note and not v.cut:
+                self.cut_voice(v)
+        live = [v for v in self.voices if not v.cut]
+        if len(live) >= self.max:
+            self.cut_voice(live[0])
         self.voices.append(Voice(note, max(1, min(127, velocity)) / 127.0, self.rate))
+
+    @staticmethod
+    def cut_voice(v):
+        if v.stage != "release":
+            v.stage, v.from_level, v.age_off = "release", v.level, v.age
+        else:                                   # (already releasing: from where it is now, faster)
+            v.from_level, v.age_off = v.level, v.age
+        v.cut = True
 
     def note_off(self, note):
         for v in self.voices:
-            if v.note == note and v.stage not in ("release", "done"):
+            if v.note == note and v.stage not in ("release", "done") and not v.cut:
                 v.stage, v.from_level, v.age_off = "release", v.level, v.age
 
     def all_off(self):
@@ -88,7 +104,7 @@ class Synth:
             self.note_off(v.note)
 
     def sounding(self):
-        return sorted(v.note for v in self.voices)
+        return sorted(v.note for v in self.voices if not v.cut)
 
     def envelope(self, v, n):
         """the voice's ADSR level for its next n frames (float32), its stage moved on as it goes"""
@@ -124,7 +140,7 @@ class Synth:
                 done = n
                 continue
             if v.stage == "release":
-                frames = max(1, int(p["release"] * r))
+                frames = max(1, int((CUT if v.cut else p["release"]) * r))
                 into = v.age - v.age_off
                 k = min(left, max(0, frames - into))
                 if k:

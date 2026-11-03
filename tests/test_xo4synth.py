@@ -86,9 +86,25 @@ def test_chords_and_stealing():
     s.note_on(74)
     assert s.sounding() == [64, 67, 71, 74]
     s.note_on(67)
-    assert s.sounding() == [64, 67, 71, 74] and len(s.voices) == 4
+    assert s.sounding() == [64, 67, 71, 74]
     x = render(s, 0.5)
+    assert len(s.voices) == 4                                   # (those let go: faded out in CUT, gone)
     assert np.abs(x).max() <= 1.0                               # four at full velocity stay under full scale
+
+
+def test_restart_without_a_click():
+    """the same note again while it sounds, or a fifth note: the one let go fades (CUT), no jump mid-wave"""
+    s = xo4synth.Synth(RATE, {"attack": 0.005, "release": 1.0, "ratio": 1.0, "index": 0.5})   # (a bass)
+    s.note_on(36)
+    a = np.concatenate([s.render(xo4synth.BLOCK) for _ in range(28)])   # (whole blocks: render() trims the last)
+    s.note_on(36)                                               # restarted mid-note
+    for note in (40, 43, 47, 50):                               # and a fifth note takes the oldest's place
+        s.note_on(note)
+    b = np.concatenate([s.render(xo4synth.BLOCK) for _ in range(28)])
+    y = np.concatenate([a, b])[:, 0]
+    jump = np.abs(np.diff(y))
+    step = np.median(np.abs(np.diff(a[:, 0])))
+    assert jump[len(a) - 2:len(a) + 2].max() < 3 * step         # (the old way: 0.017, about 21 normal steps)
 
 
 def test_patch_cleaned():

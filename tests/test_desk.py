@@ -2463,3 +2463,14 @@ def test_bluetooth_warning_on_xo4_and_decks():
     assert said[-1].endswith("Use the headphone jack or a USB Bluetooth dongle.")
     app.message, app.message_until = said[-1], time.monotonic() + 5
     ui2.render(time.monotonic(), force=True)          # two lines drawn, no error
+
+
+def test_editor_empty_file():
+    """an empty recording or sample in the EDITOR: a flat line, not a crash (the app died on one, 2026-11-03)"""
+    import numpy as np
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    ui = deskui.DeskUI(app, app.display)
+    ed = {"x": np.zeros(0, dtype=np.float32), "rate": 48000, "seconds": 0.0}
+    assert ui.editor_wave(ed, 0.0, 0.0) == [(0.0, 0.0)] * deskui.W and ed["peak"] == 1.0
