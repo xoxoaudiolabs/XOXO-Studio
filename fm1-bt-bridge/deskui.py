@@ -38,13 +38,14 @@ TABS = ("HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE")
 TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
 FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
-PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "PLUGINS": "MORE", "PLUGIN": "MORE", "ABOUT": "MORE"}   # pages opened from a tab: it stays lit under them
+PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "PLUGINS": "MORE", "PLUGIN": "MORE", "ABOUT": "MORE",
+          "SETTINGS": "MORE"}   # pages opened from a tab: it stays lit under them
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
             ("LOOP", "loop")]
-MORE = [("PLAYING", ("menu", "play")),
-        ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")), ("WI-FI", ("wifi", None)),
-        ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)), ("PLUG-INS", ("plugins", None)),
-        ("ABOUT", ("about", None)), ("SHUT DOWN", ("off", None))]
+MORE = [("PLAYING", ("menu", "play")), ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")),
+        ("PLUG-INS", ("plugins", None)), ("STUDIO SETTINGS", ("settings", None)), ("SHUT DOWN", ("off", None))]
+STUDIO_SETTINGS = [("WI-FI", ("wifi", None)), ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)),
+                   ("ABOUT", ("about", None))]     # MORE > STUDIO SETTINGS: the box's own settings
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
@@ -879,10 +880,19 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
     # ---- MORE: what opens the pocket box's screens
 
     def draw_more(self, img, d, now):
-        t = self.theme
         self.header(img, d, "MORE", self.status_right())
-        items = MORE
-        cols = 3                                   # tiles, three a row: everything on one screen, no scrolling
+        self.draw_tiles(img, d, MORE, 3)
+
+    def draw_settings(self, img, d, now):
+        """MORE > STUDIO SETTINGS: Wi-Fi, the theme, the touch setup, about"""
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< MORE", lambda: self.open_tab("MORE"), key="settings-back")
+        st.text(img, (96, 9), "STUDIO SETTINGS", self.theme.hi)
+        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=self.theme.c[0], width=2)
+        self.draw_tiles(img, d, STUDIO_SETTINGS, 2)
+
+    def draw_tiles(self, img, d, items, cols):
+        """MORE's tiles (and STUDIO SETTINGS'): cols a row, everything on one screen, no scrolling"""
+        t = self.theme
         rows = (len(items) + cols - 1) // cols
         top, bottom = HDR_H + 4, H - TAB_H - 4
         tw, th = (W - 8) // cols, (bottom - top) // rows
@@ -912,7 +922,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
 
     def draw_theme(self, img, d, now):
         t = self.theme
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< MORE", lambda: self.open_tab("MORE"), key="theme-back")
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", lambda: self.open_tab("SETTINGS"), key="theme-back")
         st.text(img, (96, 9), "THEME", t.hi)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         pick = self.theme_pick()
@@ -950,7 +960,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         if kind == "theme":                        # the theme page: a swatch of each
             self.open_tab("THEME")
             return
-        if kind == "about":                        # MORE > ABOUT: the version, the QR codes (deskabout.py)
+        if kind == "settings":                     # MORE > STUDIO SETTINGS
+            self.open_tab("SETTINGS")
+            return
+        if kind == "about":                        # STUDIO SETTINGS > ABOUT: the version, the QR codes (deskabout.py)
             self.open_tab("ABOUT")
             return
         if kind == "plugins":                      # MORE > PLUG-INS (deskplugins.py)
