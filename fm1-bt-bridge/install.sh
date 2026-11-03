@@ -24,7 +24,7 @@ while [ $# -gt 0 ]; do
                 *) echo "--screen takes a (the Hosyond / Waveshare A), c (the Waveshare C) or hdmi (the 3.5\" HDMI)" >&2
                    exit 1 ;;
             esac ;;
-        *) echo "Unknown option: $1 (there are: --dac, --screen a, --screen c)" >&2; exit 1 ;;
+        *) echo "Unknown option: $1 (there are: --dac, --screen a, --screen c, --screen hdmi)" >&2; exit 1 ;;
     esac
     shift
 done
