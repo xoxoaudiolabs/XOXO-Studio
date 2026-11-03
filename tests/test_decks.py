@@ -584,6 +584,110 @@ def test_deck_fx():
     assert e.decks[1].fx.kind == "REVERB" and e.decks[1].fx.on
 
 
+def clocked(bpm=120.0, origin=100.0):
+    """an engine whose Studio clock plays at bpm, tick 0 at `origin`; render(heard) as Decks.run does"""
+    e = decks.Engine()
+    D = decks.Decks.__new__(decks.Decks)
+    D.engine, D.out_to, D.hercules, D.maps = e, "studio", decks.Hercules(e), {}
+    D.command(["clock", 60.0 / (bpm * 24), origin, True], lambda m: None)
+    return e, D
+
+
+def run(e, seconds, at):
+    """render `seconds` from heard time `at`; -> the heard time after"""
+    for _ in range(int(seconds * RATE / decks.BLOCK)):
+        e.render(decks.BLOCK, at)
+        at += decks.BLOCK / RATE
+    return at
+
+
+def test_sync_follows_the_studio_clock():
+    """XO-4 playing: SYNC takes the Studio clock's tempo and beat (not the other deck's), and keeps them"""
+    e, D = clocked(120.0, origin=100.0)
+    a, b = e.decks
+    a.load(Track(126.0, first_beat=0.21))
+    b.load(Track(140.0))                         # (the other deck, playing, not synced: not followed)
+    b.play_pause(e.lead(b))
+    at = run(e, 0.1, 103.37)                     # the clock heard (not yet playing: tick 0 known)
+    D.command(["sync", 0], lambda m: None)
+    D.command(["play", 0], lambda m: None)
+    at = run(e, 8.0, at)
+    clock = e.clock
+    clock.heard = at                             # (where the next block is heard: where a.pos is now)
+    assert a.synced and abs(a.bpm_now() - 120.0) < 0.01 and b.bpm_now() == 140.0
+    assert abs(a.phase_error(clock)) < 0.005     # its beat on the clock's (5 ms a beat at 120 BPM: 0.01)
+    D.command(["clock", 60.0 / (122 * 24), 100.0, True], lambda m: None)   # the clock's tempo moves: followed
+    run(e, 0.1, at)
+    assert abs(a.bpm_now() - 122.0) < 0.01
+
+
+def test_synced_start_lands_on_the_bar():
+    """a synced deck started: its bar's first beat on its lead's (the clock's, or the other deck's)"""
+    e, D = clocked(120.0, origin=100.0)
+    a = e.decks[0]
+    a.load(Track(120.0))
+    a.pos = 6 * a.track.beat_frames()            # stopped on its beat 7 (the bar's third)
+    at = run(e, 0.1, 101.0 + 0.5 * 4 * 9)        # the clock at bar 10's first beat
+    a.toggle_sync(e.lead(a))
+    a.play_pause(e.lead(a))
+    run(e, 0.1, at)
+    assert abs(a.phase_error(e.clock, decks.BAR)) < 0.01
+    e = decks.Engine()                           # no clock: deck to deck
+    a, b = e.decks
+    a.load(Track(120.0))
+    b.load(Track(120.0, first_beat=0.1))
+    a.play_pause(b)
+    for _ in range(int(3.3 * RATE / decks.BLOCK)):
+        e.render()
+    b.toggle_sync(a)
+    b.play_pause(a)
+    e.render()
+    assert abs(b.phase_error(a, decks.BAR)) < 0.01
+
+
+def test_clock_stopped_back_to_deck_sync():
+    """XO-4 stops: SYNC follows the other deck again"""
+    e, D = clocked(120.0)
+    a, b = e.decks
+    a.load(Track(140.0))
+    b.load(Track(136.0))                         # (within its tempo fader's 8 %)
+    assert e.lead(b) is a                        # (the decks' sound not heard yet: the clock can't lead)
+    e.render(decks.BLOCK, 100.5)
+    assert e.lead(b) is e.clock
+    D.command(["clock", None, None, False], lambda m: None)
+    e.render(decks.BLOCK, 100.6)
+    assert e.lead(b) is a
+    b.toggle_sync(e.lead(b))
+    e.render()
+    assert abs(b.bpm_now() - 140.0) < 0.01
+
+
+def test_play_stop_and_jumps_without_a_click():
+    """PLAY, a stop, CUE and a hot cue fade across (no jump in the waveform: a click on the DAC)"""
+    tone = Track(seconds=10)
+    t = np.arange(len(tone.audio)) / RATE
+    x = np.sin(2 * np.pi * 220 * t) * 16000
+    tone.audio = np.stack([x, x], 1).astype(np.int16)
+    d = decks.Deck("A")
+    d.load(tone)
+    d.pos = 1234.5                               # (mid-wave: a start there clicks without a fade)
+    out = [d.render(decks.BLOCK) for _ in range(3)]
+    d.play_pause()
+    out += [d.render(decks.BLOCK) for _ in range(20)]
+    d.hotcue(0, True)                            # a hot cue set here ...
+    d.hotcue(0, False)
+    out += [d.render(decks.BLOCK) for _ in range(5)]
+    d.pos += 3000.3                              # ... a jump (as a seek) ...
+    out += [d.render(decks.BLOCK) for _ in range(5)]
+    d.hotcue(0, True)                            # ... back to it ...
+    out += [d.render(decks.BLOCK) for _ in range(5)]
+    d.play_pause()                               # ... and stop
+    out += [d.render(decks.BLOCK) for _ in range(5)]
+    y = np.concatenate(out)[:, 0]
+    step = np.abs(np.diff(y)).max()              # a 220 Hz sine at 0.49: at most ~0.016 a sample
+    assert 0.3 < np.abs(y).max() and step < 0.03, step
+
+
 def test_heard_without_a_controller():
     """a fresh deck's volume is up: the touch screen alone (no fader ever moved) is heard"""
     d = decks.Deck("A")

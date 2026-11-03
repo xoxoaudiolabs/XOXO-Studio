@@ -129,8 +129,7 @@ def studio():
     bass["len"] = 12
     for i, note in ((0, 36), (3, 36), (6, 43), (9, 41)):
         bass["steps"][i] = {"notes": [note], "vel": 110}
-    state = dict(bridge.DEFAULTS, kit=kit, xo4=xo4.clean_song(song), mix={"u-xo4": 90, "u-sampler": 110,
-                                                                           "u-ep136": 70, "decks": 120},
+    state = dict(bridge.DEFAULTS, kit=kit, xo4=xo4.clean_song(song), mix={"u-xo4": 90, "u-ep136": 70, "decks": 120},
                  repeat=2, last_name="JBL Go 3", bpm=120, clock_mode="box")
     display = Capture()
     app = bridge.App(display, state)
@@ -139,8 +138,7 @@ def studio():
     app.playing = True
     app.battery = {"percent": 78, "mv": 3800, "plugged": False}
     app.sink, app.volume, app.spk_battery = {"id": 9, "name": "bluez_output.jbl", "label": "JBL Go 3"}, 64, 80
-    app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True},
-                  {"id": 2, "name": "fm1-sampler", "label": "SAMPLER", "internal": True},
+    app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True},   # (the pads in it)
                   {"id": 3, "name": "alsa_input.usb-casio", "label": "EP-136"}]
     ui = deskui.DeskUI(app, display)
     ui.theme_check = 1e12

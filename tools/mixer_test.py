@@ -112,10 +112,14 @@ try:
     check("mute XO-4 silences it", m < base / 30, f"{db(m):.1f} dBFS")
     command("mute_u-xo4", False); m = tone_level(DAC)
     check("unmute brings it back", abs(db(m) - db(base)) < 1.5, f"{db(m):.1f} dBFS")
-    command("solo_u-sampler", True); m = tone_level(DAC)
-    check("solo SAMPLER silences XO-4", m < base / 30, f"{db(m):.1f} dBFS")
-    command("solo_u-sampler", False); m = tone_level(DAC)
-    check("unsolo brings it back", abs(db(m) - db(base)) < 1.5, f"{db(m):.1f} dBFS")
+    other = next((r["key"] for r in status()["mixer"] if r["key"] != "u-xo4"), None)   # (the pads are in XO-4's)
+    if other:
+        command(f"solo_{other}", True); m = tone_level(DAC)
+        check(f"solo {other} silences XO-4", m < base / 30, f"{db(m):.1f} dBFS")
+        command(f"solo_{other}", False); m = tone_level(DAC)
+        check("unsolo brings it back", abs(db(m) - db(base)) < 1.5, f"{db(m):.1f} dBFS")
+    else:
+        print("(no other channel: solo of another one not tried)")
     command("solo_u-xo4", True); m = tone_level(DAC)
     check("solo XO-4 keeps it", abs(db(m) - db(base)) < 1.5, f"{db(m):.1f} dBFS")
     command("solo_u-xo4", False)

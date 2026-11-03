@@ -45,7 +45,8 @@ class DeskDecks:
         """the DECKS tab: the decks started (once) and their screen shown"""
         import decks
         if self.decks_proc is None:
-            self.decks_proc = decks.DeckProcess(on_change=self.decks_changed)
+            self.decks_proc = decks.DeckProcess(on_change=self.decks_changed,   # (SYNC follows XO-4's clock)
+                                                clock=lambda: (getattr(self.app.midi, "clock", None) or {}).get("grid"))
         self.decks_proc.start()
         self.decks_proc.send("output", self.app.state.get("decks_out", "studio"))
         self.tab = "DECKS"
@@ -132,7 +133,8 @@ class DeskDecks:
         st.text(img, (x0 + 170, HDR_H + 38), f"{pitch:+.1f}%", t.c[3])
         left = (deck.get("len") or 0) - (deck.get("pos") or 0)
         st.text(img, (x0 + 170, HDR_H + 54), f"-{clock(left)}", t.hi)
-        badges = [n for n, on in (("SYNC", deck.get("synced")), ("LOOP", deck.get("loop"))) if on]
+        badges = [n for n, on in (("SYNC XO-4" if deck.get("to_clock") else "SYNC", deck.get("synced")),
+                                  ("LOOP", deck.get("loop"))) if on]
         st.text(img, (x0 + 6, HDR_H + 72), " ".join(badges), colour)
         # the overview: the whole track, where it's at, its cues and loop; drag along it to go there, tap it for
         # it full screen

@@ -296,11 +296,14 @@ def start_bluez(bridge):
     central = {"connecting": None, "tries": {}, "scanned": 0.0}   # tries: address -> (next try, wait after it)
 
     def adapter_path():
+        """the adapter in use (the app's, bridge.bt_adapter: a dongle over the Pi's own), else the first"""
         objects = dbus.Interface(bus.get_object(BLUEZ, "/"), OM).GetManagedObjects()
-        for path, ifaces in objects.items():
-            if "org.bluez.GattManager1" in ifaces and "org.bluez.LEAdvertisingManager1" in ifaces:
+        usable = [(path, ifaces) for path, ifaces in sorted(objects.items())
+                  if "org.bluez.GattManager1" in ifaces and "org.bluez.LEAdvertisingManager1" in ifaces]
+        for path, ifaces in usable:
+            if bridge.bt_adapter and str(ifaces.get(ADAPTER, {}).get("Address", "")).upper() == bridge.bt_adapter:
                 return path
-        return None
+        return usable[0][0] if usable else None
 
     def ignore(*args):
         pass
@@ -600,7 +603,14 @@ def start_bluez(bridge):
                             arg0=CHRC, bus_name=BLUEZ, path_keyword="path")    # (not our own characteristic's)
     bus.watch_name_owner(BLUEZ, owner_changed)    # also calls back now if bluetoothd is running
 
+    def move_adapter():
+        """the app's adapter changed (a dongle in or out): everything registered again there"""
+        if adapter_path() != state["adapter"]:
+            try_register()
+        return False
+
     bridge.bluez = {"notify": chrc.notify, "set_advertising": set_advertising, "open_pairing": open_pairing,
+                    "move_adapter": move_adapter,
                     "connected_peers": connected_peers, "idle_add": GLib.idle_add,
                     "timeout_add_seconds": GLib.timeout_add_seconds, "write": keyboard_write,
                     "scan": keyboard_scan, "connect": keyboard_connect, "forget": keyboard_forget,
@@ -611,6 +621,30 @@ def start_bluez(bridge):
 
 CLOCK, START, CONTINUE, STOP = 0xF8, 0xFA, 0xFB, 0xFC
 TRANSPORT = (CLOCK, START, CONTINUE, STOP)
+
+
+PLAYER_PRIORITY = 15                    # the pw-cat players (the pads, XO-4, the decks): under PipeWire's 20
+
+
+def make_player_realtime(pid, priority=PLAYER_PRIORITY):
+    """a pw-cat player real-time through RTKit (by its pid: it does its work on its main thread, at the normal
+    priority, so a busy Pi made it late: a lost block, heard as a click). Best effort: RTKit allows a user 15
+    real-time processes, PipeWire's loopbacks most of them"""
+    bus = None
+    try:
+        import resource
+        import dbus
+        resource.prlimit(pid, resource.RLIMIT_RTTIME, (200_000, 200_000))   # RTKit insists on a limit
+        bus = dbus.SystemBus(private=True)
+        rtkit = dbus.Interface(bus.get_object("org.freedesktop.RealtimeKit1", "/org/freedesktop/RealtimeKit1"),
+                               "org.freedesktop.RealtimeKit1")
+        rtkit.MakeThreadRealtimeWithPID(dbus.UInt64(pid), dbus.UInt64(pid), dbus.UInt32(priority))
+        return True
+    except Exception:
+        return False
+    finally:
+        if bus is not None:
+            bus.close()
 
 
 def make_realtime(priority=10):
@@ -1147,6 +1181,7 @@ class MidiBridge:
         self.pairing_until = 0.0
         self.last_ble = 0.0
         self.bluez = None                   # filled in by start_bluez's thread
+        self.bt_adapter = None              # the Bluetooth adapter in use, from the app (a dongle over the Pi's own)
         self.error = None
         self.pending, self.flush_queued = [], False
         self.lock = threading.Lock()
@@ -1368,12 +1403,12 @@ class MidiBridge:
         """{"bpm", "source", "playing"} for the screen, or None"""
         if self.clock_mode == "box":
             return {"bpm": round(self.bpm), "tempo": self.bpm, "source": "box", "playing": self.playing,
-                    "bar": self.box_bar}
+                    "bar": self.box_bar, "grid": list(self.grid(now))}
         for source, watch in self.watch.items():
             bpm = watch.bpm(now)
             if bpm:
                 return {"bpm": round(bpm), "tempo": round(bpm, 2), "source": source, "playing": watch.playing,
-                        "bar": round(watch.bar(now), 3)}
+                        "bar": round(watch.bar(now), 3), "grid": list(self.grid(now))}
         return None
 
     def note_watch(self, message, now):
@@ -1679,6 +1714,10 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
             elif command[0] == "ble_saved":        # ("ble_saved", [[address, name]]): the keyboards, at start
                 bridge.ble_saved = [[str(a), str(n)] for a, n in command[1]][:MAX_KEYBOARDS]
                 bridge.ble_loaded = True
+            elif command[0] == "bt_adapter":       # ("bt_adapter", address): Bluetooth MIDI moves to it
+                bridge.bt_adapter = str(command[1]).upper() if command[1] else None
+                if bridge.bluez:
+                    bridge.bluez["idle_add"](bridge.bluez["move_adapter"])
             elif command[0] == "ble":              # ("ble", "scan") / ("ble", "connect" or "forget", address)
                 bridge.keyboard_command(*command[1:])
             elif command[0] == "midirec":          # ("midirec", True): log what's played in; (.., False): stop
@@ -1894,6 +1933,10 @@ class MidiProcess:
 
     def ble_connect(self, address):
         self.conn.send(("ble", "connect", address))
+
+    def set_bt_adapter(self, address):
+        """the Bluetooth adapter in use (App.bt_follow_dongle): Bluetooth MIDI moves to it"""
+        self.conn.send(("bt_adapter", address))
 
     def ble_forget(self, address):
         self.ble_keys = [k for k in self.ble_keys if k[0] != address]
