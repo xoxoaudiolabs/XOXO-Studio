@@ -8,6 +8,9 @@
 #   --screen c     the Waveshare 3.5" (C), 125 MHz SPI
 #   --screen hdmi  the 3.5" HDMI touchscreen (UCTRONICS): the picture on HDMI, touch on the GPIO pins
 # e.g.  bash install.sh --dac --screen c
+# (The web app's update runs it too, as root for the user: fm1-update, with FM1_UPDATE_USER. Nothing is asked then,
+# packages are only installed if one is missing, and the boot settings (config.txt, cmdline.txt: the screen, the DAC)
+# are left as they are: those change only when it's run by hand. From FM-1 Companion's installer.)
 set -euo pipefail
 DAC=0
 SCREEN_KIND=""
@@ -26,9 +29,20 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+UPDATE=""
 if [ "$(id -u)" -eq 0 ]; then
-    echo "Run this as your normal user, not root: bash install.sh" >&2
-    exit 1
+    if [ -z "${FM1_UPDATE_USER:-}" ]; then
+        echo "Run this as your normal user, not root: bash install.sh" >&2
+        exit 1
+    fi
+    UPDATE=1                                # fm1-update: root already, for the user it names
+    USER="$FM1_UPDATE_USER"
+    HOME="$(getent passwd "$USER" | cut -d: -f6)"
+    export USER HOME
+    sudo() { case "$1" in -v|-n) return 0 ;; esac; "$@"; }
+    as_user() { runuser -u "$USER" -- env HOME="$HOME" XDG_RUNTIME_DIR="/run/user/$(id -u "$USER")" "$@"; }
+else
+    as_user() { "$@"; }
 fi
 DIR="$(cd "$(dirname "$0")" && pwd)"
 MODEL="$(tr -d '\0' < /proc/device-tree/model 2>/dev/null || true)"
@@ -38,19 +52,27 @@ case "$MODEL" in
 esac
 echo "== $MODEL: the $([ "$BUILD" = desk ] && echo Studio || echo Pocket)"
 
-echo "== Your password is needed once, for sudo"
-sudo -v
-while kill -0 "$$" 2>/dev/null; do sudo -n true; sleep 50; done 2>/dev/null &   # keep sudo for the whole install
+if [ -z "$UPDATE" ]; then
+    echo "== Your password is needed once, for sudo"
+    sudo -v
+    while kill -0 "$$" 2>/dev/null; do sudo -n true; sleep 50; done 2>/dev/null &   # keep sudo for the whole install
+fi
 
-echo "== Installing packages (this takes a while: several minutes, longest on a Pi Zero)"
-sudo apt-get update
-sudo apt-get install -y --no-install-recommends \
-    pipewire wireplumber libspa-0.2-bluetooth dbus-user-session rtkit bluez \
+PACKAGES="pipewire wireplumber libspa-0.2-bluetooth dbus-user-session rtkit bluez \
     python3-pil python3-spidev python3-libgpiod fonts-dejavu-core \
     python3-dbus python3-gi python3-mido python3-rtmidi python3-numpy python3-smbus2 i2c-tools \
-    device-tree-compiler python3-qrcode
-if [ "$BUILD" = desk ]; then              # USB drives for the DJ decks: mounted, FAT / exFAT / NTFS
-    sudo apt-get install -y --no-install-recommends udisks2 exfatprogs ntfs-3g
+    device-tree-compiler python3-qrcode"
+[ "$BUILD" = desk ] && PACKAGES="$PACKAGES udisks2 exfatprogs ntfs-3g"   # USB drives for the DJ decks
+all_installed() {
+    for p in $PACKAGES; do
+        dpkg-query -W -f '${Status}' "$p" 2>/dev/null | grep -q "install ok installed" || return 1
+    done
+}
+if [ -z "$UPDATE" ] || ! all_installed; then  # (an update: only when it brings a package)
+    echo "== Installing packages (this takes a while: several minutes, longest on a Pi Zero)"
+    sudo apt-get update
+    # shellcheck disable=SC2086
+    sudo apt-get install -y --no-install-recommends $PACKAGES
 fi
 
 echo "== Enabling SPI for the screen, Bluetooth, and permissions"
@@ -59,11 +81,14 @@ sudo raspi-config nonint do_i2c 0       # a PiSugar 3 battery, if there's one, a
 sudo rfkill unblock bluetooth || true
 sudo systemctl enable --now bluetooth
 sudo usermod -aG bluetooth,gpio,spi,i2c,audio "$USER"
+CMDLINE=/boot/firmware/cmdline.txt
+[ -f "$CMDLINE" ] || CMDLINE=/boot/cmdline.txt
+CONFIG=/boot/firmware/config.txt
+[ -f "$CONFIG" ] || CONFIG=/boot/config.txt
+if [ -z "$UPDATE" ]; then                  # the boot settings, to the DAC's below: by hand only, never in an update
 # USB at full speed, Pocket only: the Zero's USB can't drive a USB 2 hub at high speed (devices behind it
 # time out), and the FM-1 and USB keyboards are full-speed devices anyway. (A Pi 3/4's built-in ports need
 # none of it.) Takes effect at the next boot.
-CMDLINE=/boot/firmware/cmdline.txt
-[ -f "$CMDLINE" ] || CMDLINE=/boot/cmdline.txt
 if [ "$BUILD" = pocket ] && ! grep -q "dwc_otg.speed=1" "$CMDLINE"; then
     sudo cp "$CMDLINE" "$CMDLINE.bak"
     sudo sed -i '1 s/$/ dwc_otg.speed=1/' "$CMDLINE"
@@ -79,8 +104,6 @@ done
 # The Studio's 3.5" touchscreen (ILI9486 display, XPT2046 touch: the common "3.5 inch RPi LCD"): the kernel's
 # own driver, a framebuffer at /dev/fb1 and a touch input device; landscape. Not the seller's LCD-show script,
 # which replaces system files. Takes effect at the next boot.
-CONFIG=/boot/firmware/config.txt
-[ -f "$CONFIG" ] || CONFIG=/boot/config.txt
 # Raspberry Pi OS from 2026 no longer ships waveshare35a: piscreen is the same chips on the same pins (display on
 # CE0, DC GPIO24, reset GPIO25; touch on CE1, its interrupt GPIO17). Its fbtft driver, not its DRM one (drm):
 # on the Hosyond 3.5" the DRM driver's start-up leaves the panel white (tested 2026-10-24). 24 MHz SPI: clean on
@@ -169,6 +192,7 @@ if [ "$BUILD" = desk ] && [ "$DAC" = 1 ] && ! grep -q "^dtoverlay=allo-boss-dac-
 dtoverlay=allo-boss-dac-pcm512x-audio
 ' | sudo tee -a "$CONFIG" >/dev/null
 fi
+fi                                          # (the boot settings)
 # A Pi 4: the Studio as a USB audio + MIDI interface for a computer on its USB-C port (docs/BUILD.md). The port's
 # USB controller in device mode (its USB-A ports stay hosts); the gadget set up at each boot
 # (config/xoxo-usb-gadget.sh). A Pi 3 has no such port: nothing done there.
@@ -178,7 +202,7 @@ case "$MODEL" in
 esac
 if [ "$BUILD" = desk ] && [ "$USB_IFACE" = 1 ]; then
     echo "== The Studio as a USB audio + MIDI interface (the Pi 4's USB-C)"
-    if ! grep -q "^dtoverlay=dwc2,dr_mode=peripheral" "$CONFIG"; then
+    if [ -z "$UPDATE" ] && ! grep -q "^dtoverlay=dwc2,dr_mode=peripheral" "$CONFIG"; then
         sudo cp "$CONFIG" "$CONFIG.bak"
         printf '
 [pi4]
@@ -209,9 +233,10 @@ if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): lis
     sudo nmcli general reload conf || true
 fi
 
-echo "== Letting the bridge shut down and switch Wi-Fi without a password"
+echo "== Letting the bridge shut down, switch Wi-Fi and update from the web app without a password"
+sudo install -m 755 "$DIR/config/fm1-update" /usr/local/sbin/fm1-update   # the web app's update (update.py)
 SUDOERS=/etc/sudoers.d/fm1-bridge
-printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/nmcli radio wifi on, /usr/bin/nmcli radio wifi off\n' \
+printf '%s ALL=(root) NOPASSWD: /usr/bin/systemctl poweroff, /usr/bin/nmcli radio wifi on, /usr/bin/nmcli radio wifi off, /usr/local/sbin/fm1-update\n' \
     "$USER" | sudo tee "$SUDOERS" >/dev/null
 sudo chmod 440 "$SUDOERS"
 sudo visudo -cf "$SUDOERS"
@@ -261,6 +286,7 @@ install -D -m 755 "$DIR/library.py"                             ~/.local/share/f
 install -D -m 644 "$DIR/decks.py"                               ~/.local/share/fm1-bridge/decks.py
 install -D -m 644 "$DIR/djlib.py"                               ~/.local/share/fm1-bridge/djlib.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
+install -D -m 755 "$DIR/update.py"                              ~/.local/share/fm1-bridge/update.py
 mkdir -p ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins   # (plug-ins: plugins.py)
 mkdir -p ~/.local/share/fm1-bridge/vendor/fonts
 install -m 644 "$DIR"/vendor/fonts/*                            ~/.local/share/fm1-bridge/vendor/fonts/
@@ -286,6 +312,11 @@ if [ "$BUILD" = desk ] && [ ! -f ~/.local/share/fm1-bridge/splash.raw ]; then   
     (cd ~/.local/share/fm1-bridge && python3 -c "import deskboot, xoxostyle; deskboot.save(xoxostyle.Theme())")         || echo "   (the boot screen's picture comes with the first start instead)"
 fi
 
+if [ -n "$UPDATE" ]; then                  # (written as root above: the user's again)
+    chown -R "$USER:" ~/.local/share/fm1-bridge ~/.config/pipewire ~/.config/wireplumber ~/.config/systemd
+    chown "$USER:" ~/fm1-library ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins
+fi
+
 echo "== Booting faster (on Trixie a Zero W otherwise takes ~3 minutes before the app starts)"
 # cloud-init only applies Raspberry Pi Imager's settings on the first boot, but costs ~40 s on every boot
 sudo touch /etc/cloud/cloud-init.disabled
@@ -297,10 +328,10 @@ sudo systemctl daemon-reload
 
 echo "== Starting at boot without a login"
 sudo loginctl enable-linger "$USER"
-systemctl --user daemon-reload
-systemctl --user enable pipewire.socket wireplumber.service fm1-bridge.service fm1-web.service
+as_user systemctl --user daemon-reload
+as_user systemctl --user enable pipewire.socket wireplumber.service fm1-bridge.service fm1-web.service
 if [ "$BUILD" = desk ]; then
-    systemctl --user enable fm1-pocket-in.service
+    as_user systemctl --user enable fm1-pocket-in.service
 fi
 sync                                    # on the card before anyone pulls the power
 

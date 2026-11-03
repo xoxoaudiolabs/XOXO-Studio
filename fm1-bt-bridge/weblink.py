@@ -14,6 +14,24 @@ import library
 SETTINGS = ("metronome", "bpm", "clock_mode", "click", "audio_rate")
 
 
+def web_version():
+    try:
+        import deskboot
+        return deskboot.VERSION
+    except ImportError:
+        return None
+
+
+def web_theme(state):
+    """the screen's theme for the page: {"value", "choices"}, or None on a box without the Studio's look"""
+    try:
+        import xoxostyle
+    except ImportError:
+        return None
+    value = state.get("desk_theme")
+    return {"value": value if value in xoxostyle.ALL else xoxostyle.Theme().name, "choices": list(xoxostyle.ALL)}
+
+
 class WebLink:
     def web_init(self):
         self.web_shown, self.web_written = None, 0.0     # the status last written for the page, and when
@@ -56,6 +74,8 @@ class WebLink:
             "settings": dict({k: self.state[k] for k in SETTINGS}, arp_on=keys["arp_on"], chord_on=keys["chord_on"],
                              arp=keys["arp"], arp_rate=keys["arp_rate"], chord=keys["chord"]),
             "routes": self.routes(), "presets": self.presets(), "wifi": self.wifi,
+            "version": web_version(),         # the Studio's release (deskboot.VERSION): SETTINGS > About
+            "theme": web_theme(self.state),   # the screen's theme and the ones there are: SETTINGS > Screen
             "xo4": self.web_xo4(), "kits": self.web_kits(), "decks": self.web_decks(),
             "plugins": {"list": self.plugin_host.listing(), "status": self.plugin_host.web_status()},
         }
@@ -116,6 +136,23 @@ class WebLink:
             if text:
                 self.say(text, 1.5)
 
+    def web_update(self):
+        """the web app's update (update.py): asked for a hold-press on the screen first, as shutting down is"""
+        import update
+        info = update.check()
+        why = info["busy"] or (None if info["helper"] else "needs install.sh once") \
+            or (None if info["newer"] else info["error"] or f"up to date ({info['installed']})")
+        if why:
+            return f"Update: {why}"[:40]
+
+        def go():
+            error = update.start()
+            self.say(f"Update: {error}"[:40] if error else "Updating: it restarts when done", 4)
+            self.screen = "status"
+        self.ask("Update?", [f"{info['installed']} > {info['newest']}", "Restarts; your files kept"], go,
+                 back="status")
+        return None
+
     def web_command(self, c):
         """one command from the page -> a short message for the screen. Values are checked here too: the page
         checks them, but the commands file is the only door and it gets the same care."""
@@ -158,6 +195,13 @@ class WebLink:
             if re.fullmatch(r"input_u-[a-z0-9]+", key):          # a multichannel source: its next pair
                 pair = self.next_input_pair(key[6:])
                 return pair and f"Web: inputs {pair}"
+            if key == "desk_theme" and isinstance(value, str):   # the screen's theme (the desk UI picks it up)
+                import xoxostyle
+                if value not in xoxostyle.ALL:
+                    raise ValueError(f"no theme {value}"[:40])
+                self.state["desk_theme"] = value
+                self.save_settings()
+                return f"Web: theme {value}"
             if key == "latency" and value in ("SAFE", "LOW", "LOWER", "LOWEST"):   # (bridge.LATENCY's steps)
                 self.set_latency(value)
                 return None
@@ -207,6 +251,8 @@ class WebLink:
             return None                       # preset_apply says it
         if cmd == "xo4":
             return self.web_xo4_command(c)
+        if cmd == "update":                   # Library > Software: the newest release, held to confirm here
+            return self.web_update()
         if cmd == "plugin":                   # a plug-in switched on or off, or one of its own commands
             if "on" in c:
                 return "Web: " + self.plugin_host.set_on(c["id"], bool(c["on"]))
