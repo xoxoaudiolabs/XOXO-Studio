@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
 from PIL import Image  # noqa: E402
 
 import bridge  # noqa: E402
+import deskabout  # noqa: E402
 import deskui  # noqa: E402
 import library  # noqa: E402
 import pads  # noqa: E402
@@ -195,7 +196,9 @@ def main():
         ("studio-editor", editor),
         ("studio-midi", lambda app, ui: ui.open_tab("MIDI")),
         ("studio-more", lambda app, ui: ui.open_tab("MORE")),
+        ("studio-about", lambda app, ui: ui.open_tab("ABOUT")),
     ]
+    deskabout.lan_address = lambda: "192.168.1.20"    # (a made-up address, not this computer's)
     app, ui = studio()
     for name, setup in scenes:
         if app.screen == "editor":               # (the editor leaves the screen to the next scene)
