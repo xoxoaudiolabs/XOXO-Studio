@@ -2374,9 +2374,12 @@ def test_bluetooth_dongle_takes_over(monkeypatch, tmp_path):
     present = {"hci0", "hci1"}
     calls = []
     default = {"is": None}                            # bluetoothctl's default controller (None: the one in use)
+    blocked = set()                                   # adapters that won't power on (rfkill)
 
     def run(cmd, timeout=15, merge=True, clean=True):
         calls.append(cmd)
+        if cmd[:2] == ["busctl", "set-property"] and cmd[3].rsplit("/", 1)[1] in blocked and cmd[-1] == "true":
+            return 1, "Failed to set property Powered: org.bluez.Error.Blocked"
         if cmd[:2] == ["busctl", "get-property"]:
             hci = cmd[3].rsplit("/", 1)[1]
             return (0, f's "{address[hci]}"') if hci in present else (1, "unknown object")
@@ -2405,13 +2408,24 @@ def test_bluetooth_dongle_takes_over(monkeypatch, tmp_path):
     app.say = lambda text, seconds=3: said.append(text)
     app.bt_follow_dongle()                            # starts with the Pi's own: nothing said
     assert bridge.BT_IN_USE == {"address": "B8:27:EB:15:77:0A", "usb": False} and not said
+    present.add("hci1")                               # a dongle that won't power on (blocked): the Pi's own kept
+    blocked.add("hci1")
+    calls.clear()
+    app.bt_follow_dongle()
+    app.bt_follow_dongle()                            # (tried again: said once)
+    assert bridge.BT_IN_USE["address"] == "B8:27:EB:15:77:0A"
+    assert not [c for c in calls if c[:2] == ["busctl", "set-property"] and c[-1] == "false"]
+    assert said == ["Bluetooth dongle blocked: unplug it, or unblock it (rfkill)"]
+    said.clear()
+    blocked.clear()
+    present.discard("hci1")
     present.add("hci1")                               # the dongle plugged in
     calls.clear()
     app.bt_follow_dongle()
     assert bridge.BT_IN_USE["address"] == "E8:48:B8:C8:20:00" and app.bt_usb
     assert app.midi.moved[-1] == "E8:48:B8:C8:20:00"
     power = [(c[3], c[-1]) for c in calls if c[:2] == ["busctl", "set-property"]]
-    assert power == [("/org/bluez/hci0", "false"), ("/org/bluez/hci1", "true")]
+    assert power == [("/org/bluez/hci1", "true"), ("/org/bluez/hci0", "false")]   # (the new one on first)
     assert said == ["Bluetooth dongle: pair the speaker again"]              # (the JBL was paired on the Pi's own)
     calls.clear()
     app.bt_follow_dongle()                            # nothing changed: nothing done
