@@ -60,7 +60,8 @@ bash fm1-bt-bridge/install.sh --dac --screen c
 ```
 
 - `--dac`: the DAC HAT's driver (it then takes over from the Pi's own jack: headphones, CUE, the decks' PFL)
-- `--screen c`: the Waveshare (C). Without it, the Hosyond / Waveshare (A) settings
+- `--screen c`: the Waveshare (C). Without it, the Hosyond / Waveshare (A) settings: the Studio's `xoxo35` overlay
+  (piscreen with the screen maker's panel start-up: blacker blacks), made on the Pi by `config/xoxo35.sh`
 - On a Pi 4 the installer also makes the Studio a USB audio + MIDI interface on its USB-C port (below)
 
 ## The Studio as a USB interface

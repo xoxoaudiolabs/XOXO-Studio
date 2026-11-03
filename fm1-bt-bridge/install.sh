@@ -47,7 +47,8 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
     pipewire wireplumber libspa-0.2-bluetooth dbus-user-session rtkit bluez \
     python3-pil python3-spidev python3-libgpiod fonts-dejavu-core \
-    python3-dbus python3-gi python3-mido python3-rtmidi python3-numpy python3-smbus2 i2c-tools
+    python3-dbus python3-gi python3-mido python3-rtmidi python3-numpy python3-smbus2 i2c-tools \
+    device-tree-compiler
 if [ "$BUILD" = desk ]; then              # USB drives for the DJ decks: mounted, FAT / exFAT / NTFS
     sudo apt-get install -y --no-install-recommends udisks2 exfatprogs ntfs-3g
 fi
@@ -88,17 +89,27 @@ CONFIG=/boot/firmware/config.txt
 # (waveshare35c) when it's in the overlays folder (Raspberry Pi OS doesn't ship it), else piscreen at 48 MHz.
 # Not yet tried on a (C): if its picture is wrong, put Waveshare's waveshare35c.dtbo in the overlays folder and run
 # this again with --screen c.
+# The Hosyond / Waveshare (A) (the default): xoxo35, piscreen with the screen maker's panel start-up (config/xoxo35.sh:
+# piscreen's left the backlight showing through and the blacks washed out, tested 2026-11-02); piscreen if it can't
+# be made.
 OVERLAYS="$(dirname "$CONFIG")/overlays"
+if [ "$BUILD" = desk ] && [ -z "$SCREEN_KIND" -o "$SCREEN_KIND" = a ] && [ -f "$OVERLAYS/piscreen.dtbo" ]; then
+    if bash "$DIR/config/xoxo35.sh" "$OVERLAYS/piscreen.dtbo" /tmp/xoxo35.dtbo; then
+        sudo cp /tmp/xoxo35.dtbo "$OVERLAYS/xoxo35.dtbo"
+    fi
+fi
 if [ "$SCREEN_KIND" = c ] && [ -f "$OVERLAYS/waveshare35c.dtbo" ]; then
     SCREEN="dtoverlay=waveshare35c,rotate=90"
 elif [ "$SCREEN_KIND" = c ]; then
     SCREEN="dtoverlay=piscreen,speed=48000000,rotate=90"
+elif [ -f "$OVERLAYS/xoxo35.dtbo" ]; then
+    SCREEN="dtoverlay=xoxo35,speed=24000000,rotate=90"
 elif [ -f "$OVERLAYS/waveshare35a.dtbo" ]; then
     SCREEN="dtoverlay=waveshare35a,rotate=90"
 else
     SCREEN="dtoverlay=piscreen,speed=24000000,rotate=90"
 fi
-SCREEN_LINE="^dtoverlay=\(waveshare35a\|waveshare35c\|piscreen\|mipi-dbi-spi\)"
+SCREEN_LINE="^dtoverlay=\(waveshare35a\|waveshare35c\|piscreen\|xoxo35\|mipi-dbi-spi\)"
 # The 3.5" HDMI touchscreen (--screen hdmi; UCTRONICS 3.5" HDMI): a 480x320 panel on HDMI, sent 720x480 (at
 # 480x320 it shows "no signal"), which it scales back to its panel; the Studio draws its 480x320 larger and turned
 # round (desk.ScaledFb: the panel is upside down on the Pi). Its XPT2046 touch on SPI CE0, its interrupt on GPIO25,
@@ -132,7 +143,9 @@ elif [ "$BUILD" = desk ] && ! grep -q "$SCREEN_LINE" "$CONFIG"; then
 dtparam=spi=on
 %s
 ' "$SCREEN" | sudo tee -a "$CONFIG" >/dev/null
-elif [ "$BUILD" = desk ] && [ -n "$SCREEN_KIND" ]; then     # a screen named: its line in place of the one there
+elif [ "$BUILD" = desk ] && { [ -n "$SCREEN_KIND" ] \
+        || { [ "${SCREEN%%,*}" = dtoverlay=xoxo35 ] && grep -q "^dtoverlay=piscreen,speed=24000000" "$CONFIG"; }; }; then
+    # a screen named, or the (A) set up before xoxo35: its line in place of the one there
     sudo cp "$CONFIG" "$CONFIG.bak"
     sudo sed -i "s#$SCREEN_LINE.*#$SCREEN#" "$CONFIG"
 fi

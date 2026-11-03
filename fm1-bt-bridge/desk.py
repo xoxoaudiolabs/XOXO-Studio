@@ -199,7 +199,7 @@ def spi_hz(config=Path("/boot/firmware/config.txt")):
     """the touchscreen's SPI clock, from its dtoverlay's speed= (16 MHz without one)"""
     try:
         for line in config.read_text().splitlines():
-            if line.startswith("dtoverlay=") and ("piscreen" in line or "waveshare35" in line):
+            if line.startswith("dtoverlay=") and any(k in line for k in ("piscreen", "waveshare35", "xoxo35")):
                 for part in line.split(","):
                     if part.startswith("speed="):
                         return int(part[6:])
