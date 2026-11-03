@@ -943,6 +943,8 @@ def test_frames_paced_to_the_spi_link():
     cfg = Path(tempfile.mkdtemp()) / "config.txt"
     cfg.write_text("dtparam=spi=on\ndtoverlay=piscreen,speed=32000000,rotate=90\n")
     assert desk.spi_hz(cfg) == 32_000_000 and desk.spi_hz(cfg.parent / "none.txt") == 16_000_000
+    cfg.write_text("dtparam=spi=on\ndtoverlay=xoxo35,speed=24000000,rotate=90\n")   # the Studio's own overlay
+    assert desk.spi_hz(cfg) == 24_000_000
     with tempfile.TemporaryDirectory() as tmp:
         fb = Path(tmp) / "fb"
         fb.write_bytes(bytes(480 * 320 * 2))

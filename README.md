@@ -38,7 +38,7 @@ A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs.
    ```
    Options, for the parts you have (e.g. `bash fm1-bt-bridge/install.sh --dac --screen c`):
    - `--dac`: the InnoMaker HiFi DAC HAT (it adds the DAC's driver to `config.txt`). The DAC is then the Studio's master out: its headphone (aux) and RCA outs both carry the main mix, MASTER in the mixer sets its level, and the Pi's own 3.5 mm jack stays PHONES (CUE and the click). A Bluetooth speaker gets a copy of the master.
-   - `--screen c`: the Waveshare 3.5" (C). Without it, the Hosyond / Waveshare (A).
+   - `--screen c`: the Waveshare 3.5" (C). Without it, the Hosyond / Waveshare (A), with the Studio's own overlay, `xoxo35`: Raspberry Pi OS's `piscreen` with the panel started as the screen maker starts it (blacker blacks; `config/xoxo35.sh` makes it on the Pi).
    - `--screen hdmi`: the 3.5" HDMI touchscreen (UCTRONICS): HDMI sent 720x480, which the screen scales to its panel, and its touch on SPI CE0 with its interrupt on GPIO 25. An SPI screen's overlay from before is switched off (it holds the same pins).
    - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose.
    On the first start the Studio asks for the touch setup (four targets) before HOME.
@@ -163,6 +163,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - USB out (2026-11-01, the Pi 3 B with no DAC HAT, a PCM2902 "USB Audio CODEC" interface and an FM-1 plugged in): AUTO picked the interface, not the FM-1, and a test tone played into the master came out of the interface's output (measured at its output, on the Pi). Not yet heard by ear
 - the latency between two Studios (2026-11-01, Tester Tools 0.2 on the leader: a note out over network MIDI, the follower's first pad playing it, its sound timed back on the leader's STUDIO; the follower throttled to 600 MHz by under-voltage): SAFE 172 ms round trip, LOW 128, LOWER 87-107 (two runs), LOWEST 87; the follower took each step from the leader by itself, and the leader's STUDIO receiver had no overruns at any step in those 6 minutes
 - the 3.5" HDMI touchscreen (2026-11-01, the Pi 3 B that ran FM-1 Companion Studio): with its own touch overlay and no SPI screen's, the Studio draws on it full screen (720x480) and its touch works after the touch setup (the user's report). With the SPI screen's overlay added as well (what `install.sh` did before `--screen hdmi`), touch was dead
+- the screen's `xoxo35` overlay (2026-11-02, the Hosyond 3.5" on the Pi 3 B+): with `piscreen`'s start-up the backlight showed through and the blacks were washed out; with the maker's the blacks are blacker and the near-black steps of a test card (8, 16, 24 of 255) still show (the user's report). The Studio starts and draws with it. VCOM tried live from 0x91 down to 0x4A; the maker's 0x91 kept. `config/xoxo35.sh` made the same overlay byte for byte on the Pi. Not yet checked: touch with it; `install.sh` making it on a fresh install, or switching a box set up with `piscreen`
 - the link's journal lines (2026-11-01): linked, left (BY) and forgotten lines seen in the Studio's journal, from a stand-in computer on a PC, a Pocket and a Studio following
 
 **Not yet tried on hardware:** sound heard out of the Pi's 3.5 mm jack, XO-4 by ear (its timing against the pads, the MIDI track to real gear), the mixer by ear (levels, mute and solo) and CUE, a Pocket's FM-1s on their own, recording, XO-4's DRUMS by hand (finger drumming, levels, ratchets, nudge, live REC, RPT, FX, the kit pages from XO-4), the EDITOR tab, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks with a controller (MIDI learn, a Hercules), shutting down from the screen.
@@ -183,13 +184,16 @@ XOXO Studio is GPL-3.0 (see [LICENSE](LICENSE)), like SLOOP, which parts of it c
 | `fm1-bt-bridge/vendor/fonts/` (IBM Plex Mono) | IBM Corp., from [google/fonts](https://github.com/google/fonts) ([VENDORED.md](fm1-bt-bridge/vendor/fonts/VENDORED.md)) | SIL Open Font License 1.1 |
 | `fm1-bt-bridge/kits/808/` (the 808 KIT's sixteen sounds) | Michael Fischer's recordings of a Roland TR-808 (1994), from [tidalcycles/sounds-tr808-fischer](https://github.com/tidalcycles/sounds-tr808-fischer) ([CREDITS.md](fm1-bt-bridge/kits/808/CREDITS.md)) | CC0 1.0 |
 
+**The 3.5" screen's start-up values** in `config/xoxo35.sh` (the ILI9486 panel's power, VCOM and gamma registers) are the screen maker's, from the `tft35a` overlay in goodtft's [LCD-show](https://github.com/goodtft/LCD-show). That repository states no licence; only these register values are used, not its code or scripts.
+
 Not affiliated with Roland or Hercules. TR-808 is a trademark of Roland Corporation; DJControl Inpulse is Hercules's (Guillemot Corporation).
 
 **Built on** (installed by `install.sh` from Raspberry Pi OS's own packages, or already part of it; not copied into this repository, and each under its own licence):
 
 | Software | What XOXO Studio uses it for | Licence |
 |---|---|---|
-| Raspberry Pi OS (Debian) and the Linux kernel | the system; the screen's drivers (fbtft, SPI, I2C) | GPL-2.0 (the kernel); Debian's packages each their own |
+| Raspberry Pi OS (Debian) and the Linux kernel | the system; the screen's drivers (fbtft, SPI, I2C); its `piscreen` overlay, which `config/xoxo35.sh` turns into the Studio's `xoxo35` on the Pi | GPL-2.0 (the kernel); Debian's packages each their own |
+| the Device Tree Compiler (`dtc`) | making the `xoxo35` screen overlay | GPL-2.0-or-later |
 | PipeWire (`pw-cat`, `pw-record`, `pw-loopback` …) and its Bluetooth plugin | all the sound: the mixer, Bluetooth audio, recording, the pads, the decks | MIT, with some parts LGPL-2.1-or-later |
 | WirePlumber (`wpctl`) | PipeWire's session manager; levels | MIT |
 | BlueZ | Bluetooth: speakers, Bluetooth MIDI | GPL-2.0-or-later (its libraries LGPL-2.1-or-later) |
