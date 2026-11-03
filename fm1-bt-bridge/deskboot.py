@@ -1,4 +1,4 @@
-"""The Studio's boot screen (480x320), in the XOXO look and the last theme it showed: XOXO // STUDIO, a line along
+"""The Studio's boot screen (480x320), in the XOXO look and the last theme it showed: XOXO // STUDIO and its version, a line along
 the start-up's steps until HOME takes over, and XOXO//AUDIO//LABS.
 
 Two moments use it. Early in boot, before the app runs, a udev rule copies splash.raw onto the screen as soon as
@@ -14,7 +14,7 @@ import xoxostyle as st
 
 W, H = 480, 320
 STEPS = ("STARTING THE SAMPLER", "STARTING MIDI", "STARTING AUDIO", "FINDING YOUR DEVICES")
-VERSION = "0.1"
+VERSION = "0.1 BETA"
 SPLASH = Path.home() / ".local" / "share" / "fm1-bridge" / "splash.raw"   # RGB565, what udev copies at boot
 
 
@@ -41,6 +41,8 @@ def frame(t, step=None, version=VERSION):
     img = Image.new("RGB", (W, H), t.bg)
     d = ImageDraw.Draw(img)
     mark(img, 96, ("XOXO", "//", "STUDIO"), 3, t.hi, t.c[2])
+    if version:                                     # the release, under the name
+        st.text(img, ((W - st.text_size(version)[0]) // 2, 152), version, t.c[3])
     left, right, y = 120, W - 120, 196              # the start-up's line: the steps done in the highlight
     d.rectangle((left, y, right, y + 3), fill=t.c[0])
     done = 0 if step is None else step + 1
@@ -49,8 +51,6 @@ def frame(t, step=None, version=VERSION):
     st.text(img, ((W - st.text_size(label)[0]) // 2, y + 14), label, t.c[2])
     mark(img, H - 30, ("XOXO", "//", "AUDIO", "//", "LABS"), 1, t.hi, t.c[2])
     d.rectangle((W - 14, H - 14, W - 8, H - 8), fill=t.track[0])       # the signal dot
-    if version:
-        st.text(img, (8, H - 22), version, t.c[1])
     return img
 
 

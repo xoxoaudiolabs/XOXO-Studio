@@ -48,7 +48,7 @@ sudo apt-get install -y --no-install-recommends \
     pipewire wireplumber libspa-0.2-bluetooth dbus-user-session rtkit bluez \
     python3-pil python3-spidev python3-libgpiod fonts-dejavu-core \
     python3-dbus python3-gi python3-mido python3-rtmidi python3-numpy python3-smbus2 i2c-tools \
-    device-tree-compiler
+    device-tree-compiler python3-qrcode
 if [ "$BUILD" = desk ]; then              # USB drives for the DJ decks: mounted, FAT / exFAT / NTFS
     sudo apt-get install -y --no-install-recommends udisks2 exfatprogs ntfs-3g
 fi
@@ -251,6 +251,7 @@ install -D -m 644 "$DIR/plugins.py"                             ~/.local/share/f
 install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/fm1-bridge/deskdecks.py
 install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
 install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/fm1-bridge/deskboot.py
+install -D -m 644 "$DIR/deskabout.py"                           ~/.local/share/fm1-bridge/deskabout.py
 install -D -m 644 "$DIR/netmidi.py"                             ~/.local/share/fm1-bridge/netmidi.py
 install -D -m 644 "$DIR/xoxostyle.py"                           ~/.local/share/fm1-bridge/xoxostyle.py
 install -D -m 644 "$DIR/weblink.py"                             ~/.local/share/fm1-bridge/weblink.py

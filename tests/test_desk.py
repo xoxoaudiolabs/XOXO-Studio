@@ -1300,6 +1300,48 @@ def test_xo4_grid():
     assert not ui.xo4_grid and ("xo4-step", 16) in {w[3] for w in ui.widgets}
 
 
+def test_about():
+    """MORE > ABOUT: the version, and QR codes for the code, the website and this Studio's web app (its address
+    now); with no network, no web app code and a note to join Wi-Fi; the boot screen shows the version too"""
+    import bridge
+    import deskabout
+    import deskboot
+    import deskui
+    import xoxostyle
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+    real = deskabout.lan_address
+    drawn = []
+    real_qr = ui.draw_qr
+    ui.draw_qr = lambda img, d, box, url: (drawn.append(url), real_qr(img, d, box, url))
+    try:
+        deskabout.lan_address = lambda: "192.168.1.20"
+        ui.open_tab("MORE")
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == ("more", "ABOUT"))
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+        ui.render(0.0, force=True)
+        assert ui.tab == "ABOUT"
+        assert drawn == ["https://github.com/xoxoaudiolabs/XOXO-Studio", "https://xoxoaudiolabs.com",
+                         "http://192.168.1.20/"]
+        modules = deskabout.qr_modules(drawn[2])
+        assert modules and len(modules) == len(modules[0]) >= 21 + 4      # a real code, its quiet zone around it
+        deskabout.lan_address = lambda: None                               # no network: no web app code
+        ui.about_ip_at, drawn[:] = -1e9, []
+        ui.render(0.0, force=True)
+        assert drawn[2] is None
+        assert deskabout.web_url("10.0.0.5") == "http://10.0.0.5/"
+    finally:
+        deskabout.lan_address = real
+    assert "BETA" in deskboot.VERSION
+    plain = deskboot.frame(xoxostyle.Theme(), version=None)
+    assert deskboot.frame(xoxostyle.Theme()).tobytes() != plain.tobytes()   # the version drawn on the boot screen
+
+
 def test_home_tempo():
     """HOME's tempo - / +: a tap is 1 BPM, a hold 10, within 30-300; following another clock, they leave it be"""
     import bridge

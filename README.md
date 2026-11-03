@@ -2,7 +2,7 @@
 
 A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs. It's the FM-1 Companion Studio with the FM-1 taken out, so it works as a universal tool with any USB or Bluetooth MIDI gear and any USB sound source.
 
-**Status: installs and starts on a Pi; most of it not yet tried on hardware.** The FM-1 parts are out: the SLOOP and X0X apps, the FM-1 library (backups, projects, sample slots, firmware), and FM-1 A/B in the sound sources and MIDI routes. What's been tried and what hasn't is under [Tested](#tested).
+**Version 0.1 BETA** (on the boot screen and in MORE > ABOUT). **Status: installs and starts on a Pi; most of it not yet tried on hardware.** The FM-1 parts are out: the SLOOP and X0X apps, the FM-1 library (backups, projects, sample slots, firmware), and FM-1 A/B in the sound sources and MIDI routes. What's been tried and what hasn't is under [Tested](#tested).
 
 ## Hardware
 
@@ -63,7 +63,7 @@ The web page's tabs: **Status** (speaker, volume, the mixer with DECKS while the
 - **Two Studios linked (Follow Studio):** MORE > AUDIO > **Follow Studio** on one Studio links it to another on the network or a cable, as a Pocket links: the other one leads. The one following takes its clock (tempo, Start and Stop) and passes it to its own gear along its **Box** routes, as its own clock would go (an FM-1 on Box> follows the leader; not where its NET route to the same device is on, so never twice), sends its notes back (never clock), and its master goes to the leader over the link (RTP on UDP 46020), where it's a mixer channel, STUDIO, beside a Pocket's POCKET. Linked REC works between them. With **Mix to Pocket** on, the leader sends the follower its mix back (UDP 46012) less STUDIO, the follower's own sound (a mix-minus: it never hears itself late, and nothing goes round), and the follower plays it on an output its link doesn't send from: USB out, or the jack when the jack isn't its master (with only the master itself, nowhere). The one following takes the leader's **Latency** step too (it reads it every 10 s), so both work in the same block, and the leader's STUDIO buffer is sized for a Studio, not a Pocket: whole packets of 6.458 ms (PipeWire's receiver asks for that), 2 at LOWER and LOWEST (12.92 ms), 4 at LOW, 7 at SAFE. A Studio never follows itself or a Studio that's following another, and while it follows, it turns a Pocket's link away (network MIDI's NO), so the Pocket links to the leader
 - **The link in the journal:** each network MIDI peer linking, linking again, leaving (BY) or forgotten after going quiet is a line in the system journal (`journalctl | grep "network MIDI"`). A Pocket or a Studio following is forgotten after 25 s without a sync, a computer after 90 s
 - **USB out:** with no DAC HAT, a USB audio interface's output gets a copy of the master (beside the Pi's jack or a Bluetooth speaker, or as the master when there's neither). MORE > AUDIO > **USB out**, shown while one is plugged in: AUTO (the first whose card has no MIDI, so an interface rather than a synth; an FM-1 has no output at all), one picked by name, or OFF. MASTER in the mixer sets its level (as a DAC HAT's)
-- **MORE:** settings, themes, Wi-Fi, touch setup, shut down
+- **MORE:** settings, themes, Wi-Fi, touch setup, plug-ins, ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now), shut down
 
 EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
 
@@ -113,7 +113,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 | ![XO-4 FX](docs/images/studio-xo4-fx.png) **XO-4: synth FX** | ![DECKS](docs/images/studio-decks.png) **DECKS** |
 | ![EDITOR](docs/images/studio-editor.png) **EDITOR** | ![MIDI](docs/images/studio-midi.png) **MIDI** |
 | ![XO-4 grid](docs/images/studio-xo4-grid.png) **XO-4: GRID, DRUMS** | ![XO-4 grid synth](docs/images/studio-xo4-grid-synth.png) **XO-4: GRID, SYN 2** |
-| ![MORE](docs/images/studio-more.png) **MORE** | |
+| ![MORE](docs/images/studio-more.png) **MORE** | ![ABOUT](docs/images/studio-about.png) **MORE > ABOUT** |
 
 ## Known limitations
 
@@ -167,6 +167,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - the latency between two Studios (2026-11-01, Tester Tools 0.2 on the leader: a note out over network MIDI, the follower's first pad playing it, its sound timed back on the leader's STUDIO; the follower throttled to 600 MHz by under-voltage): SAFE 172 ms round trip, LOW 128, LOWER 87-107 (two runs), LOWEST 87; the follower took each step from the leader by itself, and the leader's STUDIO receiver had no overruns at any step in those 6 minutes
 - the 3.5" HDMI touchscreen (2026-11-01, the Pi 3 B that ran FM-1 Companion Studio): with its own touch overlay and no SPI screen's, the Studio draws on it full screen (720x480) and its touch works after the touch setup (the user's report). With the SPI screen's overlay added as well (what `install.sh` did before `--screen hdmi`), touch was dead
 - the screen's `xoxo35` overlay (2026-11-02, the Hosyond 3.5" on the Pi 3 B+): with `piscreen`'s start-up the backlight showed through and the blacks were washed out; with the maker's the blacks are blacker and the near-black steps of a test card (8, 16, 24 of 255) still show (the user's report). The Studio starts and draws with it. VCOM tried live from 0x91 down to 0x4A; the maker's 0x91 kept. `config/xoxo35.sh` made the same overlay byte for byte on the Pi. Not yet checked: touch with it; `install.sh` making it on a fresh install, or switching a box set up with `piscreen`
+- the beta's version and MORE > ABOUT (2026-11-03, the Pi 3 B+): ABOUT's WEB APP code scanned with a phone opens the Studio's web app (the user's report); all three codes decode to their addresses (read back from the drawn page on a PC with OpenCV). Not yet seen on the Studio: the boot screen's new version line (drawn on a PC only); THE CODE needs the GitHub repo public to open for others
 - the link's journal lines (2026-11-01): linked, left (BY) and forgotten lines seen in the Studio's journal, from a stand-in computer on a PC, a Pocket and a Studio following
 
 **Not yet tried on hardware:** sound heard out of the Pi's 3.5 mm jack, XO-4 by ear (its timing against the pads, the MIDI track to real gear), the mixer by ear (levels, mute and solo) and CUE, a Pocket's FM-1s on their own, recording, XO-4's DRUMS by hand (finger drumming, levels, ratchets, nudge, live REC, RPT, FX, the kit pages from XO-4), the EDITOR tab, the sample editor, MIDI (Bluetooth, USB, network, the routes, arp and chord), the DJ decks with a controller (MIDI learn, a Hercules), shutting down from the screen.
@@ -207,6 +208,7 @@ Not affiliated with Roland or Hercules. TR-808 is a trademark of Roland Corporat
 | udisks2, exfatprogs, ntfs-3g | USB drives of music for the decks | GPL-2.0-or-later (udisks2's library LGPL-2.0-or-later) |
 | Python 3 | the app itself | PSF License |
 | Pillow | drawing every screen, the icons | the PIL Software License (MIT-CMU) |
+| python-qrcode (`python3-qrcode`) | the QR codes in MORE > ABOUT | BSD-3-Clause |
 | NumPy | meters, the sampler, the sample editor | BSD-3-Clause |
 | mido and python-rtmidi (RtMidi) | MIDI | MIT |
 | libsndfile, with mpg123 | the DJ decks reading MP3, FLAC, WAV, AIFF and Ogg | LGPL-2.1-or-later (some parts Apache-2.0); mpg123 LGPL-2.1 |
