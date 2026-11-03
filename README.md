@@ -1,5 +1,9 @@
 # XOXO Studio (beta 0.1)
 
+[![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:12)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
+
+**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:12): every screen, on a real Studio (a Pi 3 B+), its own screen and sound recorded as it played. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in's SYNTH A. Credits are at the end of the video; the audio had a few dropouts from the Pi 3 repaired after recording (see [Known limitations](#known-limitations)).
+
 > **This is a beta.** Version 0.1 BETA has been built and used on two Raspberry Pi 3s, and much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) (what has and hasn't been tried on hardware) and [Known limitations](#known-limitations). The Pi 4 build, the one planned with the USB interface for a computer, hasn't been put together yet.
 
 A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: a groovebox (XO-4) with a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, and a web app for a phone. It began as the FM-1 Companion Studio, with the FM-1 taken out, so it isn't tied to one instrument: it's made for USB and Bluetooth MIDI gear and USB sound sources. What it has been tried with so far is listed under [Tested](#tested).
@@ -183,6 +187,7 @@ Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and th
 - **USB out:** only with no DAC HAT (with one, the DAC is the master out and a USB interface gets nothing).
 - **Two Studios linked: the pads are the slow part.** The link itself measured about 12–22 ms one way (see [Tested](#tested)). A pad's sound passes a 1024-frame pipe, a block written ahead and a 10 ms player before the Studio's mixer: about 40–50 ms, worked out from the code, not measured. So a pad played across the link spends most of its round trip there (XO-4's synths the same).
 - **CPU.** Each part was measured on its own on a Pi 3 B+ (see [Tested](#tested)): XO-4 about 30% of one core while it plays, the pads about 20%, both decks playing 28% (49% with REVERB on both). Everything running at once hasn't been measured.
+- **Audio drops out on a Pi 3 under load.** Measured on a Pi 3 B+ (2026-11-03) from the output: with both DJ decks playing, about 3 lost blocks (256 frames, 5 ms, heard as a click) in 24 s; with XO-4 playing while the screens change, about one small skip in 40 s. The METERS pages, recording and anything else loading the Pi make it worse. Which part underruns isn't found yet.
 - **XO-4:**
   - Patterns can't be copied yet.
   - The synths can't be played live from a keyboard yet: XO-4 isn't a MIDI destination in the routes.
