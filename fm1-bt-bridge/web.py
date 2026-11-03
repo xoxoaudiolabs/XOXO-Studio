@@ -110,6 +110,8 @@ def check_command(c):
               "link_return": isinstance(value, bool), "link_audio": value in ("mix", "fm1s", "midi"),
               "link_rec": isinstance(value, bool), "follow_studio": isinstance(value, bool),
               "usb_out": isinstance(value, str) and 0 < len(value) <= 200}.get(key)
+        if key == "desk_theme":                # the Studio's screen theme (weblink checks the name)
+            ok = isinstance(value, str) and 0 < len(value) <= 40
         if isinstance(key, str) and re.fullmatch(r"mix_(decks|u-[a-z0-9]+)", key):
             ok = number and int(value) == value and 0 <= value <= 200
         if isinstance(key, str) and re.fullmatch(r"input_u-[a-z0-9]+", key):
@@ -119,6 +121,8 @@ def check_command(c):
         if not ok:
             raise ValueError(f"bad setting {key!r}")
         return {"cmd": cmd, "key": key, "value": value}
+    if cmd == "update":                        # the newest release: confirmed on the Studio's screen, it restarts
+        return {"cmd": cmd}
     if cmd in ("transport", "record"):
         if c.get("value") not in ("start", "stop"):
             raise ValueError("start or stop")
@@ -224,6 +228,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, library.listing())
         elif url.path == "/api/music":
             self.send(200, music_listing())
+        elif url.path == "/api/update":                    # Library > Software: installed, newest (update.py)
+            import update
+            self.send(200, update.check(fresh=query.get("fresh") == "1"))
         elif url.path == "/api/status":
             status = library.read_status()
             self.send(200, status if status else {"offline": True})
@@ -456,7 +463,13 @@ table.mx td button.sel{outline:2px solid var(--accent);outline-offset:2px}
 .sedgrid input,.sedgrid select{width:100%;text-transform:none;letter-spacing:0;font-weight:400}.warn{color:var(--bad)}
 details summary{cursor:pointer}
 @media (max-width:899px){.midi{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:420px){header h1{font-size:20px}.big{font-size:64px}nav button{letter-spacing:.06em}}
+@media (max-width:420px){header h1{font-size:20px}.big{font-size:64px}nav button{letter-spacing:.02em;font-size:9px}}
+/* the routes on a phone: the destinations' names standing up, narrow cells, the sources' names kept in view */
+@media (max-width:600px){table.mx th.col{vertical-align:bottom;padding:6px 0;text-align:center}
+table.mx th.col span{display:inline-block;writing-mode:vertical-rl;transform:rotate(180deg);max-height:150px;overflow:hidden;text-overflow:ellipsis}
+table.mx th.corner{vertical-align:bottom}
+table.mx tr>th:first-child{position:sticky;left:0;z-index:1;background:var(--bg);max-width:92px;overflow:hidden;text-overflow:ellipsis;padding-left:0}
+table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
 </style></head><body>
 <header><div class="in"><h1 id="title">FM-1<i>//</i>Companion</h1><span id="recpill" class="pill rec" hidden>REC</span><span id="pill" class="pill">…</span></div></header>
 <main>
@@ -466,12 +479,10 @@ details summary{cursor:pointer}
 <div id="offline" class="banner" hidden>The box isn't answering: it may be starting, or its bridge stopped. Settings will work again when it's back.</div>
 <div class="grid">
 <section><h2>Clock</h2>
-  <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:8px"><div><div class="big"><span id="s-bpm">–</span><span class="unit">BPM</span></div><div class="dim small" id="s-src" style="margin-top:6px"></div></div>
-    <div class="seg" id="s-mode"><button data-v="follow">Follow</button><button data-v="box">Box</button></div></div>
+  <div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:8px"><div><div class="big"><span id="s-bpm">–</span><span class="unit">BPM</span></div><div class="dim small" id="s-src" style="margin-top:6px"></div></div></div>
   <div class="line"><span class="k">Box tempo</span><div class="row"><button onclick="bump(-1)" aria-label="Slower">−</button><input type="number" id="s-tempo" min="30" max="300"><button onclick="bump(1)" aria-label="Faster">+</button></div></div>
   <div class="line"><span class="k">Transport</span><div class="row"><button class="primary" onclick="cmd({cmd:'transport',value:'start'})">▶ Start</button><button onclick="cmd({cmd:'transport',value:'stop'})">■ Stop</button></div></div>
   <div class="line"><span class="k">Metronome</span><label class="sw"><input type="checkbox" id="s-metro"><span></span></label></div>
-  <div class="line"><span class="k">Click level</span><div class="seg" id="s-click"><button data-v="low">Low</button><button data-v="mid">Mid</button><button data-v="high">High</button></div></div>
 </section>
 <section><h2>Audio</h2>
   <div class="line" id="s-batline" hidden><span class="k">Battery</span><span class="v" id="s-bat">–</span></div>
@@ -479,20 +490,11 @@ details summary{cursor:pointer}
   <div class="line" id="s-srcline" hidden><span class="k">Sources</span><span class="v" id="s-src-in">–</span></div>
   <div class="line"><span class="k">Speaker</span><div class="row" style="justify-content:flex-end"><span class="v" id="s-spk">–</span><button id="s-spkbtn" onclick="speaker()" hidden>Connect</button></div></div>
   <div class="line" id="s-pocketline" hidden><span class="k">Pocket</span><span class="v" id="s-pocket">–</span></div>
-  <div class="line" id="s-outline" hidden><span class="k">Output</span><div class="seg" id="s-out"><button data-v="speaker">Speaker</button><button data-v="phones">Jack</button><button data-v="both">Both</button></div></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2" aria-label="Volume"></div>
   <div class="line" id="s-masterline" style="display:block" hidden><div class="row" style="justify-content:space-between"><span class="k">Master out (DAC)</span><b id="s-masterv">–</b></div>
     <input type="range" id="s-master" min="0" max="100" step="2" aria-label="Master out"></div>
   <div id="s-mix"></div>
-  <div class="line"><span class="k">Audio rate</span><div class="seg" id="s-rate"><button data-v="44100">44.1</button><button data-v="48000">48 kHz</button></div></div>
-</section>
-<section id="s-link" hidden><h2>Studio link</h2>
-  <div class="line"><span class="k">Link</span><label class="sw"><input type="checkbox" id="s-lon"><span></span></label></div>
-  <div class="line"><span class="k">Studio</span><span class="v" id="s-lstudio">–</span></div>
-  <div class="line"><span class="k">Link audio</span><label class="sw"><input type="checkbox" id="s-laudio"><span></span></label></div>
-  <div class="line"><span class="k">Audio</span><span class="v" id="s-lsend">–</span></div>
-  <p class="dim small" style="margin:6px 0 0">Links this Pocket to an XOXO Studio on the same network: its MIDI, and its sound when Link audio is on.</p>
 </section>
 <section><h2>Record</h2>
   <button class="recbtn" id="s-rec" onclick="toggleRec()">● Record</button>
@@ -504,12 +506,6 @@ details summary{cursor:pointer}
   <div class="line"><span class="k">MIDI device</span><span class="v" id="s-midi">–</span></div>
   <div class="line"><span class="k">USB keys</span><span class="v" id="s-usbkeys">–</span></div>
   <p class="dim small" style="margin:6px 0 0" id="s-kbnote">Pattern, rate and chord type: MIDI tab, Bluetooth → FM-1.</p>
-</section>
-<section id="s-box" hidden><h2>Box</h2>
-  <div class="line" id="s-themeline" hidden><span class="k">Screen theme</span><select id="s-theme" onchange="set('theme', this.value)"></select></div>
-  <div class="line" id="s-autoline"><span class="k">Auto backup</span><select id="s-auto" onchange="set('auto_backup', /^\d+$/.test(this.value) ? +this.value : this.value)">
-    <option value="off">off</option><option value="boot">at start</option><option value="2">every 2 min</option><option value="5">every 5 min</option><option value="10">every 10 min</option><option value="30">every 30 min</option></select></div>
-  <p class="dim small" style="margin:6px 0 0">Auto backups go to Library → Backups.</p>
 </section>
 </div>
 </div>
@@ -551,7 +547,7 @@ details summary{cursor:pointer}
 
 <!-- ======================= LIBRARY ======================= -->
 <div class="tab" id="tab-library">
-<div class="chips" id="libnav"><button onclick="jump('lib-backups')">Backups<b id="n-backups"></b></button><button onclick="jump('lib-projects')">Projects<b id="n-projects"></b></button><button onclick="jump('lib-songs')">Songs<b id="n-songs"></b></button><button onclick="jump('lib-patches')">DX7<b id="n-patches"></b></button><button onclick="jump('lib-samples')">Samples<b id="n-samples"></b></button><button onclick="jump('lib-firmware')">Firmware<b id="n-firmware"></b></button><button id="nav-software" onclick="jump('lib-software')">Software</button></div>
+<div class="chips" id="libnav"><button onclick="jump('lib-backups')">Backups<b id="n-backups"></b></button><button onclick="jump('lib-projects')">Projects<b id="n-projects"></b></button><button onclick="jump('lib-songs')">Songs<b id="n-songs"></b></button><button onclick="jump('lib-patches')">DX7<b id="n-patches"></b></button><button onclick="jump('lib-samples')">Samples<b id="n-samples"></b></button><button onclick="jump('lib-firmware')">Firmware<b id="n-firmware"></b></button></div>
 <section id="lib-now"><h2>Now</h2><div class="job"><div id="job" class="meta">Nothing running.</div><div class="bar" id="barwrap" hidden><div id="bar"></div></div></div>
 <div class="row" style="margin-top:12px"><button class="primary" onclick="run('backup')">Back up now</button>
 <button onclick="run('fetch-sloop')">Get SLOOP update</button><button onclick="run('fetch-clipper')" title="isod89's synthesizer firmware, experimental">Get Clipper (exp.)</button><button id="lib-sd" onclick="run('import-sd')">Import SD card</button><select id="lib-fm1" hidden onchange="plug('use', {fm1:this.value})" title="which FM-1 the library works on"></select></div>
@@ -582,9 +578,52 @@ details summary{cursor:pointer}
 <p class="label group" id="g-fw">Firmware and software</p>
 <section id="lib-firmware"><h2>Firmware</h2><p class="meta" style="margin:0 0 6px">SLOOP (groovebox) and Clipper (synthesizer, experimental) are both isod89's. Backups, projects and samples belong to the firmware they came from: a SLOOP backup can't be restored onto Clipper, and Clipper has wavetables instead of sample slots.</p><div id="firmware"></div>
 <div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".fwsc" onchange="upload('firmware',this)"><button onclick="this.previousElementSibling.click()">Upload a .fwsc…</button></label></div></section>
-<section id="lib-software"><h2>Software</h2><p class="meta" style="margin:0 0 6px">Updates come from the project's GitHub. Everything you've saved stays as it is: settings, pairings, backups, projects, songs, samples, recordings. The box asks you to confirm, then installs (several minutes on a Pi Zero) and restarts; if the new version doesn't start, it goes back to this one.</p>
+
+</div>
+
+<!-- ======================= SETTINGS ======================= -->
+<div class="tab" id="tab-settings">
+<div class="grid">
+<section><h2>Clock</h2>
+  <div class="line"><span class="k">Clock</span><div class="seg" id="s-mode"><button data-v="follow">Follow</button><button data-v="box">Box</button></div></div>
+  <div class="line"><span class="k">Click level</span><div class="seg" id="s-click"><button data-v="low">Low</button><button data-v="mid">Mid</button><button data-v="high">High</button></div></div>
+</section>
+<section><h2>Audio</h2>
+  <div class="line" id="s-outline" hidden><span class="k">Output</span><div class="seg" id="s-out"><button data-v="speaker">Speaker</button><button data-v="phones">Jack</button><button data-v="both">Both</button></div></div>
+  <div class="line"><span class="k">Audio rate</span><div class="seg" id="s-rate"><button data-v="44100">44.1</button><button data-v="48000">48 kHz</button></div></div>
+  <div class="line"><span class="k">Latency</span><div class="seg" id="set-lat"><button data-v="SAFE">Safe</button><button data-v="LOW">Low</button><button data-v="LOWER">Lower</button><button data-v="LOWEST">Lowest</button></div></div>
+  <div class="line" id="set-usbline" hidden><span class="k">USB out</span><select id="set-usb" onchange="set('usb_out', this.value)"></select></div>
+</section>
+<section id="set-link" hidden><h2>Studio link</h2>
+  <div class="line"><span><span class="k">Follow Studio</span> <span class="dim small" id="set-follows"></span></span><label class="sw"><input type="checkbox" id="set-follow"><span></span></label></div>
+  <div class="line"><span class="k">Pocket sends</span><div class="seg" id="set-laudio"><button data-v="mix">Mix</button><button data-v="fm1s">FM-1s</button><button data-v="midi">MIDI</button></div></div>
+  <div class="line"><span class="k">Mix to Pocket</span><label class="sw"><input type="checkbox" id="set-return"><span></span></label></div>
+  <div class="line"><span class="k">Linked REC</span><label class="sw"><input type="checkbox" id="set-lrec"><span></span></label></div>
+  <p class="dim small" style="margin:6px 0 0">Follow Studio: this Studio follows another on the network (its clock, its Latency; its mix comes here). The rest are for a Pocket or a Studio linked to this one.</p>
+</section>
+<section id="s-link" hidden><h2>Studio link</h2>
+  <div class="line"><span class="k">Link</span><label class="sw"><input type="checkbox" id="s-lon"><span></span></label></div>
+  <div class="line"><span class="k">Studio</span><span class="v" id="s-lstudio">–</span></div>
+  <div class="line"><span class="k">Link audio</span><label class="sw"><input type="checkbox" id="s-laudio"><span></span></label></div>
+  <div class="line"><span class="k">Audio</span><span class="v" id="s-lsend">–</span></div>
+  <p class="dim small" style="margin:6px 0 0">Links this Pocket to an XOXO Studio on the same network: its MIDI, and its sound when Link audio is on.</p>
+</section>
+<section id="s-box" hidden><h2>Screen</h2>
+  <div class="line" id="s-themeline" hidden><span class="k">Screen theme</span><select id="s-theme" onchange="set('theme', this.value)"></select></div>
+  <div class="line" id="s-autoline"><span class="k">Auto backup</span><select id="s-auto" onchange="set('auto_backup', /^\d+$/.test(this.value) ? +this.value : this.value)">
+    <option value="off">off</option><option value="boot">at start</option><option value="2">every 2 min</option><option value="5">every 5 min</option><option value="10">every 10 min</option><option value="30">every 30 min</option></select></div>
+  <p class="dim small" style="margin:6px 0 0" id="s-autonote">Auto backups go to Library → Backups.</p>
+</section>
+<section id="set-about"><h2>About</h2>
+  <div class="line"><span class="k">Version</span><span class="v" id="set-version">–</span></div>
+  <div class="line"><span class="k">Wi-Fi</span><span class="v" id="set-wifi">–</span></div>
+  <p class="dim small" style="margin:6px 0 0">Wi-Fi is switched on the Studio's screen (MORE › STUDIO SETTINGS), so this page can't cut itself off.</p>
+  <div class="row" style="margin-top:10px"><a href="https://github.com/xoxoaudiolabs/XOXO-Studio" target="_blank" rel="noopener"><button>The code</button></a><a href="https://xoxoaudiolabs.com" target="_blank" rel="noopener"><button>XOXO Audio Labs</button></a></div>
+</section>
+<section id="lib-software"><h2>Software</h2><p class="meta" style="margin:0 0 6px">Updates come from the project's GitHub. Everything you've saved stays as it is: settings, pairings, kits, songs, samples, recordings, plug-ins. The Studio asks you to confirm on its screen (hold), then installs (a few minutes) and restarts; if the new version doesn't start, it goes back to this one.</p>
 <div id="software" class="job meta">Checking…</div>
-<div class="row" style="margin-top:12px"><button onclick="software(true)">Check again</button><button class="primary" id="sw-update" onclick="ask({cmd:'update'})" hidden>Update…</button><a id="sw-notes" target="_blank" rel="noopener" hidden><button>What's new</button></a></div></section>
+<div class="row" style="margin-top:12px"><button onclick="software(true)">Check again</button><button class="primary" id="sw-update" onclick="updateNow()" hidden>Update…</button><a id="sw-notes" target="_blank" rel="noopener" hidden><button>What's new</button></a></div></section>
+</div>
 </div>
 
 <!-- ======================= RECORDINGS ======================= -->
@@ -624,7 +663,8 @@ details summary{cursor:pointer}
 <button data-tab="midi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14"/><path d="M8 5v8M12 5v8M16 5v8"/></svg>MIDI</button>
 <button data-tab="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v16H4zM14 4l6 2-4 14-6-2z"/></svg>Library</button>
 <button data-tab="editor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>Editor</button>
-<button data-tab="recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>Recordings</button>
+<button data-tab="recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>Rec</button>
+<button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</button>
 </nav>
 <div id="toast"></div>
 <script>
@@ -652,7 +692,7 @@ function applyBox() {
   document.title = x ? "XOXO Studio" : "FM-1 Companion";
   document.querySelector('nav button[data-tab="studio"]').hidden = !studio;
   for (const id of ["libnav", "lib-now", "g-fm1", "lib-backups", "lib-projects", "lib-songs", "lib-patches", "g-fw", "lib-firmware", "smp-fm1"]) $(id).hidden = nolib;
-  for (const id of ["lib-software", "nav-software", "lib-sd"]) $(id).hidden = x;     // (the Studio's own updates, its own SD import)
+  $("lib-sd").hidden = x;                          // (the Studio's own SD import)
   for (const id of ["smp-pads", "smp-sd"]) $(id).hidden = !x;
   document.querySelectorAll(".fm1only").forEach((e) => e.hidden = nolib);
   const letters = p ? p.fm1s || [] : [];
@@ -683,7 +723,7 @@ function show(name) {
   tab = name; location.hash = name;
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("shown", t.id === "tab-" + name));
   document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("shown", b.dataset.tab === name));
-  if (name === "library" || name === "recordings" || name === "editor" || name === "studio") refresh();
+  if (name === "library" || name === "recordings" || name === "editor" || name === "studio" || name === "settings") refresh();
   if (name === "midi") { renderMatrix(); renderEditor(); renderPresets(); }
   status();
 }
@@ -733,12 +773,32 @@ function renderStatus() {
   $("s-midi").textContent = st.midi.error ? "Bluetooth error" : !st.midi.enabled ? "off" : (st.midi.peer || "waiting");
   $("s-usbkeys").textContent = (st.midi.controllers || []).join(", ") || "none";
   renderLink(st.link);
+  renderSettings(st);
   $("s-spkbtn").hidden = !st.speaker_saved; $("s-spkbtn").textContent = st.speaker || st.connecting ? "Disconnect" : "Connect";
   $("s-outline").hidden = !st.jack; if (st.jack) seg("s-out", s.output, (v) => set("output", v));
   const th = st.theme; $("s-themeline").hidden = !th;
   if (th && document.activeElement !== $("s-theme")) $("s-theme").innerHTML = opt(th.choices, th.value, (x) => x === "follow" ? "FM-1 A" : x);
-  $("s-autoline").hidden = s.auto_backup == null; $("s-box").hidden = !th && s.auto_backup == null;   // a box from before these
+  if (th) $("s-theme").onchange = () => set(xoxo() ? "desk_theme" : "theme", $("s-theme").value);
+  $("s-autoline").hidden = $("s-autonote").hidden = s.auto_backup == null; $("s-box").hidden = !th && s.auto_backup == null;   // a box from before these
   if (s.auto_backup != null && document.activeElement !== $("s-auto")) $("s-auto").value = String(s.auto_backup);
+}
+function renderSettings(st) {                       // the SETTINGS tab's own (the rest: renderStatus, by id)
+  const x = xoxo();
+  $("set-version").textContent = st.version || "–";
+  $("set-wifi").textContent = st.wifi == null ? "–" : st.wifi ? "on" : "off";
+  seg("set-lat", st.latency || "SAFE", (v) => set("latency", v));
+  const outs = st.usb_outs || [];
+  $("set-usbline").hidden = !outs.length || st.master != null && !st.usb_out_now;   // (with a DAC HAT, it's the master)
+  if (outs.length && document.activeElement !== $("set-usb"))
+    $("set-usb").innerHTML = opt(["auto", "off", ...outs.map((o) => o.name)], st.usb_out || "auto",
+                                  (v) => v === "auto" ? "auto" : v === "off" ? "off" : (outs.find((o) => o.name === v) || {}).label || v);
+  $("set-link").hidden = !x;
+  if (!x) return;
+  $("set-follow").checked = !!st.follow_studio; $("set-follow").onchange = (e) => set("follow_studio", e.target.checked);
+  $("set-follows").textContent = st.follow_studio ? (st.follows ? "following " + st.follows : "looking…") : "";
+  seg("set-laudio", st.link_audio || "mix", (v) => set("link_audio", v));
+  $("set-return").checked = st.link_return != null; $("set-return").onchange = (e) => set("link_return", e.target.checked);
+  $("set-lrec").checked = st.link_rec !== false; $("set-lrec").onchange = (e) => set("link_rec", e.target.checked);
 }
 const speaker = () => cmd({cmd:"speaker", value: st && (st.speaker || st.connecting) ? "disconnect" : "connect"}, false);
 function renderLink(l) {                           // the Pocket's Studio link (null on the Studio)
@@ -835,7 +895,7 @@ let routes = null, sel = "BT>FM-1", routesDirtyUntil = 0, saveTimer;
 setFm1s(false);
 function renderMatrix() {
   if (!routes) { $("mx").innerHTML = `<tr><td class="dim">Waiting for the box…</td></tr>`; return; }
-  $("mx").innerHTML = `<tr><th></th>${DESTS.map((d) => `<th>to ${destName(d)}</th>`).join("")}</tr>` +
+  $("mx").innerHTML = `<tr><th class="corner">to →</th>${DESTS.map((d) => `<th class="col" title="to ${esc(destName(d))}"><span>${esc(destName(d))}</span></th>`).join("")}</tr>` +
     Object.keys(SOURCES).map((s) => `<tr><th>${SOURCES[s]}</th>${DESTS.map((d) => {
       const key = `${s}>${d}`;
       if (s === d) return `<td class="self">–</td>`;
@@ -1110,8 +1170,11 @@ async function refresh() {
   lib = await fetch("/api/library").then((r) => r.json()).catch(() => lib);
   if (fm1()) lib = Object.assign({}, fm1().library || {}, lib);   // the plug-in's folders (backups, projects ...)
   renderLibrary();
-  if (tab === "library" && st && !st.offline && !xoxo()) software();
+  if (tab === "settings" && st && !st.offline) software();
   if (tab === "studio") { music = await fetch("/api/music").then((r) => r.json()).catch(() => music); renderMusic(); }
+}
+function updateNow() {                            // the Studio asks for its hold-press, then updates
+  cmd({cmd:"update"}, false).then(() => { toast("Confirm on the Studio's screen: hold"); setTimeout(software, 4000); });
 }
 async function software(fresh) {                   // Library > Software: the installed version, the newest, the last update
   const u = await fetch("/api/update" + (fresh ? "?fresh=1" : "")).then((r) => r.json()).catch(() => null);
@@ -1127,7 +1190,7 @@ async function software(fresh) {                   // Library > Software: the in
   if (running) setTimeout(software, 3000);
 }
 async function pollJobs() { setTimeout(pollJobs, (await update()) ? 700 : 3000); }
-async function pollStatus() { if (!document.hidden && (tab === "status" || tab === "studio" || tab === "midi" || tab === "recordings")) await status(); setTimeout(pollStatus, 1000); }
+async function pollStatus() { if (!document.hidden && (tab === "status" || tab === "studio" || tab === "midi" || tab === "recordings" || tab === "settings")) await status(); setTimeout(pollStatus, 1000); }
 show((location.hash || "#status").slice(1).replace(/[^a-z]/g, "") || "status");
 pollJobs(); pollStatus();
 </script></body></html>
