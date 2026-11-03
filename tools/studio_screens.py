@@ -186,6 +186,8 @@ def main():
         ("studio-mixer", lambda app, ui: ui.open_tab("MIX")),
         ("studio-xo4-drums", xo4_tab(0, xo4_step=4, xo4_pad=0)),
         ("studio-xo4-synth", xo4_tab(1, xo4_step=0)),
+        ("studio-xo4-grid", xo4_tab(0, xo4_grid=True, xo4_step=4, xo4_pad=0)),
+        ("studio-xo4-grid-synth", xo4_tab(2, xo4_grid=True, xo4_step=0)),
         ("studio-xo4-sound", xo4_tab(1, xo4_sound=True)),
         ("studio-xo4-pads", xo4_tab(0, mpc_open=True)),
         ("studio-xo4-fx", xo4_tab(1, fx_open=True, fx_dest="xo4", xo4_fx=[14, True])),
