@@ -1248,16 +1248,24 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
 
     def bt_follow_dongle(self):
         """A USB Bluetooth adapter (a dongle) plugged in takes over all of Bluetooth: the speaker, the app's
-        bluetoothctl commands and Bluetooth MIDI; the Pi's own is powered off. Unplugged, the Pi's own again. The Pi 3's own shares its chip with Wi-Fi: to a speaker it sent in stalls of up to 140 ms at SBC
-        bitpool 14-16, a TP-Link UB500 evenly at 53 (2026-11-03). Pairings belong to an adapter: the first time
-        on a dongle the speaker (and keyboards) are paired again."""
+        bluetoothctl commands and Bluetooth MIDI; the Pi's own is powered off. Unplugged, the Pi's own again. The
+        Pi 3's own shares its chip with Wi-Fi: to a speaker it sent in stalls of up to 140 ms at SBC bitpool 14-16,
+        a TP-Link UB500 evenly at 53 (2026-11-03). Pairings belong to an adapter: the first time on a dongle the
+        speaker (and keyboards) are paired again. The new one is powered on first: one that won't (blocked by
+        rfkill, which systemd keeps for each USB port) leaves the one in use as it is"""
         adapters = bt_adapters()
         if not adapters or adapters[0][0] == BT_IN_USE["address"]:
             return
         address, usb, name = adapters[0]
+        if not bt_power(name, True):
+            if len(adapters) > 1 and getattr(self, "bt_refused", None) != address:
+                self.bt_refused = address
+                self.say("Bluetooth dongle blocked: unplug it, or unblock it (rfkill)", 5)
+            if len(adapters) > 1:
+                return                            # (tried again each second a while: monitor's fast_until)
+        self.bt_refused = None
         for _, _, other in adapters[1:]:
             bt_power(other, False)
-        bt_power(name, True)
         started = BT_IN_USE["address"] is None
         BT_IN_USE.update(address=address, usb=usb)
         self.bt_usb = usb                         # (XO-4 and DECKS warn about the Pi's own: deskui.bt_warn)
