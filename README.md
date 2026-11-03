@@ -1,9 +1,5 @@
 # XOXO Studio (beta 0.1)
 
-[![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:36)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
-
-**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen, on a real Studio (a Pi 3 B+), its own screen and sound recorded as it played. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in's SYNTH A. The DJ decks follow XO-4: SYNC takes its tempo and brings a deck in on its bar. Credits are at the end of the video; short skips in the recording of its sound were smoothed afterwards.
-
 > **This is a beta.** Version 0.1 BETA has been built and used on two Raspberry Pi 3s, and much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) (what has and hasn't been tried on hardware) and [Known limitations](#known-limitations). The Pi 4 build, the one planned with the USB interface for a computer, hasn't been put together yet.
 
 A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: a groovebox (XO-4) with a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, and a web app for a phone. It began as the FM-1 Companion Studio, with the FM-1 taken out, so it isn't tied to one instrument: it's made for USB and Bluetooth MIDI gear and USB sound sources. What it has been tried with so far is listed under [Tested](#tested).
