@@ -439,15 +439,18 @@ PARTS_MAP = ("FL", "FR", "FC", "LFE", "RL", "RR", "SL", "SR", "FLC", "FRC", "TFL
 
 
 def link_parts(sources):
-    """[(source node name, left port, right port)] -> into the parts recorder's channels, in pairs, by one pw-cli
-    (each new connection to PipeWire costs a Zero W 1-2 s of CPU: pw-link would be one per link)"""
-    lines = [f"create-link {node} {port} {PARTS_NODE} input_{PARTS_MAP[2 * i + j]} {{ object.linger = true }}"
-             for i, (node, *ports) in enumerate(sources) for j, port in enumerate(ports)]
-    try:
-        subprocess.run(["pw-cli"], input="\n".join(lines + ["quit"]) + "\n", text=True, timeout=20,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    """[(source node name, left port, right port)] -> into the parts recorder's channels, in pairs, a pw-cli for
+    each source: one link that fails stops pw-cli's other lines, so in one pw-cli a source whose ports weren't
+    there left every part silent and the take empty (seen on the Studio, 2026-11-03). (Each new connection to
+    PipeWire costs a Zero W 1-2 s of CPU, so one pw-cli a source, not a pw-link a port.)"""
+    for i, (node, *ports) in enumerate(sources):
+        lines = [f"create-link {node} {port} {PARTS_NODE} input_{PARTS_MAP[2 * i + j]} {{ object.linger = true }}"
+                 for j, port in enumerate(ports)]
+        try:
+            subprocess.run(["pw-cli"], input="\n".join(lines + ["quit"]) + "\n", text=True, timeout=20,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def split_parts(raw, path, keys, levels, skipped=None):

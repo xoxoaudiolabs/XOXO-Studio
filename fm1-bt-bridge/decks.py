@@ -604,6 +604,8 @@ class Clock:
 
 
 HEADROOM = 0.7                                # -3 dB: two loud tracks together still fit
+MASTER_LEVEL = 0.5                            # -6 dB after the limiter: room in the Studio's mix (XO-4 at 80% and
+                                              # the decks at 100% hit full scale 216 times in 15 s, 2026-11-03)
 
 
 def limit(x, knee=0.9):
@@ -677,7 +679,7 @@ class Engine:
         master, phones = master * HEADROOM, phones * HEADROOM
         self.peak = max(self.peak * 0.995, float(nm.abs(master).max()) if len(master) else 0.0)
         self.limited += int((nm.abs(master) > 0.9).any())
-        return limit(master), limit(phones)
+        return limit(master) * MASTER_LEVEL, limit(phones)     # (the headphones: a cue of their own)
 
 
 # ---------------------------------------------------------------- the Hercules

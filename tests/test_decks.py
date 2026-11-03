@@ -694,6 +694,19 @@ def test_heard_without_a_controller():
     assert d.volume == 1.0
 
 
+
+def test_master_leaves_room():
+    """the decks' master 6 dB down after the limiter (room in the Studio's mix): two loud decks at most half scale"""
+    e = decks.Engine()
+    for d in e.decks:
+        t = Track(seconds=4)
+        t.audio = (np.ones((len(t.audio), 2)) * 32000).astype(np.int16)
+        d.load(t)
+        d.play_pause()
+    peak = max(float(np.abs(e.render()[0]).max()) for _ in range(20))
+    assert 0.4 < peak <= decks.MASTER_LEVEL
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

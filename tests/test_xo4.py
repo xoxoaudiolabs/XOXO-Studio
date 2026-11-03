@@ -229,6 +229,16 @@ def test_synth_fx():
         t += 512 / RATE
     assert (np.abs(out[:, 0]).reshape(-1, 256).max(axis=1) > 0.01).all()   # whole again
 
+
+def test_out_level_leaves_room():
+    """the channel's sound 6 dB down before it's made 16-bit: full scale comes out at half, twice full scale
+    (two loud sounds together) unclipped"""
+    import numpy
+    block = numpy.array([[1.0, -1.0], [1.98, -1.98]], dtype=numpy.float32)
+    out = numpy.frombuffer(xo4.to_pcm(block), dtype="<i2")
+    assert list(out) == [16383, -16383, 32439, -32439]
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

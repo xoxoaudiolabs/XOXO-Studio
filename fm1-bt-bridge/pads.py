@@ -535,10 +535,14 @@ class Engine:
         return sorted({v["pad"] for v in self.voices})
 
 
+OUT_LEVEL = 0.5                             # -6 dB: room in the mix (XO-4's synths share the channel, at
+                                            # theirs; XO-4 at 80% and the decks at 100% clipped, 2026-11-03)
+
+
 def to_pcm(block):
-    """float32 (n, 2) -> s16 bytes, clipped"""
+    """float32 (n, 2) -> s16 bytes, OUT_LEVEL down, then clipped"""
     num = np()
-    return (num.clip(block, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+    return (num.clip(block * OUT_LEVEL, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
 # ---------------------------------------------------------------- the process
