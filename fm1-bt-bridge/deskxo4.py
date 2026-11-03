@@ -23,6 +23,11 @@ the decks are: the step grid and the keys need the height the tab bar takes.
               or takes it off (four at most: a chord); stopped, it sounds. SYN 1 and SYN 2: SOUND opens the synth's
               page (below)
 
+GRID (beside HOLD CLR) shows the whole pattern as XO-4 Pocket does: a row a sound (DRUMS: the pads, 1-8 or 9-16) or
+a note of the scale (the rest: OCT - / + moves it), 16 steps across (P 1/2 ... for a longer track), the playhead lit.
+A tap puts the row's sound or note on the step or takes it off (four notes a step at most); held, the step is
+emptied. The line at the bottom says what's on the step last tapped.
+
 The SOUND page (a synth track's): < XO-4 back, HEAR (its last notes), six starting sounds (KEYS, BASS, BELL,
 PLUCK, PAD, LEAD), and the patch's settings, each - / + (held: four steps): RATIO, BRIGHT (the modulation
 index), BR DECAY and BR HOLD (how the brightness falls, and what stays), ATTACK, DECAY, SUSTAIN, RELEASE, LEVEL.
@@ -36,6 +41,8 @@ TRACK_LABELS = ("DRUMS", "SYN 1", "SYN 2", "MIDI")
 OCTAVES = (4, 4, 2, 3)                          # the note keys' octave a track starts on (SYN 2: a bass)
 KEYS = 14                                       # note keys: two rows of seven
 RED = (255, 112, 92)
+ROWS = 8                                        # GRID: the rows shown, each a pad or a note
+GRID_TOP, ROW_H, LABEL_W, CELL_W = HDR_H + 58, 26, 64, 26   # (the step numbers above the rows)
 
 
 class DeskXO4:
@@ -50,6 +57,8 @@ class DeskXO4:
         self.xo4_rev = 0                         # bumped with each change: what's drawn follows
         self.xo4_sound = False                   # the SOUND page (SYN 1, SYN 2) open
         self.xo4_rec = False                     # live REC
+        self.xo4_grid = False                    # GRID: the whole pattern, a row a pad or a note
+        self.xo4_half = 0                        # GRID, DRUMS: pads 1-8 (0) or 9-16 (1)
 
     # ---- the song
 
@@ -68,7 +77,8 @@ class DeskXO4:
         x = getattr(a, "xo4", None)
         return (self.xo4_rev, getattr(a, "song_rev", 0), self.xo4_track, self.xo4_edit, self.xo4_step,
                 self.xo4_page, self.xo4_pad, tuple(self.xo4_oct), a.seq_playing(), x and x.step, x and x.pattern, x and x.queued, a.clock_text(),
-                self.xo4_sound, self.xo4_rec, self.pads_view() if self.xo4_track == 0 or self.fx_open else None)
+                self.xo4_sound, self.xo4_rec, self.xo4_grid, self.xo4_half,
+                self.pads_view() if self.xo4_track == 0 or self.fx_open else None)
 
     # ---- drawing
 
@@ -99,16 +109,20 @@ class DeskXO4:
         self.button(img, d, (W - 64, 3, W - 4, HDR_H - 5), "STOP" if playing else "PLAY", a.seq_play, on=playing,
                     key="xo4-play")
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        y = HDR_H + 4                           # the tracks, the length, clear
+        y = HDR_H + 4                           # the tracks, the length, clear, GRID
         for k, label in enumerate(TRACK_LABELS):
-            self.button(img, d, (4 + k * 64, y, 64 + k * 64, y + 32), label, lambda k=k: self.xo4_pick_track(k),
+            self.button(img, d, (4 + k * 56, y, 56 + k * 56, y + 32), label, lambda k=k: self.xo4_pick_track(k),
                         color=t.track[k], on=k == self.xo4_track, key=("xo4-track", k))
-        self.button(img, d, (264, y, 296, y + 32), "-", lambda: self.xo4_length(-1), key="xo4-len-")
-        self.centre(img, (296, y, 356, y + 32), f"LEN {track['len']}", t.hi)
-        self.button(img, d, (356, y, 388, y + 32), "+", lambda: self.xo4_length(1), key="xo4-len+")
-        self.widget((394, y, W - 4, y + 32), "hold", self.xo4_clear, "xo4-clear")
-        d.rectangle((394, y, W - 4, y + 32), fill=t.hi if self.lit("xo4-clear") else t.grey[0])
-        self.centre(img, (394, y, W - 4, y + 32), "HOLD CLR", t.bg if self.lit("xo4-clear") else RED)
+        self.button(img, d, (W - 56, y, W - 4, y + 32), "GRID", self.xo4_toggle_grid, on=self.xo4_grid,
+                    key="xo4-grid")
+        if self.xo4_grid:
+            return self.draw_xo4_grid(img, d, song, track, x, playing, name)
+        self.button(img, d, (232, y, 260, y + 32), "-", lambda: self.xo4_length(-1), key="xo4-len-")
+        self.centre(img, (260, y, 316, y + 32), f"LEN {track['len']}", t.hi)
+        self.button(img, d, (316, y, 344, y + 32), "+", lambda: self.xo4_length(1), key="xo4-len+")
+        self.widget((348, y, W - 60, y + 32), "hold", self.xo4_clear, "xo4-clear")
+        d.rectangle((348, y, W - 60, y + 32), fill=t.hi if self.lit("xo4-clear") else t.grey[0])
+        self.centre(img, (348, y, W - 60, y + 32), "HOLD CLR", t.bg if self.lit("xo4-clear") else RED)
         self.draw_xo4_steps(img, d, song, name, track, x, playing)
         if self.xo4_track == xo4.DRUMS:
             self.draw_xo4_pads(img, d)
@@ -175,6 +189,90 @@ class DeskXO4:
             st.text(img, (164, y + 9), "TAP A STEP, THEN KEYS FOR ITS NOTES", t.c[2])
         else:
             self.draw_xo4_hit(img, d, song, track, y)
+
+    def xo4_grid_rows(self, song):
+        """GRID's rows, top to bottom: [(label, pad or note, colour)]"""
+        import xo4
+        from pathlib import Path
+        t = self.theme
+        if self.xo4_track == xo4.DRUMS:
+            kit = self.app.kit()
+            rows = []
+            for i in range(self.xo4_half * 8, self.xo4_half * 8 + 8):
+                sample = kit["pads"][i]["sample"]
+                label = Path(sample).stem.replace("808-", "").replace("-", "")[:7] if sample else f"PAD {i + 1}"
+                rows.append((label, i, t.track[(3 - i // 4) % 4]))
+            return rows
+        low = (self.xo4_oct[self.xo4_track] + 1) * 12 + song["root"]
+        return [(xo4.note_name(n), n, t.track[self.xo4_track]) for n in reversed(xo4.scale_notes(song, low, ROWS))]
+
+    def draw_xo4_grid(self, img, d, song, track, x, playing, name):
+        """GRID: the pattern's track as rows (pads or notes) by 16 steps, a tap a cell"""
+        import xo4
+        t = self.theme
+        y = HDR_H + 4
+        if self.xo4_track == xo4.DRUMS:         # which rows: pads 1-8 or 9-16; the notes an octave at a time
+            for h, label in enumerate(("1-8", "9-16")):
+                self.button(img, d, (232 + h * 52, y, 280 + h * 52, y + 32), label,
+                            lambda h=h: self.xo4_grid_half(h), on=h == self.xo4_half, key=("xo4-half", h))
+        else:
+            self.button(img, d, (232, y, 260, y + 32), "-", lambda: self.xo4_octave(-1), key="xo4-oct-")
+            self.centre(img, (260, y, 316, y + 32), f"OCT {self.xo4_oct[self.xo4_track]}", t.hi)
+            self.button(img, d, (316, y, 344, y + 32), "+", lambda: self.xo4_octave(1), key="xo4-oct+")
+        pages = (track["len"] + 15) // 16
+        self.xo4_page = min(self.xo4_page, pages - 1)
+        if pages > 1:
+            self.button(img, d, (348, y, W - 60, y + 32), f"P {self.xo4_page + 1}/{pages}",
+                        lambda: self.xo4_go_page((self.xo4_page + 1) % pages), key="xo4-grid-page")
+        here = None
+        if x and playing and x.step is not None and (x.pattern or song["pattern"]) == name:
+            here = x.step % track["len"]
+        for k in range(16):                     # the step numbers, the beats' first brighter
+            idx = self.xo4_page * 16 + k
+            if idx < track["len"]:
+                st.text(img, (LABEL_W + k * CELL_W + (9 if idx < 9 else 5), GRID_TOP - 18), str(idx + 1),
+                        t.hi if idx == here else t.c[3] if k % 4 == 0 else t.c[1])
+        drums = self.xo4_track == xo4.DRUMS
+        for r, (label, value, colour) in enumerate(self.xo4_grid_rows(song)):
+            top = GRID_TOP + r * ROW_H
+            picked = drums and value == self.xo4_pad
+            st.text(img, (4, top + 5), label, t.hi if picked else colour)
+            for k in range(16):
+                idx = self.xo4_page * 16 + k
+                box = (LABEL_W + k * CELL_W + 1, top + 1, LABEL_W + (k + 1) * CELL_W - 2, top + ROW_H - 2)
+                if idx >= track["len"]:
+                    d.rectangle(box, outline=t.c[0])
+                    continue
+                step = track["steps"][idx]
+                on = bool(step and value in step["notes"])
+                if on:
+                    fill = t.hi if idx == here else colour
+                    if drums:                   # a ghost or soft hit: dimmer
+                        level = (step.get("levels") or [0] * len(step["notes"]))[step["notes"].index(value)]
+                        fill = t.dim[0] if level in (1, 2) and idx != here else fill
+                else:
+                    fill = t.c[1] if idx == here else t.grey[1] if k // 4 % 2 == 0 else t.grey[0]
+                d.rectangle(box, fill=fill)
+                if idx == self.xo4_step and on:
+                    d.rectangle(box, outline=t.hi if idx != here else RED, width=2)
+                self.widget(box, "tap", lambda idx=idx, v=value: self.xo4_grid_tap(idx, v), ("xo4-cell", idx, value),
+                            lambda idx=idx: self.xo4_clear_step(idx))
+        st.text(img, (4, H - 17), self.xo4_grid_status(song, track), t.c[3])
+
+    def xo4_grid_status(self, song, track):
+        """GRID's bottom line: the step last tapped, or what a tap does"""
+        import xo4
+        step = track["steps"][self.xo4_step] if self.xo4_step is not None else None
+        if not step:
+            return "TAP: ON / OFF   HOLD: EMPTY THE STEP"
+        if self.xo4_track == xo4.DRUMS:
+            hit = self.xo4_hit_of(step)
+            if not hit:
+                return f"STEP {self.xo4_step + 1}"
+            return (f"STEP {self.xo4_step + 1}  PAD {self.xo4_pad + 1}  {xo4.LEVELS[hit[0]]}  X{hit[1]}  "
+                    f"NUDGE {step.get('nudge', 0):+d}")
+        notes = " ".join(xo4.note_name(n) for n in step["notes"])
+        return f"STEP {self.xo4_step + 1}  {notes}  VEL {step['vel']}  LEN {step['len']:g}"
 
     def xo4_hit_of(self, step):
         """(level, ratchet) of the pad picked on this drum step, or None"""
@@ -324,6 +422,41 @@ class DeskXO4:
         else:
             self.xo4_step = idx
             self.xo4_audition(step["notes"])
+        self.xo4_save(song)
+
+    def xo4_toggle_grid(self):
+        self.xo4_grid = not self.xo4_grid
+        self.xo4_rev += 1
+
+    def xo4_grid_half(self, h):
+        self.xo4_half = h
+        self.xo4_rev += 1
+
+    def xo4_grid_tap(self, idx, value):
+        """a GRID cell: DRUMS, its pad on the step or off (and picked); the rest, its note on or off the step"""
+        if self.xo4_track == 0:
+            self.xo4_pad = value
+            return self.xo4_tap(idx)
+        song = self.xo4_song()
+        track = self.xo4_track_of(song)
+        step = track["steps"][idx]
+        if not step:
+            track["steps"][idx] = {"notes": [value], "vel": 100, "len": 1.0}
+            self.xo4_audition([value])
+        elif value in step["notes"]:
+            if len(step["notes"]) == 1:         # its last note: the step emptied
+                track["steps"][idx] = None
+                self.xo4_step = None if self.xo4_step == idx else self.xo4_step
+                return self.xo4_save(song)
+            step["notes"] = [n for n in step["notes"] if n != value]
+        elif len(step["notes"]) >= 4:
+            self.app.say("Four notes a step at most", 2)
+            return
+        else:
+            step["notes"] = sorted(step["notes"] + [value])
+            self.xo4_audition([value])
+        self.xo4_step = idx
+        self.xo4_brush[self.xo4_track] = list(track["steps"][idx]["notes"])
         self.xo4_save(song)
 
     def xo4_hit_change(self, change):

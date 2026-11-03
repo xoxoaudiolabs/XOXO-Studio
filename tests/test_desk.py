@@ -1212,6 +1212,94 @@ def test_xo4_tab():
     assert ui.tab == "HOME"
 
 
+def test_xo4_grid():
+    """XO-4's GRID: a row a pad (1-8, 9-16) or a note of the scale, 16 steps across; a tap puts the row's pad or note
+    on the step or takes it off (four notes at most), a hold empties the step; a longer track's pages"""
+    import bridge
+    import deskui
+    import xo4
+
+    class XO4:
+        step = pattern = queued = None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+
+    class Pads:
+        sounding, step = [], None
+
+        def send(self, *msg):
+            pass
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.xo4, app.pads = XO4(), Pads()
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+
+    def press(key, hold=False):
+        ui.render(0.0, force=True)
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        if hold:
+            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
+        ui.render(0.0, force=True)
+
+    def steps(track):
+        return app.song()["patterns"][app.song()["pattern"]][track]["steps"]
+
+    def cells():
+        return {w[3][1:] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "xo4-cell"}
+
+    press(("tab", "XO4"))
+    press("xo4-grid")
+    assert ui.xo4_grid and cells() == {(i, p) for i in range(16) for p in range(8)}      # DRUMS: pads 1-8
+    press(("xo4-cell", 0, 0))                                       # the kick on 1, the snare (pad 3) on 1 and 5
+    press(("xo4-cell", 0, 2))
+    press(("xo4-cell", 4, 2))
+    assert steps(0)[0]["notes"] == [0, 2] and steps(0)[4]["notes"] == [2] and ui.xo4_pad == 2
+    press(("xo4-cell", 0, 2))                                       # tapped again: off, the kick kept
+    assert steps(0)[0]["notes"] == [0]
+    press(("xo4-half", 1))
+    assert cells() == {(i, p) for i in range(16) for p in range(8, 16)}
+    press(("xo4-cell", 3, 12))
+    assert steps(0)[3]["notes"] == [12]
+    press(("xo4-cell", 3, 12), hold=True)                           # held: the step emptied
+    assert steps(0)[3] is None
+    press(("xo4-track", 1))                                         # SYN 1: the rows are notes, highest on top
+    rows = sorted({v for _, v in cells()}, reverse=True)
+    assert rows == list(reversed(xo4.scale_notes(app.song(), 5 * 12, 8)))   # C4 major, eight notes up
+    press(("xo4-cell", 2, 60))
+    press(("xo4-cell", 2, 64))
+    assert steps(1)[2]["notes"] == [60, 64] and ui.xo4_step == 2 and ("audition", 1, [64], 100) in app.xo4.sent
+    for n in (67, 71):
+        press(("xo4-cell", 2, n))
+    press(("xo4-cell", 2, 72))                                      # a fifth note: refused
+    assert steps(1)[2]["notes"] == [60, 64, 67, 71]
+    for n in (60, 64, 67, 71):                                      # each off: the last one empties the step
+        press(("xo4-cell", 2, n))
+    assert steps(1)[2] is None
+    press("xo4-oct-")
+    assert min(v for _, v in cells()) == 4 * 12
+    ui.xo4_grid = False                                             # the length in the steps view, then GRID again
+    press("xo4-len+")
+    press("xo4-grid")
+    assert ("xo4-cell", 16, 48) not in {w[3] for w in ui.widgets}
+    press("xo4-grid-page")
+    assert ui.xo4_page == 1 and {i for i, _ in cells()} == {16}     # page 2: step 17 only
+    app.xo4.step, app.xo4.pattern = 16, app.song()["pattern"]       # the playhead, drawn while playing
+    app.playing = True
+    app.state["clock_mode"] = "box"
+    ui.render(0.0, force=True)
+    press("xo4-grid")
+    assert not ui.xo4_grid and ("xo4-step", 16) in {w[3] for w in ui.widgets}
+
+
 def test_home_tempo():
     """HOME's tempo - / +: a tap is 1 BPM, a hold 10, within 30-300; following another clock, they leave it be"""
     import bridge

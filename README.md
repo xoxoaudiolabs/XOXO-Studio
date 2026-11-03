@@ -79,7 +79,8 @@ The Studio's own groovebox, being built (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, 
 - **Sound:** a source of its own, XO-4, in the mixer, the meters and recordings.
 - **The XO-4 tab:**
   - **Header:** < HOME, the patterns A–H, REC (live: pads played go onto DRUMS while it plays) and PLAY / STOP.
-  - **Track row:** the track, its length LEN − / +, and HOLD CLR.
+  - **Track row:** the track, its length LEN − / +, HOLD CLR, and GRID.
+  - **GRID:** the whole pattern at once, as on XO-4 Pocket: a row a sound (DRUMS: pads 1–8 or 9–16) or a note of the scale (SYN 1, SYN 2, MIDI: OCT − / + moves it), 16 steps across (P 1/2 … for a longer track), the playhead lit. A tap puts the row's sound or note on the step or takes it off; held, the step is emptied. The bottom line says what's on the step last tapped.
   - **Steps:** 16 a page.
   - **Step row:** the pages, then the selected step's VEL and LEN.
   - **DRUMS:**
@@ -111,6 +112,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 | ![XO-4 sound](docs/images/studio-xo4-sound.png) **XO-4: SOUND** | ![XO-4 pads](docs/images/studio-xo4-pads.png) **XO-4: PADS** |
 | ![XO-4 FX](docs/images/studio-xo4-fx.png) **XO-4: synth FX** | ![DECKS](docs/images/studio-decks.png) **DECKS** |
 | ![EDITOR](docs/images/studio-editor.png) **EDITOR** | ![MIDI](docs/images/studio-midi.png) **MIDI** |
+| ![XO-4 grid](docs/images/studio-xo4-grid.png) **XO-4: GRID, DRUMS** | ![XO-4 grid synth](docs/images/studio-xo4-grid-synth.png) **XO-4: GRID, SYN 2** |
 | ![MORE](docs/images/studio-more.png) **MORE** | |
 
 ## Known limitations
@@ -142,6 +144,7 @@ Drawn on a PC by the Studio's own drawing code with a made-up studio (`python to
 - XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
 - XO-4's engine, with a demo pattern put in by hand and the box clock started from the web page: the XO-4 source and the pads (the 808 KIT, played by XO-4's drum track) both carry sound, measured by recording each source on the Pi (peaks 0.66 and 0.81); XO-4 takes about 30% of one core while it plays, the pads about 20%
 - the XO-4 tab, used by hand on the Studio's screen: works well (the user's report, 2026-10-28)
+- XO-4's GRID on the Studio's screen (2026-11-02): its cells hit by finger, "works well" (the user's report); the screen grabbed on the Pi showed it as drawn on the PC
 - "< HOME" at the top left of MIXER, SAMPLER, RECORD, MIDI and MORE looks right on the Studio's screen (the user's report)
 - SAMPLER and RECORD full screen (no tab bar) look right on the Studio's screen (the user's report)
 - HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
