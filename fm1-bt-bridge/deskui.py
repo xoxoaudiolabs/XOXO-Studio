@@ -491,15 +491,33 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             self.widget(box, "tap", lambda name=name: self.open_tab(name), ("tab", name))
 
     def draw_message(self, img, message):
+        """a message over the screen: up to three lines (split at a newline), 52 characters each"""
         t, d = self.theme, ImageDraw.Draw(img)
-        s = message[:52]
-        w, h = st.text_size(s)
-        box = ((W - w) // 2 - 12, 120, (W + w) // 2 + 12, 120 + h + 16)
+        lines = [s[:52] for s in message.split("\n")[:3]]
+        w = max(st.text_size(s)[0] for s in lines)
+        h = st.text_size(lines[0])[1]
+        box = ((W - w) // 2 - 12, 120, (W + w) // 2 + 12, 120 + len(lines) * (h + 6) + 10)
         d.rectangle(box, fill=t.bg, outline=t.hi, width=2)
-        st.text(img, (box[0] + 12, box[1] + 8), s, t.hi)
+        for k, s in enumerate(lines):
+            st.text(img, (box[0] + 12, box[1] + 8 + k * (h + 6)), s, t.hi)
+
+    def bt_warn(self, name):
+        """XO-4 or the decks opened while a speaker plays through the Pi's own Bluetooth: it sounds poor there
+        (on a Pi 3 B+ it sent in stalls of up to 140 ms at SBC bitpool 14-16, 2026-11-03), so a word to use the
+        DAC's out (or the jack) or a USB Bluetooth dongle. Once a run for each"""
+        a = self.app
+        warned = self.__dict__.setdefault("bt_warned", set())
+        if name in warned or not a.sink or getattr(a, "bt_usb", False):
+            return
+        warned.add(name)
+        what = "XO-4" if name == "XO4" else "the decks"
+        out = "the DAC out" if getattr(a, "dac", None) else "the headphone jack"
+        a.say(f"Pi's Bluetooth: dropouts with {what}.\nUse {out} or a USB Bluetooth dongle.", 6)
 
     def open_tab(self, name):
         a = self.app
+        if name in ("XO4", "DECKS"):
+            self.bt_warn(name)
         if a.screen == "meter" and name not in METER_TABS:
             a.screen = "status"
             a.levels.stop()

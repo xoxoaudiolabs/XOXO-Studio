@@ -266,7 +266,7 @@ class DeskPads:
         self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", self.cancel_pick_source, key="src-back")
         st.text(img, (96, 9), f"SAMPLE PAD {self.pad_pick_source + 1} FROM", t.hi)
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        sources = [(k, n) for k, n in a.mix_channels() if k != "u-sampler"][:5]
+        sources = [(k, n) for k, n in a.mix_channels() if k != "u-xo4"][:5]   # (not the pads' own: XO-4's)
         for k, (key, node) in enumerate(sources):
             y = HDR_H + 4 + k * ROW_H
             box = (8, y, W - 8, y + ROW_H - 6)

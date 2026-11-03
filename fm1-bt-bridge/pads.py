@@ -6,8 +6,9 @@ go) or loop (loops while held), an attack and a release, a choke group (a pad cu
 open hi-hat stopped by the closed one) and reverse. Up to VOICES at once; past that the oldest stops.
 
 The engine runs in a process of its own (PadProcess) that renders blocks of BLOCK frames with numpy and
-streams them into PipeWire: into a virtual speaker whose other side is a source named "fm1-sampler", so the box
-treats the sampler like any other sound source: a slider in the mixer, a file in Record parts, the meters. The
+streams them into PipeWire: into XO-4's virtual speaker (the pads are XO-4's drums: they share its channel,
+one loopback fewer), whose other side is the source "fm1-xo4": a slider in the mixer, a file in Record parts,
+the meters. This process makes that loopback (it starts before XO-4's), XO-4's player plays into it too. The
 MIDI process sends it notes (the routes' SMP), the app sends it taps and kits; it sends back which pads sound.
 Kits are JSON files in ~/fm1-library/kits/. One comes ready-made (factory_kits): 808 KIT, Michael Fischer's
 recordings of a real TR-808 (CC0).
@@ -39,7 +40,7 @@ PADS, FIRST_NOTE = 16, 36
 MAPS = ("mpc",)                             # how notes reach the pads (a kit saved with SLOOP's layout: as an MPC)
 VOICES, BLOCK = 16, 512                     # voices at once (an MPC 2000: 32); frames a block (11 ms at 48 kHz:
                                             # numpy's cost a call, not a sample, is what a Pi 3 feels)
-SOURCE, SINK = "fm1-sampler", "fm1-sampler-in"
+SOURCE, SINK = "fm1-xo4", "fm1-xo4-in"         # XO-4's channel (xo4.py's), made here
 MODES = ("one-shot", "gate", "loop")
 DEFAULT_PAD = {"sample": None, "level": 100, "pan": 0, "tune": 0, "mode": "one-shot", "attack": 0,
                "release": 50, "choke": 0, "reverse": False}
@@ -547,21 +548,24 @@ def run(app_conn, midi_conn, rate, xo4_conn=None):
     box hears), take the app's and the MIDI process's messages between blocks, tell the app which pads sound"""
     import fcntl
     # a sampler left running (an app killed without its children, one started by hand): gone, or the box gets
-    # two SAMPLER sources. (Only command lines that start with pw-loopback or pw-cat: never a shell that merely
-    # mentions it.)
-    subprocess.run(["pkill", "-f", f"^pw-(loopback|cat) .*{SINK}"], stdout=subprocess.DEVNULL,
-                   stderr=subprocess.DEVNULL)
+    # two XO-4 sources; and an older one's own SAMPLER channel. (Only command lines that start with pw-loopback or
+    # pw-cat: never a shell that merely mentions it; not XO-4's player, which plays into this loopback too.)
+    for pattern in (f"^pw-loopback .*node.name={SINK} ", "^pw-cat .*node.name = fm1-pads ",
+                    "^pw-(loopback|cat) .*fm1-sampler-in"):
+        subprocess.run(["pkill", "-f", pattern], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     loop = subprocess.Popen(
         ["pw-loopback", "--capture-props", f"media.class=Audio/Sink node.name={SINK} audio.position=[FL,FR] "
-                                           "node.description=Sampler priority.session=1",
+                                           "node.description=XO-4 priority.session=1",
          "--playback-props", f"media.class=Audio/Source node.name={SOURCE} audio.position=[FL,FR] "
-                             "node.description=SAMPLER"],
+                             "node.description=XO-4"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     cat = subprocess.Popen(
         ["pw-cat", "--playback", "--raw", "--target", SINK, "--rate", str(rate), "--channels", "2",
          "--format", "s16", "--latency", "10ms", "-P", "{ node.name = fm1-pads node.dont-reconnect = true }", "-"],
         stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    import blemidi
+    blemidi.make_player_realtime(cat.pid)       # (a busy Pi never makes it late)
     try:                                        # a small pipe: a block written is heard ~20 ms later, not 300
         fcntl.fcntl(cat.stdin.fileno(), 1031, 4096)                 # F_SETPIPE_SZ
     except OSError:

@@ -14,7 +14,8 @@ the level they were hit; QUANT off keeps the nudge they were played with. The pa
 another is picked, for every track at once. SWING delays every second 16th, as the pads' sequencer does.
 
 The process (XO4Process) renders BLOCK frames at a time into a virtual speaker whose other side is the source
-"fm1-xo4" (XO-4 in the mixer, the meters, recordings), as the pads do. The app sends it the song and the patches;
+"fm1-xo4" (XO-4 in the mixer, the meters, recordings). The pads play into the same one (they're XO-4's drums: one
+channel), and their process makes it. The app sends it the song and the patches;
 the MIDI process sends it the grid; it sends the app the step playing, and the pads and MIDI their notes.
 """
 import math
@@ -435,20 +436,21 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
     app's and the MIDI process's messages between blocks, send the pads and the MIDI process their notes, tell
     the app the step playing"""
     import fcntl
-    subprocess.run(["pkill", "-f", f"^pw-(loopback|cat) .*{SINK}"], stdout=subprocess.DEVNULL,
+    # a player left running: gone (only XO-4's: the loopback is the pads' process's, and theirs plays into it)
+    subprocess.run(["pkill", "-f", "^pw-cat .*node.name = fm1-xo4-out "], stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
-    loop = subprocess.Popen(
-        ["pw-loopback", "--capture-props", f"media.class=Audio/Sink node.name={SINK} audio.position=[FL,FR] "
-                                           "node.description=XO-4 priority.session=1",
-         "--playback-props", f"media.class=Audio/Source node.name={SOURCE} audio.position=[FL,FR] "
-                             "node.description=XO-4"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(1.0)
+    for _ in range(50):                         # the pads' loopback (XO-4's channel) there first: up to 5 s
+        found = subprocess.run(["pw-link", "-i"], capture_output=True, text=True).stdout
+        if f"{SINK}:playback_FL" in found:
+            break
+        time.sleep(0.1)
     cat = subprocess.Popen(
         ["pw-cat", "--playback", "--raw", "--target", SINK, "--rate", str(rate), "--channels", "2",
          "--format", "s16", "--latency", "10ms", "-P", "{ node.name = fm1-xo4-out node.dont-reconnect = true }",
          "-"],
         stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    import blemidi
+    blemidi.make_player_realtime(cat.pid)       # (a busy Pi never makes it late)
     try:                                        # a small pipe: a block written is heard ~20 ms later
         fcntl.fcntl(cat.stdin.fileno(), 1031, 4096)                 # F_SETPIPE_SZ
     except OSError:
@@ -513,8 +515,7 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
     except (BrokenPipeError, OSError):
         pass
     finally:
-        for proc in (cat, loop):
-            proc.terminate()
+        cat.terminate()
 
 
 class XO4Process:

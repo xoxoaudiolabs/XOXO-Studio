@@ -7,7 +7,7 @@ playing, it goes back to the cue and stops), the tempo fader (+-8 %), the jog wh
 in vinyl mode, its edge nudges the tempo), 4 hot cues (the track's Serato ones when it has them; SHIFT + pad clears
 one), loops (4 beats on LOOP IN, LOOP OUT leaves it or goes back in, SHIFT halves or doubles), loop rolls on the pads
 (1, 2, 4 or 8 beats while held, then on as if it had played through), SYNC (the other deck's tempo, and its beat
-when both have a grid), gain, LOW and HIGH EQ, a filter (left low-pass, right high-pass, off in the middle), an FX
+when both have a grid; while XO-4 plays, the Studio's clock's instead: Clock), gain, LOW and HIGH EQ, a filter (left low-pass, right high-pass, off in the middle), an FX
 (DeckFX: ECHO, REVERB, FLANGER, BRAKE; after the EQ, before the volume fader), the volume fader, PFL to the
 headphones, the crossfader.
 
@@ -38,6 +38,12 @@ CUE_COLORS = ("#cc0000", "#cc8800", "#3399ff", "#33cc33")   # a hot cue set here
 MEMORY = ".studio-dj-memory.json"             # beside the music: each track's cues as set here, and the session
 OVERVIEW = 220                                # a track's overview: this many columns (the DECKS screen's)
 FX_NAMES = ("ECHO", "REVERB", "FLANGER", "BRAKE")   # a deck's FX, in the order FX (held) steps through
+DECLICK = 256                                 # frames (6 ms): a jump in a deck's sound (PLAY, a stop, CUE, a hot
+                                              # cue, a seek) faded across, not a click
+BAR = 4                                       # beats a bar: a synced deck started puts its bar on its lead's (the
+                                              # track's first beat taken as a bar's first: a guess)
+AHEAD = (2048 + 1024 + BLOCK) / RATE          # s: a block rendered now is heard after the pipe (8192 bytes), pw-cat's
+                                              # 1024 frames and the EQ's block (Tone)
 
 
 def np():
@@ -306,6 +312,8 @@ class Deck:
         self.lock_offset = 0.0                   # where its beat sits from the other's, in beats (a nudge kept)
         self.fx = DeckFX()
         self.brake_at = None                     # BRAKE: the frames slowed so far (None: not braking)
+        self.cont = None                         # (where the last block's sound would go on, its step) or None:
+                                                 # it was silent (Deck.declick)
 
     # ---- tempo
     def speed(self):
@@ -333,6 +341,7 @@ class Deck:
     # ---- transport
     def load(self, track):
         self.track, self.pos, self.playing, self.loop, self.roll = track, 0.0, False, None, None
+        self.cont = None
         self.lock_offset = 0.0
         self.cue = track.cues.get(0, track.first_beat * track.rate) if track.cues else 0.0
         self.pos = self.cue
@@ -344,8 +353,14 @@ class Deck:
             return
         if self.track:
             self.playing = not self.playing
-            if self.playing and self.synced and other is not None and other.playing and other.track                     and other.track.bpm and self.track.bpm:       # synced: it starts on the other's beat
-                self.pos += self.phase_error(other) * self.track.beat_frames()
+            if self.playing and self.synced and other is not None and other.playing and other.track                     and other.track.bpm and self.track.bpm:       # synced: it starts on the other's bar
+                self.move_beats(self.phase_error(other, BAR), BAR)
+
+    def move_beats(self, beats, span):
+        """the position moved by `beats` (onto the lead's beat or bar); a bar (span) later if that's before the
+        track's start (at 0 the beat would be lost)"""
+        bf = self.track.beat_frames()
+        self.pos += (beats + (span if self.pos + beats * bf < 0 else 0)) * bf
 
     def cue_press(self, down):
         if not self.track:
@@ -429,10 +444,11 @@ class Deck:
         theirs = other.bpm_now()
         return min((theirs * k for k in (0.5, 1.0, 2.0)), key=lambda b: abs(math.log(b / self.track.bpm)))
 
-    def phase_error(self, other):
-        """how far this deck's beat is from the other's, in this deck's beats (-0.5 .. 0.5; + : this one behind)"""
+    def phase_error(self, other, span=1):
+        """how far this deck's beat is from the other's, in this deck's beats (-0.5 .. 0.5; + : this one behind);
+        span BAR: its bar from the other's (-2 .. 2)"""
         ratio = self.target_bpm(other) / other.bpm_now()
-        return ((other.beat_pos() * ratio) % 1.0 - self.beat_pos() % 1.0 + 0.5) % 1.0 - 0.5
+        return ((other.beat_pos() * ratio) % span - self.beat_pos() % span + span / 2) % span - span / 2
 
     def follow(self, other):
         """(each block, while synced) the other deck's tempo, and its beat: while both play, a little faster or
@@ -458,7 +474,7 @@ class Deck:
             ratio = target / other.bpm_now()      # half tempo: two of the other's beats a beat, or half of one)
             phase = (other.beat_pos() * ratio) % 1.0
             mine = self.beat_pos()
-            self.pos += ((phase - mine % 1.0 + 0.5) % 1.0 - 0.5) * self.track.beat_frames()
+            self.move_beats((phase - mine % 1.0 + 0.5) % 1.0 - 0.5, 1)
 
     # ---- jog
     def jog_top(self, ticks):
@@ -478,10 +494,51 @@ class Deck:
     def render(self, n):
         """-> (pre-fader [n, 2] float32: what PFL hears, the same for the master before the volume fader)"""
         nm = np()
+        if self.track is None:
+            self.cont = None
+            return self.tone.process(nm.zeros((n, 2), nm.float32))
+        positions = self.positions(n)
+        out = self.read(positions) if positions is not None else nm.zeros((n, 2), nm.float32)
+        out = self.declick(out, positions)
+        gain = (self.gain / 0.5) ** 1.5           # the gain knob: about -inf .. +9 dB, unity in the middle
+        return self.tone.process(out * gain)
+
+    def read(self, positions):
+        """the track at these (fractional) positions: [n, 2] float32, -1 .. 1"""
+        nm, t = np(), self.track
+        i = nm.clip(positions, 0, t.frames - 2)
+        i0 = i.astype(nm.int64)
+        frac = (i - i0).astype(nm.float32)[:, None]
+        a = t.audio[i0].astype(nm.float32)
+        b = t.audio[i0 + 1].astype(nm.float32)
+        return (a + (b - a) * frac) / 32768.0
+
+    def declick(self, out, positions):
+        """a jump in the sound (PLAY, a stop, CUE, a hot cue, a seek, a loop going round) faded across DECLICK
+        frames: what was sounding fades out from where it was going, the new sound fades in"""
+        nm = np()
+        was = self.cont
+        if positions is None:
+            self.cont = None
+        else:
+            step = float(positions[-1] - positions[-2]) if len(positions) > 1 else 0.0
+            self.cont = (float(positions[-1]) + step, step)
+        if was is None and positions is None:
+            return out
+        if was is not None and positions is not None and abs(positions[0] - was[0]) <= max(2.0, 2 * abs(was[1])):
+            return out                           # (it carries straight on)
+        k = min(DECLICK, len(out))
+        ramp = nm.linspace(0.0, 1.0, k, dtype=nm.float32)[:, None]
+        if positions is not None:
+            out[:k] *= ramp
+        if was is not None:
+            out[:k] += self.read(was[0] + was[1] * nm.arange(k)) * (1 - ramp)
+        return out
+
+    def positions(self, n):
+        """where in the track this block's n frames come from (moving the deck on), or None: silent"""
+        nm = np()
         t = self.track
-        silent = nm.zeros((n, 2), nm.float32)
-        if t is None:
-            return self.tone.process(silent)
         if self.vinyl and self.touched:          # scratching: the record follows the hand (no hand: it stands)
             step = self.scratch_ticks * SAMPLES_PER_TICK * t.rate / RATE / n
             self.scratch_ticks = 0
@@ -494,12 +551,12 @@ class Deck:
             steps = self.speed() * ramp
             positions = self.pos + nm.concatenate([[0.0], nm.cumsum(steps)[:-1]])
             if not ramp.any():                   # stood still: silence until BRAKE lets go
-                return self.tone.process(nm.zeros((n, 2), nm.float32))
+                return None
         elif self.playing:
             self.brake_at = None
             positions = self.pos + self.speed() * nm.arange(n)
         else:
-            return self.tone.process(silent)
+            return None
         if self.roll:                            # the slip position keeps going, as if it had played through
             self.roll = (self.roll[0] + self.speed() * n, self.roll[1])
         if self.loop:
@@ -517,14 +574,33 @@ class Deck:
             self.pos, self.playing = float(t.frames - 1), False
         if self.pos < 0:
             self.pos = 0.0
-        i = nm.clip(positions, 0, t.frames - 2)
-        i0 = i.astype(nm.int64)
-        frac = (i - i0).astype(nm.float32)[:, None]
-        a = t.audio[i0].astype(nm.float32)
-        b = t.audio[i0 + 1].astype(nm.float32)
-        out = (a + (b - a) * frac) / 32768.0
-        gain = (self.gain / 0.5) ** 1.5           # the gain knob: about -inf .. +9 dB, unity in the middle
-        return self.tone.process(out * gain)
+        return positions
+
+
+class Clock:
+    """the Studio's clock (XO-4, the pads and MIDI clock go by it), as SYNC follows it: the beat grid the app passes
+    on (seconds a tick, tick 0's time on time.monotonic(), playing; tick 0 is bar 1's first beat) and when the block
+    being rendered is heard. It answers what Deck's sync asks of the other deck (playing, pos, track.bpm, bpm_now,
+    beat_pos), so while it plays a synced deck follows it as it would a deck"""
+
+    def __init__(self):
+        self.grid, self.heard = None, None
+        self.track, self.pos = self, 1.0
+
+    @property
+    def playing(self):
+        g = self.grid
+        return bool(g and g[0] and g[1] is not None and g[2] and self.heard is not None)
+
+    @property
+    def bpm(self):
+        return 60.0 / (self.grid[0] * 24) if self.grid and self.grid[0] else None
+
+    def bpm_now(self):
+        return self.bpm
+
+    def beat_pos(self):
+        return (self.heard - self.grid[1]) / (self.grid[0] * 24)
 
 
 HEADROOM = 0.7                                # -3 dB: two loud tracks together still fit
@@ -547,14 +623,21 @@ class Engine:
         self.decks = [Deck("A"), Deck("B")]
         self.xfade = 0.5
         self.leader = 0                          # both synced: the deck the other follows (whose fader moved last)
+        self.clock = Clock()                     # the Studio's: while it plays, synced decks follow it
         self.lock = threading.Lock()
         self.peak, self.limited = 0.0, 0          # the master's recent peak, blocks the limiter touched
+
+    def lead(self, d):
+        """what deck d's SYNC follows: the Studio's clock while it plays, else the other deck"""
+        return self.clock if self.clock.playing else self.decks[1 - self.decks.index(d)]
 
     def pitch_fader(self, d, v):
         """deck d's tempo fader at v (0 .. 1)"""
         d.fader = (0.5 - v) * 2                  # up is slower, as on a CDJ and in Serato (checked on the MK2)
         other = self.decks[1 - self.decks.index(d)]
-        if d.synced and other.synced:            # both synced: this deck leads now, the other follows it
+        if d.synced and self.clock.playing:      # the clock leads: its tempo (the fader kept for SYNC off)
+            pass
+        elif d.synced and other.synced:            # both synced: this deck leads now, the other follows it
             self.leader, d.pitch = self.decks.index(d), d.fader
         elif d.synced and other.track and d.track and other.track.bpm:
             d.pitch = d.fader                    # synced to an unsynced deck: that one taken along
@@ -563,12 +646,17 @@ class Engine:
         else:
             d.pitch = d.fader
 
-    def render(self, n=BLOCK):
-        """-> (master [n, 2], headphones [n, 2]) float32"""
+    def render(self, n=BLOCK, heard=None):
+        """-> (master [n, 2], headphones [n, 2]) float32. heard: when this block's first frame is heard (as
+        time.monotonic(); None: not known, the clock not followed)"""
         nm = np()
         with self.lock:
+            self.clock.heard = heard
             da, db = self.decks
-            if da.synced and db.synced:          # both: the leader's tempo, the other one following it
+            if self.clock.playing:               # the Studio's clock leads every synced deck
+                for d in self.decks:
+                    d.follow(self.clock)
+            elif da.synced and db.synced:        # both: the leader's tempo, the other one following it
                 lead = self.decks[self.leader]
                 self.decks[1 - self.leader].follow(lead)
                 lead.lock_fix = 0.0
@@ -576,6 +664,8 @@ class Engine:
                 da.follow(db)
                 db.follow(da)
             a, b = (d.fx.process(d.render(n), d.bpm_now()) for d in self.decks)
+            if heard is not None:                # (SYNC or PLAY before the next block: the clock where it'll be)
+                self.clock.heard = heard + n / RATE
             ga = math.cos(self.xfade * math.pi / 2)     # constant power
             gb = math.sin(self.xfade * math.pi / 2)
             da, db = self.decks
@@ -679,11 +769,11 @@ class Hercules:
             elif note == 3 and down:
                 d.vinyl = not d.vinyl
             elif note == 5 and down:
-                d.toggle_sync(other)
+                d.toggle_sync(e.lead(d))
             elif note == 6:
                 d.cue_press(down)
             elif note == 7 and down:
-                d.play_pause(other)
+                d.play_pause(e.lead(d))
             elif note == 8:
                 d.touched = down
             elif note == 9 and down:
@@ -852,9 +942,9 @@ class Learned:
         elif not down:
             return
         elif name == "play":
-            d.play_pause(other)
+            d.play_pause(self.engine.lead(d))
         elif name == "sync":
-            d.toggle_sync(other)
+            d.toggle_sync(self.engine.lead(d))
         elif name == "load":
             self.on_load(k)
         elif name == "pfl":
@@ -1018,6 +1108,11 @@ class Output:
         if channel_map:
             cmd += ["--channel-map", channel_map]
         proc = subprocess.Popen(cmd + ["-"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:                                     # real-time (started from the screen's thread, it'd be niced too):
+            import blemidi                       # a busy Pi never makes it late
+            blemidi.make_player_realtime(proc.pid)
+        except ImportError:
+            pass
         try:
             import fcntl
             fcntl.fcntl(proc.stdin.fileno(), 1031, 8192)            # F_SETPIPE_SZ: a short pipe, short delay
@@ -1410,12 +1505,17 @@ class Decks:
         self.restore()
         threading.Thread(target=self.watch_drives, daemon=True).start()   # (the sound never waits on a mount)
         out = Output(self.out_to)
-        try:
+        base, frames = None, 0                   # when a block is heard: counted on from a base (as XO-4's),
+        try:                                     # taken afresh when the count is 15 ms off the time
             while not self.stop.is_set():
                 if out.to != self.out_to:        # DJ decks out changed: the streams made again
                     out.close()
                     out = Output(self.out_to)
-                master, phones = self.engine.render(BLOCK)
+                heard = time.monotonic() + AHEAD
+                if base is None or abs(base + frames / RATE - heard) > 0.015:
+                    base, frames = heard, 0
+                master, phones = self.engine.render(BLOCK, base + frames / RATE)
+                frames += BLOCK
                 out.write(master, phones)        # the write waits for room: real time
         finally:
             out.close()
@@ -1429,7 +1529,7 @@ class Decks:
                          "bpm": round(d.bpm_now(), 1) if d.bpm_now() else None, "key": t.key if t else None,
                          "pos": d.pos / t.rate if t else 0.0, "len": t.frames / t.rate if t else 0.0,
                          "playing": d.playing, "pitch": round(d.pitch * PITCH_RANGE * 100, 2), "loop": bool(d.loop),
-                         "synced": d.synced, "camelot": djlib.camelot(t.key) if t and t.key else None,
+                         "synced": d.synced, "to_clock": d.synced and self.engine.clock.playing, "camelot": djlib.camelot(t.key) if t and t.key else None,
                          "cues": sorted([k, round(v / t.frames, 4), t.cue_colors.get(k) or CUE_COLORS[k]]
                                         for k, v in t.cues.items()) if t else [],
                          "loop_at": [round(v / t.frames, 4) for v in d.loop] if t and d.loop else None,
@@ -1517,11 +1617,13 @@ class Decks:
             d = e.decks[args[0]] if args and isinstance(args[0], int) and name not in ("select", "browse") \
                 else None
             if name == "play" and d:
-                d.play_pause(e.decks[1 - args[0]])
+                d.play_pause(e.lead(d))
             elif name == "cue" and d:
                 d.cue_press(bool(args[1]))
             elif name == "sync" and d:
-                d.toggle_sync(e.decks[1 - args[0]])
+                d.toggle_sync(e.lead(d))
+            elif name == "clock":                # ("clock", seconds a tick, tick 0's time, playing): the app's
+                e.clock.grid = tuple(args[:3]) if len(args) >= 3 and args[0] else None
             elif name == "pfl" and d:
                 d.pfl = not d.pfl
             elif name == "fx" and d and len(args) > 1:     # ("fx", deck, "toggle" / "next")
@@ -1600,8 +1702,9 @@ class DeckProcess:
     """the Companion's side: decks.py --serve started as a program of its own (dies with the Companion), its
     messages read on a thread: the latest status, the library, each deck's overview"""
 
-    def __init__(self, on_change=lambda: None):
+    def __init__(self, on_change=lambda: None, clock=lambda: None):
         self.proc, self.on_change = None, on_change
+        self.clock = clock                       # -> the Studio's beat grid (blemidi's clock_status "grid") or None
         self.status, self.library, self.overviews, self.note = None, [], {0: [], 1: []}, None
         self.library_n = self.note_n = 0          # counted as they come: the screen sees a new one, even the same
 
@@ -1620,6 +1723,22 @@ class DeckProcess:
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                                      text=True, bufsize=1, preexec_fn=lambda: libc.prctl(1, signal.SIGTERM))
         threading.Thread(target=self.read, args=(self.proc,), daemon=True).start()
+        threading.Thread(target=self.pass_clock, args=(self.proc,), daemon=True).start()
+
+    def pass_clock(self, proc):
+        """the Studio's beat grid to the decks: when it changes, and every half second"""
+        sent, sent_at = None, 0.0
+        while proc.poll() is None:
+            try:
+                grid = self.clock()
+            except Exception:
+                grid = None
+            grid = list(grid) if grid else [None, None, False]
+            now = time.monotonic()
+            if grid != sent or now - sent_at >= 0.5:
+                self.send("clock", *grid)
+                sent, sent_at = grid, now
+            time.sleep(0.1)
 
     def read(self, proc):
         import json

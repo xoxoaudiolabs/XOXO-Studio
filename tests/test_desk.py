@@ -690,7 +690,7 @@ def test_four_usb_devices():
     objects = [node(10, "EP-136", "alsa_input.usb-EP-136-a"), node(11, "EP-136", "alsa_input.usb-EP-136-b"),
                node(12, "SMK-37+VA", "alsa_input.usb-SMK"), node(13, "Scarlett 2i2", "alsa_input.usb-Focusrite"),
                {"type": "PipeWire:Interface:Node", "id": 14, "info": {"props": {
-                   "media.class": "Audio/Source", "node.name": "fm1-sampler"}}}]
+                   "media.class": "Audio/Source", "node.name": "fm1-xo4"}}}]
     sink, others = bridge.pick_nodes(objects)
     assert sink is None and len(others) == 5
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
@@ -699,7 +699,7 @@ def test_four_usb_devices():
     keys = [k for k, _ in app.mix_channels()]
     assert len(set(keys)) == 5
     names = [app.channel_name(k) for k in keys]
-    assert names[:2] == ["EP-136", "EP-136 #2"] and "SCARLETT 2" in names[3] and names[4] == "SAMPLER"
+    assert names[:2] == ["EP-136", "EP-136 #2"] and "SCARLETT 2" in names[3] and names[4] == "XO-4"
     assert len(meters.PARTS_MAP) // 2 >= len(keys)                    # Record parts: room for every source
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
@@ -1390,14 +1390,12 @@ def test_internal_sources_say_no_usb():
         if nick:
             props["alsa.card_name"] = nick
         return {"id": i, "type": "PipeWire:Interface:Node", "info": {"props": props}}
-    objects = [node(1, "alsa_input.usb-Casio_EP-136-00.analog-stereo", nick="EP-136"), node(2, "fm1-sampler"),
-               node(3, "fm1-xo4")]
+    objects = [node(1, "alsa_input.usb-Casio_EP-136-00.analog-stereo", nick="EP-136"), node(3, "fm1-xo4")]
     sink, sources = bridge.pick_nodes(objects)
     app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
     app.others = sources
     ui = deskui.DeskUI(app, app.display)
-    assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("SAMPLER", ""),
-                                                                           ("XO-4", "")]
+    assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("XO-4", "")]
 
 
 
@@ -2360,3 +2358,108 @@ def test_charging_bolt_by_the_battery():
     assert bolt("HOME") and bolt("MIX") and bolt("MORE") and bolt("REC")
     app.battery = {"percent": 86, "mv": 3890, "plugged": False}
     assert not bolt("HOME") and not bolt("MIX")
+
+
+def test_bluetooth_dongle_takes_over(monkeypatch, tmp_path):
+    """a USB Bluetooth adapter (a dongle) takes over all of Bluetooth: the Pi's own powered off (through BlueZ), the
+    dongle on, Bluetooth MIDI told; unplugged, the Pi's own again. A speaker not paired on the new one: said. If
+    bluetoothctl's default isn't the one wanted (its commands would miss): said"""
+    import bridge
+    for name in ("hci0", "hci1"):
+        (tmp_path / name).mkdir()
+    real = {"hci0": "/sys/devices/platform/soc/3f215040.serial/serial0/serial0-0/bluetooth/hci0",
+            "hci1": "/sys/devices/platform/soc/3f980000.usb/usb1/1-1/1-1.3/1-1.3:1.0/bluetooth/hci1"}
+    monkeypatch.setattr(bridge.os.path, "realpath", lambda p: real[Path(p).parent.name] + "/device")
+    address = {"hci0": "B8:27:EB:15:77:0A", "hci1": "E8:48:B8:C8:20:00"}
+    present = {"hci0", "hci1"}
+    calls = []
+    default = {"is": None}                            # bluetoothctl's default controller (None: the one in use)
+
+    def run(cmd, timeout=15, merge=True, clean=True):
+        calls.append(cmd)
+        if cmd[:2] == ["busctl", "get-property"]:
+            hci = cmd[3].rsplit("/", 1)[1]
+            return (0, f's "{address[hci]}"') if hci in present else (1, "unknown object")
+        if cmd[:2] == ["bluetoothctl", "show"]:
+            return 0, f"Controller {default['is'] or bridge.BT_IN_USE['address']} (public)"
+        if cmd[0] == "bluetoothctl" and "info" in cmd:
+            return 0, "\tName: JBL Go 3\n\tPaired: no"
+        return 0, ""
+    monkeypatch.setattr(bridge, "run", run)
+    assert bridge.bt_adapters(str(tmp_path)) == [("E8:48:B8:C8:20:00", True, "hci1"),
+                                                ("B8:27:EB:15:77:0A", False, "hci0")]
+    present.discard("hci1")                           # (sysfs shows it before BlueZ has it: not listed yet)
+    assert bridge.bt_adapters(str(tmp_path)) == [("B8:27:EB:15:77:0A", False, "hci0")]
+    monkeypatch.setattr(bridge, "BT_IN_USE", {"address": None, "usb": False})
+    monkeypatch.setattr(bridge, "bt_adapters", lambda: sorted(
+        [(address[h], h == "hci1", h) for h in sorted(present)], key=lambda a: not a[1]))
+
+    class Midi:
+        moved = []
+
+        def set_bt_adapter(self, a):
+            self.moved.append(a)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS, last_mac="20:18:5B:EF:AA:B0"))
+    app.midi = Midi()
+    said = []
+    app.say = lambda text, seconds=3: said.append(text)
+    app.bt_follow_dongle()                            # starts with the Pi's own: nothing said
+    assert bridge.BT_IN_USE == {"address": "B8:27:EB:15:77:0A", "usb": False} and not said
+    present.add("hci1")                               # the dongle plugged in
+    calls.clear()
+    app.bt_follow_dongle()
+    assert bridge.BT_IN_USE["address"] == "E8:48:B8:C8:20:00" and app.bt_usb
+    assert app.midi.moved[-1] == "E8:48:B8:C8:20:00"
+    power = [(c[3], c[-1]) for c in calls if c[:2] == ["busctl", "set-property"]]
+    assert power == [("/org/bluez/hci0", "false"), ("/org/bluez/hci1", "true")]
+    assert said == ["Bluetooth dongle: pair the speaker again"]              # (the JBL was paired on the Pi's own)
+    calls.clear()
+    app.bt_follow_dongle()                            # nothing changed: nothing done
+    assert not [c for c in calls if c[0] != "busctl"]
+    present.discard("hci1")                           # unplugged: the Pi's own again
+    default["is"] = "E8:48:B8:C8:20:00"               # ... but bluetoothctl still on the other: said
+    app.bt_follow_dongle()
+    assert bridge.BT_IN_USE == {"address": "B8:27:EB:15:77:0A", "usb": False} and not app.bt_usb
+    assert said[-1] == "Bluetooth: couldn't move to the Pi's own"
+    default["is"] = None                              # a speaker paired on the new one: connected at once
+    present.add("hci1")
+    monkeypatch.setattr(bridge, "run", lambda cmd, timeout=15, merge=True, clean=True: (
+        run(cmd) if cmd[:2] != ["bluetoothctl", "info"] else (0, "	Paired: yes")))
+    calls.clear()
+    app.bt_follow_dongle()
+    for _ in range(50):
+        if ["bluetoothctl", "connect", "20:18:5B:EF:AA:B0"] in calls:
+            break
+        time.sleep(0.02)
+    assert ["bluetoothctl", "connect", "20:18:5B:EF:AA:B0"] in calls and said[-1] == "Bluetooth: the USB dongle"
+
+
+def test_bluetooth_warning_on_xo4_and_decks():
+    """XO-4 or DECKS opened with a speaker on the Pi's own Bluetooth: a word to use the DAC (or the jack) or a USB
+    dongle, once a run for each; none on a dongle, none without a speaker"""
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    said = []
+    app.say = lambda text, seconds=3: said.append(text)
+    ui = deskui.DeskUI(app, app.display)
+    ui.open_decks = lambda: None
+    ui.open_tab("XO4")
+    assert not said                                   # no speaker
+    app.sink = {"id": 9, "name": "bluez_output.x", "label": "JBL Go 3"}
+    app.dac = {"id": 63}
+    ui.open_tab("XO4")
+    ui.open_tab("HOME")
+    ui.open_tab("XO4")
+    ui.open_tab("DECKS")
+    assert said == ["Pi's Bluetooth: dropouts with XO-4.\nUse the DAC out or a USB Bluetooth dongle.",
+                    "Pi's Bluetooth: dropouts with the decks.\nUse the DAC out or a USB Bluetooth dongle."]
+    ui2 = deskui.DeskUI(app, app.display)
+    app.bt_usb = True                                 # on a dongle: nothing
+    ui2.open_tab("XO4")
+    assert len(said) == 2
+    app.bt_usb, app.dac = False, None
+    ui2.open_tab("XO4")
+    assert said[-1].endswith("Use the headphone jack or a USB Bluetooth dongle.")
+    app.message, app.message_until = said[-1], time.monotonic() + 5
+    ui2.render(time.monotonic(), force=True)          # two lines drawn, no error

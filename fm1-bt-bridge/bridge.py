@@ -152,8 +152,39 @@ def hardware_fingerprint():
 
 # ---------------------------------------------------------------- Bluetooth (bluetoothctl)
 
+BT_IN_USE = {"address": None, "usb": False}   # the adapter in use (App.bt_follow_dongle)
+
+
 def bt(*args, timeout=15):
+    """bluetoothctl, on its default controller. (It can't be aimed at another in one command: --init-script with
+    "select" didn't move it, tried on the Studio 2026-11-03. With a dongle in, its default was the dongle each
+    time; App.bt_follow_dongle checks.)"""
     return run(["bluetoothctl", *args], timeout)
+
+
+def bt_power(name, on):
+    """one adapter (hci0, hci1 ...) powered on or off, straight through BlueZ"""
+    return run(["busctl", "set-property", "org.bluez", f"/org/bluez/{name}", "org.bluez.Adapter1", "Powered", "b",
+                "true" if on else "false"], timeout=5)[0] == 0
+
+
+def bt_adapters(root="/sys/class/bluetooth"):
+    """[(address, usb, name)] for each Bluetooth adapter, a USB one (a dongle) first. USB or not from its sysfs
+    device path (BlueZ gives every adapter the same usb:v1D6B Modalias); the address from BlueZ (not yet there
+    for a moment after sysfs shows it: left out till then)"""
+    found = []
+    try:
+        names = sorted(n for n in os.listdir(root) if re.fullmatch(r"hci\d+", n))
+    except OSError:
+        return []
+    for name in names:
+        usb = "/usb" in os.path.realpath(os.path.join(root, name, "device"))
+        code, out = run(["busctl", "get-property", "org.bluez", f"/org/bluez/{name}", "org.bluez.Adapter1",
+                         "Address"], timeout=5)
+        m = re.search(r'"([0-9A-Fa-f:]{17})"', out)
+        if code == 0 and m:
+            found.append((m.group(1).upper(), usb, name))
+    return sorted(found, key=lambda a: not a[1])
 
 
 def parse_info(mac, text):
@@ -312,9 +343,7 @@ def pick_nodes(objects, host=None):
             node["card"] = int(path.group(1)) if path else None
             node["ports"] = ports.get(o.get("id"), [])
             sources.append(node)
-        elif cls == "Audio/Source" and name == "fm1-sampler":     # the Studio's pads (pads.py): a source too
-            sources.append(dict(node, label="SAMPLER", internal=True, ports=ports.get(o.get("id"), [])))
-        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4's synths (xo4.py): a source too
+        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4: its synths and the pads (its drums)
             sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
@@ -1182,6 +1211,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             if fingerprint != seen:
                 seen, fast_until = fingerprint, now + 12
                 next_scan = min(next_scan, now + 1.5)       # PipeWire needs a moment to add its nodes
+            if now < fast_until:                  # a Bluetooth dongle in or out: looked for each second a while
+                self.bt_follow_dongle()           # (sysfs shows it before BlueZ has it: seen too soon, missed)
             if now >= self.next_wifi:
                 self.wifi, self.next_wifi = wifi_enabled(), now + 60
             if now >= next_scan or self.scan_now or self.pw.changed.is_set():     # cheap now: no new connection
@@ -1214,6 +1245,38 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                 self.midi.set_metronome(*metro)
                 self.metro_sent = metro
             time.sleep(1)
+
+    def bt_follow_dongle(self):
+        """A USB Bluetooth adapter (a dongle) plugged in takes over all of Bluetooth: the speaker, the app's
+        bluetoothctl commands and Bluetooth MIDI; the Pi's own is powered off. Unplugged, the Pi's own again. The Pi 3's own shares its chip with Wi-Fi: to a speaker it sent in stalls of up to 140 ms at SBC
+        bitpool 14-16, a TP-Link UB500 evenly at 53 (2026-11-03). Pairings belong to an adapter: the first time
+        on a dongle the speaker (and keyboards) are paired again."""
+        adapters = bt_adapters()
+        if not adapters or adapters[0][0] == BT_IN_USE["address"]:
+            return
+        address, usb, name = adapters[0]
+        for _, _, other in adapters[1:]:
+            bt_power(other, False)
+        bt_power(name, True)
+        started = BT_IN_USE["address"] is None
+        BT_IN_USE.update(address=address, usb=usb)
+        self.bt_usb = usb                         # (XO-4 and DECKS warn about the Pi's own: deskui.bt_warn)
+        if self.midi and hasattr(self.midi, "set_bt_adapter"):
+            self.midi.set_bt_adapter(address)
+        default = re.search(r"Controller ([0-9A-F:]{17})", bt("show", timeout=5)[1])
+        if default and default.group(1) != address:   # bluetoothctl's default elsewhere: its commands would miss
+            self.say("Bluetooth: couldn't move to " + ("the dongle" if usb else "the Pi's own"), 5)
+            return
+        if started and not usb:
+            return                                # (the Pi's own, as at every start: nothing to say)
+        mac = self.state.get("last_mac")
+        known = mac and "Paired: yes" in bt("info", mac, timeout=5)[1]
+        if known and self.bt_lock.acquire(blocking=False):    # the speaker on the new one at once, not at the
+            threading.Thread(target=self.reconnect_quietly, daemon=True).start()   # next try (every 20 s)
+        if mac and not known:
+            self.say("Bluetooth dongle: pair the speaker again" if usb else "Pi's Bluetooth: pair the speaker again", 5)
+        else:
+            self.say("Bluetooth: the USB dongle" if usb else "Bluetooth: the Pi's own", 3)
 
     def scan_devices(self):
         if self.midi:

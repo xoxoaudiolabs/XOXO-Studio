@@ -461,11 +461,11 @@ def test_sampler_in_the_box():
     assert b.pads.sent == [("midi", [[0x99, 36, 100]])]
     assert blemidi.default_routes()["Box>SMP"]["on"] is False
     node = {"type": "PipeWire:Interface:Node", "id": 70,
-            "info": {"props": {"media.class": "Audio/Source", "node.name": "fm1-sampler"}}}
+            "info": {"props": {"media.class": "Audio/Source", "node.name": "fm1-xo4"}}}             # (the pads play in XO-4's channel)
     port = {"type": "PipeWire:Interface:Port", "id": 71,
             "info": {"props": {"node.id": 70, "port.name": "capture_FL", "port.direction": "out", "port.id": 0}}}
     _, others = bridge.pick_nodes([node, port])
-    assert others[0]["label"] == "SAMPLER" and bridge.device_keys(others) == ["u-sampler"]
+    assert others[0]["label"] == "XO-4" and bridge.device_keys(others) == ["u-xo4"]
 
 
 if __name__ == "__main__":
