@@ -578,9 +578,14 @@ def test_touch_screens():
     assert not ui.classic and any(w[3] == "page-back" for w in ui.widgets)
     app.screen = "status"
     ui.render(now, force=True)
-    tab("MORE")                                                       # then THEME: its page, TOXIC tapped
-    ui.more_top = 5                                                    # scrolled to the end of MORE
+    tab("MORE")                                                       # then STUDIO SETTINGS > THEME: TOXIC tapped
     ui.render(now, force=True)
+    assert ("more", "THEME") not in {w[3] for w in ui.widgets}          # (in STUDIO SETTINGS now)
+    row = next(w for w in ui.widgets if w[3] == ("more", "STUDIO SETTINGS"))
+    tap(row[0][0] + 20, row[0][1] + 10)
+    assert ui.tab == "SETTINGS"
+    ui.render(now, force=True)
+    assert {("more", n) for n in ("WI-FI", "THEME", "TOUCH SETUP", "ABOUT")} <= {w[3] for w in ui.widgets}
     row = next(w for w in ui.widgets if w[3] == ("more", "THEME"))
     tap(row[0][0] + 20, row[0][1] + 10)
     assert ui.tab == "THEME"
@@ -596,6 +601,10 @@ def test_touch_screens():
     ui.render(now + 10, force=True)
     assert ui.theme.name == "KAWAII" and ui.theme.bg == xoxostyle.THEMES["KAWAII"][2]
     back = next(w for w in ui.widgets if w[3] == "theme-back")
+    tap(back[0][0] + 20, back[0][1] + 10)
+    assert ui.tab == "SETTINGS"                                        # back to STUDIO SETTINGS
+    ui.render(now, force=True)
+    back = next(w for w in ui.widgets if w[3] == "settings-back")
     tap(back[0][0] + 20, back[0][1] + 10)
     assert ui.tab == "MORE"
 
@@ -1319,7 +1328,7 @@ def test_about():
     ui.draw_qr = lambda img, d, box, url: (drawn.append(url), real_qr(img, d, box, url))
     try:
         deskabout.lan_address = lambda: "192.168.1.20"
-        ui.open_tab("MORE")
+        ui.open_tab("SETTINGS")
         ui.render(0.0, force=True)
         box = next(w[0] for w in ui.widgets if w[3] == ("more", "ABOUT"))
         ui.touch("down", box[0] + 4, box[1] + 4, 0.0)

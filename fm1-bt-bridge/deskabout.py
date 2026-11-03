@@ -1,4 +1,4 @@
-"""MORE > ABOUT: the Studio's version, and three QR codes to scan with a phone: the Studio's code on GitHub, the
+"""MORE > STUDIO SETTINGS > ABOUT: the Studio's version, and three QR codes to scan with a phone: the Studio's code on GitHub, the
 XOXO Audio Labs website, and this Studio's web app (its address on the network now: the phone on the same Wi-Fi).
 Mixed into deskui.DeskUI. The codes are made by python3-qrcode (Raspberry Pi OS's package); without it, the
 addresses are written out instead."""
@@ -58,7 +58,7 @@ class DeskAbout:
 
     def draw_about(self, img, d, now):
         t = self.theme
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< MORE", lambda: self.open_tab("MORE"), key="about-back")
+        self.button(img, d, (4, 3, 84, HDR_H - 5), "< BACK", lambda: self.open_tab("SETTINGS"), key="about-back")
         st.text(img, (96, 9), "ABOUT", t.hi)
         version = f"XOXO STUDIO {deskboot.VERSION}"
         st.text(img, (W - 10 - st.text_size(version)[0], 9), version, t.c[3])

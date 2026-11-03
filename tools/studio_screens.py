@@ -196,6 +196,7 @@ def main():
         ("studio-editor", editor),
         ("studio-midi", lambda app, ui: ui.open_tab("MIDI")),
         ("studio-more", lambda app, ui: ui.open_tab("MORE")),
+        ("studio-settings", lambda app, ui: ui.open_tab("SETTINGS")),
         ("studio-about", lambda app, ui: ui.open_tab("ABOUT")),
     ]
     deskabout.lan_address = lambda: "192.168.1.20"    # (a made-up address, not this computer's)
