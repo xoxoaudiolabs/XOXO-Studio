@@ -128,7 +128,8 @@ def test_flows():
     app = make_app()
     keys(app, "right")
     top = [r[0] for r in app.settings_rows()]
-    assert app.screen == "settings" and top == ["g_play", "g_audio", "g_midi", "recording", "editor", "sd", "wifi"]
+    assert app.screen == "settings" and top == ["g_play", "g_audio", "g_midi", "recording", "editor", "sd", "wifi",
+                                                   "btdevices"]
     keys(app, "press")                                     # Playing ›
     assert app.settings_menu == "play" and [r[0] for r in app.settings_rows()] == [
         "metronome", "tempo", "clock", "arp_on", "chord_on", "click"]

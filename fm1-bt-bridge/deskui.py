@@ -44,8 +44,8 @@ DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "pla
             ("LOOP", "loop")]
 MORE = [("PLAYING", ("menu", "play")), ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")),
         ("PLUG-INS", ("plugins", None)), ("STUDIO SETTINGS", ("settings", None)), ("SHUT DOWN", ("off", None))]
-STUDIO_SETTINGS = [("WI-FI", ("wifi", None)), ("THEME", ("theme", None)), ("TOUCH SETUP", ("calibrate", None)),
-                   ("ABOUT", ("about", None))]     # MORE > STUDIO SETTINGS: the box's own settings
+STUDIO_SETTINGS = [("WI-FI", ("wifi", None)), ("BLUETOOTH DEVICES", ("row", "btdevices")), ("THEME", ("theme", None)),
+                   ("TOUCH SETUP", ("calibrate", None)), ("ABOUT", ("about", None))]     # MORE > STUDIO SETTINGS: the box's own settings
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
