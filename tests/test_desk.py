@@ -2488,3 +2488,131 @@ def test_editor_empty_file():
     ui = deskui.DeskUI(app, app.display)
     ed = {"x": np.zeros(0, dtype=np.float32), "rate": 48000, "seconds": 0.0}
     assert ui.editor_wave(ed, 0.0, 0.0) == [(0.0, 0.0)] * deskui.W and ed["peak"] == 1.0
+
+
+def test_bluetooth_devices_forget(monkeypatch):
+    """MORE > STUDIO SETTINGS > BLUETOOTH DEVICES: what Bluetooth has paired or connected (a speaker, a saved
+    keyboard, a phone on Bluetooth MIDI; not one a scan only saw), connected first; one forgotten held to confirm:
+    the speaker unpaired and no longer the one reconnected to, a keyboard through the MIDI side"""
+    import bridge
+    import deskui
+    infos = {"20:18:5B:EF:AA:B0": "\tAlias: JBL Go 3\n\tIcon: audio-card\n\tPaired: yes\n\tConnected: no\n"
+                                  "\tUUID: Audio Sink                (0000110b-0000-1000-8000-00805f9b34fb)",
+             "F0:5C:77:00:11:22": "\tAlias: KEY 25\n\tPaired: yes\n\tConnected: no",
+             "28:9E:F6:01:02:03": "\tAlias: Pat's iPhone\n\tPaired: no\n\tConnected: yes",
+             "AA:BB:CC:DD:EE:FF": "\tAlias: Somebody's TV\n\tPaired: no\n\tConnected: no"}
+    calls = []
+
+    def run(cmd, timeout=15, merge=True, clean=True):
+        calls.append(cmd)
+        if cmd[:2] == ["bluetoothctl", "devices"]:
+            return 0, "".join(f"Device {mac} {info.split(chr(10))[0].split(': ')[1]}\n" for mac, info in infos.items())
+        if cmd[:2] == ["bluetoothctl", "info"]:
+            return 0, infos[cmd[2]]
+        if cmd[:2] == ["bluetoothctl", "remove"]:
+            return 0, "Device has been removed"
+        return 0, ""
+    monkeypatch.setattr(bridge, "run", run)
+    known = bridge.bt_known([("F0:5C:77:00:11:22", "KEY 25"), ("C0:FF:EE:00:00:01", "Old keys")])
+    assert [(d["name"], d["kind"], d["connected"]) for d in known] == [   # (one BlueZ forgot: still listed)
+        ("Pat's iPhone", "other", True), ("JBL Go 3", "speaker", False), ("KEY 25", "keyboard", False),
+        ("Old keys", "keyboard", False)]
+
+    class Midi:
+        enabled, pairing_until, controllers = True, 0.0, []
+        ble_keys, forgot = [["F0:5C:77:00:11:22", "KEY 25", False]], []
+
+        def ble_forget(self, address):
+            self.forgot.append(address)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS, last_mac="20:18:5B:EF:AA:B0", last_name="JBL Go 3"))
+    app.save_settings = lambda: None
+    app.midi = Midi()
+    app.job = lambda label, work: (lambda r: r[1] and app.say(r[1]))(work())   # (the job, at once)
+    said = []
+    app.say = lambda text, seconds=3: said.append(text)
+    ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+    ui.open_tab("SETTINGS")
+    ui.render(0.0, force=True)
+    keys = {w[3]: w for w in ui.widgets}
+
+    def tap(key, hold=0.1):
+        box = keys[key][0]
+        ui.touch("down", box[0] + 2, box[1] + 2, 0.0)
+        ui.touch("up", box[0] + 2, box[1] + 2, hold)
+    tap(("more", "BLUETOOTH DEVICES"))
+    assert app.screen == "pick" and app.pick["title"] == "BT devices"
+    assert [i[:2] for i in app.pick["items"]] == [("Pat's iPhone", "phone etc, on"), ("JBL Go 3", "speaker"),
+                                                 ("KEY 25", "keyboard")]
+    app.pick["cursor"] = 1                            # the speaker: asked first, then forgotten
+    app.on_key("press")
+    assert app.screen == "confirm" and app.confirm["lines"][0] == "JBL Go 3"
+    assert not [c for c in calls if c[:2] == ["bluetoothctl", "remove"]]
+    app.on_key("press", True)
+    assert ["bluetoothctl", "remove", "20:18:5B:EF:AA:B0"] in calls
+    assert app.state["last_mac"] is None and not app.auto and said[-1] == "Forgot JBL Go 3"
+    app.open_bt_devices()                             # a keyboard: through the MIDI side, not bluetoothctl
+    app.pick["cursor"] = 2
+    app.on_key("press")
+    calls.clear()
+    app.on_key("press", True)
+    assert app.midi.forgot == ["F0:5C:77:00:11:22"] and not [c for c in calls if "remove" in c]
+    infos.clear()                                     # nothing paired: said, no empty list
+    app.midi.ble_keys = []
+    app.screen = "settings"
+    app.open_bt_devices()
+    assert app.screen == "settings" and said[-1] == "No Bluetooth devices"
+
+
+def test_speaker_scan_lists_only_heard(monkeypatch):
+    """the speaker scan lists what was heard during it ([NEW], or a fresh RSSI), not every device BlueZ remembers:
+    a paired JBL that's off was listed while the speaker being paired wasn't to be seen (2026-11-03)"""
+    import bridge
+    scan = ("Discovery started\n[CHG] Controller B8:27:EB:15:77:0A Discovering: yes\n"
+            "[CHG] Device 7C:64:56:3F:84:6B RSSI: 0xffffffbf (-65)\n"
+            "[CHG] Device 20:18:5B:EF:AA:B0 Connected: no\n"
+            "[NEW] Device 11:FF:27:5A:21:89 AG-04\n")
+    known = {"20:18:5B:EF:AA:B0": "JBL Go 3", "11:FF:27:5A:21:89": "AG-04", "7C:64:56:3F:84:6B": "[TV] Samsung"}
+
+    def run(cmd, timeout=15, merge=True, clean=True):
+        if "scan" in cmd:
+            return 0, scan
+        if cmd[:2] == ["bluetoothctl", "devices"]:
+            return 0, "".join(f"Device {mac} {name}\n" for mac, name in known.items())
+        if cmd[:2] == ["bluetoothctl", "info"]:
+            return 0, f"\tName: {known[cmd[2]]}\n\tIcon: audio-card\n\tPaired: no"
+        return 0, ""
+    monkeypatch.setattr(bridge, "run", run)
+    assert bridge.scan_seen(scan) == {"7C:64:56:3F:84:6B", "11:FF:27:5A:21:89"}
+    assert [d["name"] for d in bridge.bt_scan(1)] == ["[TV] Samsung", "AG-04"]
+
+
+def test_pairing_removes_and_scans_only_when_needed(monkeypatch):
+    """pairing a speaker: removed first only if it's paired already (a stale pairing), scanned for only if BlueZ
+    doesn't know it (an AG-04 that advertises now and then was removed, missed by the scan, "Not found" each time)"""
+    import bridge
+    state = {"info": "\tName: AG-04\n\tPaired: no"}
+    calls = []
+
+    def run(cmd, timeout=15, merge=True, clean=True):
+        calls.append(cmd[1:3] if cmd[1] != "--timeout" else ["scan"])
+        if cmd[:2] == ["bluetoothctl", "info"]:
+            return 0, state["info"]
+        if cmd[:2] == ["bluetoothctl", "remove"]:
+            state["info"] = "Device 11:FF:27:5A:21:89 not available"
+        if "pair" in cmd:
+            return 0, "Pairing successful"
+        if "connect" in cmd:
+            return 0, "Connection successful"
+        return 0, ""
+    monkeypatch.setattr(bridge, "run", run)
+    assert bridge.bt_pair("11:FF:27:5A:21:89")[0]
+    assert ["remove", "11:FF:27:5A:21:89"] not in calls and ["scan"] not in calls     # known, not paired: at once
+    calls.clear()
+    state["info"] = "Device 11:FF:27:5A:21:89 not available"                           # forgotten since the scan
+    bridge.bt_pair("11:FF:27:5A:21:89")
+    assert ["scan"] in calls and ["remove", "11:FF:27:5A:21:89"] not in calls
+    calls.clear()
+    state["info"] = "\tName: AG-04\n\tPaired: yes"                                     # stale: removed, seen again
+    bridge.bt_pair("11:FF:27:5A:21:89")
+    assert calls.index(["remove", "11:FF:27:5A:21:89"]) < calls.index(["scan"])
