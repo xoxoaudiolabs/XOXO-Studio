@@ -67,9 +67,9 @@ bash fm1-bt-bridge/install.sh --dac --screen c
 
 ## The Studio as a USB interface
 
-Plugged into a computer through the splitter's data side, a Pi 4 Studio is meant to show up as **XOXO Studio**, a
-standard USB audio + MIDI device (USB Audio Class 2; macOS, Linux and Windows 10 and 11 have class drivers for it,
-but none of them has been tried with the Studio yet):
+Plugged into a computer through the splitter's data side, a Pi 4 Studio shows up as **XOXO Studio**, a
+standard USB audio + MIDI device (USB Audio Class 2; macOS, Linux and Windows 10 and 11 have class drivers for it;
+tried on Windows 11 only):
 
 - **Audio to the computer:** the Studio's mix in stereo, 48 kHz, as an input in the DAW. It's every source but
   the computer's own sound (so a DAW monitoring its input can't feed back)
@@ -77,4 +77,9 @@ but none of them has been tried with the Studio yet):
   headphones and in recordings
 - **MIDI both ways:** COMPUTER in the MIDI routes, beside the network MIDI
 
-**Not yet tried on any hardware**: no Pi 4 Studio has been built yet. It's written and tested on a PC only.
+**Tried** (2026-11-07, the first Pi 4 Studio on Windows 11, no driver installed): Windows listed *Speakers (XOXO
+Studio)*, *Microphone (XOXO Studio)* and a *MIDI function*. A tone from the PC reached the Studio bit for bit (and
+was heard on its speaker); a tone in the Studio's mix reached the PC's input (0.7 dB under, the mix's level); SysEx
+went through both ways. The Pi was powered from the PC's port alone for this, and it reported under-voltage: use
+the splitter (or a supply on the GPIO's 5 V). **Not yet tried:** the splitter, a DAW, a Mac or Linux, MIDI notes
+into the Studio's routes, latency.

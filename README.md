@@ -62,7 +62,7 @@ The version shows on the boot screen and in MORE > STUDIO SETTINGS > ABOUT.
    - `--screen c`: the Waveshare 3.5" (C) (tried 2026-11-07 on a Pi 4, with `--dac`: the picture right side up).
    - Without `--screen`: the Hosyond 3.5" (the Waveshare (A) is the same design), with the Studio's own overlay, `xoxo35`: Raspberry Pi OS's `piscreen` with the panel started as the screen maker starts it (blacker blacks; `config/xoxo35.sh` makes it on the Pi). The overlay was made and used on a running Studio; a fresh install with it hasn't been tried yet.
    - `--screen hdmi`: the 3.5" HDMI touchscreen (UCTRONICS): HDMI sent 720x480, which the screen scales to its panel, and its touch on SPI CE0 with its interrupt on GPIO 25. An SPI screen's overlay from before is switched off (it holds the same pins). These settings were tried, set by hand; the option itself hasn't been run yet.
-   - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose. (Tried 2026-11-07: after the install the Pi 4 has the interface's sound card; a computer plugged into it not yet tried.)
+   - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose. (Tried 2026-11-07 on Windows 11, no driver: audio and MIDI both ways; see docs/BUILD.md. Powered from the PC's port alone the Pi was under-voltage: power it separately.)
    - On a Pi 4 (or newer) the sampler plays up to 32 pads at once (16 on a Pi 3) and each XO-4 track up to 8 notes (4), so a chord rings on under the next. (2026-11-07, a Pi 4: 32 pad voices took 37% of one core; not yet listened to.)
    On the first start the Studio asks for the touch setup (four targets) before HOME.
 
