@@ -1351,6 +1351,48 @@ def test_about():
     assert deskboot.frame(xoxostyle.Theme()).tobytes() != plain.tobytes()   # the version drawn on the boot screen
 
 
+
+def test_shutdown_screen(monkeypatch):
+    """the touchscreen keeps its last picture once the Pi is off: a shutdown leaves the wait for SAFE TO UNPLUG
+    and draws nothing over it (it showed "Shutting down" and looked stuck, 2026-11-07), the shutdown hook's
+    picture written with the boot screen's; a refused power-off says so and the Studio carries on"""
+    import bridge
+    import deskboot
+    import deskui
+    import xoxostyle
+    monkeypatch.setattr(bridge.time, "sleep", lambda s: None)
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.desk = ui = deskui.DeskUI(app, app.display)
+    ui.theme_check = 1e12
+    asked = []
+    monkeypatch.setattr(bridge, "run", lambda cmd, timeout=15, **k: (asked.append(cmd), (0, ""))[1])
+    app.shutdown()
+    assert asked == [["sudo", "-n", "systemctl", "poweroff"]]
+    wait = deskboot.off_frame(ui.theme)                          # (no hook on this PC: the green light)
+    assert wait.tobytes() == deskboot.off_frame(ui.theme, hook=False).tobytes()
+    assert wait.tobytes() != deskboot.off_frame(ui.theme, hook=True).tobytes()
+    assert app.display.image.tobytes() == wait.tobytes()
+    app.render(force=True)                                       # the app's loop goes on until it's stopped
+    assert app.display.image.tobytes() == wait.tobytes()
+    assert wait.tobytes() != deskboot.off_frame(ui.theme, final=True).tobytes()
+    monkeypatch.setattr(bridge, "run", lambda cmd, timeout=15, **k: (1, "sudo: a password is required\n"))
+    app.shutdown()
+    assert not app.powering_off and not app.busy
+    assert app.message == "Can't shut down: sudo: a password is required"
+    assert app.display.image.tobytes() != wait.tobytes()        # the screens back
+    with tempfile.TemporaryDirectory() as tmp:
+        splash = Path(tmp) / "splash.raw"
+        assert deskboot.save(xoxostyle.Theme(), splash)
+        unplug = splash.with_name("unplug.raw")
+        assert unplug.read_bytes() == deskboot.rgb565(deskboot.off_frame(xoxostyle.Theme(), final=True))
+        assert len(unplug.read_bytes()) == 480 * 320 * 2
+        assert not deskboot.save(xoxostyle.Theme(), splash)      # unchanged: not written again
+    hook = (Path(bridge.__file__).parent / "config" / "fm1-unplug").read_text()
+    assert "@UNPLUG@" in hook and "fb_ili9486" in hook
+    install = (Path(bridge.__file__).parent / "install.sh").read_text()
+    assert "system-shutdown/fm1-unplug" in install and "unplug.raw" in install
+
 def test_home_tempo():
     """HOME's tempo - / +: a tap is 1 BPM, a hold 10, within 30-300; following another clock, they leave it be"""
     import bridge

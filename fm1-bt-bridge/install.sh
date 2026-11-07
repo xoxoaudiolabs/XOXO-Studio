@@ -222,6 +222,11 @@ if [ "$BUILD" = desk ]; then              # the boot screen as soon as the touch
     printf 'SUBSYSTEM=="graphics", KERNEL=="fb[0-9]", ATTR{name}=="fb_ili9486|ili9486drmfb", RUN+="/bin/sh -c '"'"'test -f %s && cat %s > /dev/%%k'"'"'"\n' \
         "$HOME/.local/share/fm1-bridge/splash.raw" "$HOME/.local/share/fm1-bridge/splash.raw" \
         | sudo tee /etc/udev/rules.d/90-fm1-splash.rules >/dev/null
+    echo "== SAFE TO UNPLUG on the screen at the very end of a shutdown"
+    sudo mkdir -p /usr/lib/systemd/system-shutdown
+    sed "s|@UNPLUG@|$HOME/.local/share/fm1-bridge/unplug.raw|" "$DIR/config/fm1-unplug" \
+        | sudo tee /usr/lib/systemd/system-shutdown/fm1-unplug >/dev/null
+    sudo chmod 755 /usr/lib/systemd/system-shutdown/fm1-unplug
 fi
 
 if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): listed for computers to find
