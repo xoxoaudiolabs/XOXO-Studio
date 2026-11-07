@@ -1,8 +1,9 @@
 # Plug-ins and devices: the design
 
-**Where it stands (beta 0.1, 2026-11-03):** built in this repository, and tested on a PC only: the plug-in
-host (`fm1-bt-bridge/plugins.py`, API 1), MORE › PLUG-INS (`deskplugins.py`), and the web app's status and commands
-for plug-ins. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own
+**Where it stands (beta 0.2.2, 2026-11-07):** built in this repository: the plug-in host
+(`fm1-bt-bridge/plugins.py`, API 1), MORE › PLUG-INS (`deskplugins.py`), and the web app's status and commands for
+plug-ins. Tried on a Studio (a Pi 3 B+) with XOXO Audio Labs' Synths and Tester Tools plug-ins (their repository,
+XOXO-Studio-Plugins, says what each was tried with); the rest tested on a PC. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own
 repository (XOXO-Studio-Plugins): it isn't part of this beta, and this repository's docs make no claims for it. The device registry (section 1) and moving the built-ins
 (section 3) are designs, not built. Plug-ins are open to anyone from the start, so the API
 below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and

@@ -148,6 +148,7 @@ def studio():
 
 def shot(app, ui, out, name, scale, setup):
     setup(app, ui)
+    app.message = None                    # no word left over from the screen before (a warning a screen opened)
     ui.render(0.0, force=True)
     img = app.display.image
     img.resize((img.width * scale, img.height * scale), Image.NEAREST).save(out / f"{name}.png")

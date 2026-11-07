@@ -1,8 +1,10 @@
 # Building an XOXO Studio
 
-The parts, what they cost, and how they go together. This is the **Pi 4 build**, planned next, after this beta.
-**Not one of these Pi 4 builds has been put together yet**, so nothing on this page has been tried on a Pi 4. The
-Studio so far has run on a Pi 3 B+ (and a Pi 3 B). Prices are PiShop.us's, an authorized Raspberry Pi reseller, in October 2026, before
+The parts, what they cost, and how they go together: the **Pi 4 build**. **One has been put together so far**
+(2026-11-07: the Pi 4 1 GB, the Waveshare (C), the DAC HAT). On it, tried: the install (`--dac --screen c`), the
+screen right side up, the DAC's headphone out, the USB interface with a Windows 11 PC (audio and MIDI both ways), and its
+headroom (one Studio flat out about 23% of the Pi, never throttled). Not yet tried: the splitter, the case and its
+fit with the risers, a DAW. Prices are PiShop.us's, an authorized Raspberry Pi reseller, in October 2026, before
 shipping and tax.
 
 ## Parts
@@ -10,11 +12,11 @@ shipping and tax.
 | Part | Price | What it's for |
 |---|---|---|
 | Raspberry Pi 4 Model B, 1GB | $35.00 | The Studio. Its USB-C port is what lets the Studio be a USB audio + MIDI interface for a computer |
-| Waveshare 3.5" Resistive Touch Display (C), 480×320, 125 MHz SPI | $29.95 | The touchscreen (sits on the pins) |
-| InnoMaker RPi HiFi DAC HAT (PCM5122) | $26.95 | Headphones (its own amp) and RCA line out. Optional: without it, the Pi's own 3.5 mm jack (not yet heard on hardware) |
+| Waveshare 3.5" Resistive Touch Display (C), 480×320, 125 MHz SPI | $29.95 | The touchscreen (sits on the pins; tried on the Pi 4) |
+| InnoMaker RPi HiFi DAC HAT (PCM5122) | $26.95 | Headphones (its own amp; tried on the Pi 4) and RCA line out. Optional: without it, the Pi's own 3.5 mm jack (not yet heard on hardware) |
 | EDATEC Pi4 Passive Cooling Open CNC Case, black | $8.95 | Aluminium heatsink case: cooling with no fan (no noise near the audio) |
 | Adafruit 2x20 Socket Riser Header ×2 (×3 with a spare) | $5.90 | Lifts the DAC clear of the case's fins, and the screen above the DAC |
-| USB-C power/data splitter (PiKVM's, or Waveshare's) | about $6–15 | One USB-C into the Pi: power from the supply, data from the computer |
+| USB-C power/data splitter (PiKVM's, or Waveshare's) | about $6–15 | One USB-C into the Pi: power from the supply, data from the computer (needed: on a computer's port alone the Pi 4 was under-voltage; the splitter itself not yet tried) |
 | 5 V / 3 A USB-C power supply (the official Pi 4 one) | about $8 | Power |
 | microSD card, 16–32 GB | about $8 | Raspberry Pi OS and the Studio |
 | **Total** | **about $129–138** (about $141 with the spare riser) | |
@@ -25,9 +27,9 @@ Optional: a Bluetooth speaker (Bluetooth headphones not yet tried), USB MIDI key
 an audio interface), a Hercules DJControl Inpulse 200 MK2 for the DJ decks, a PiSugar 3 Plus battery (left off
 this build for now).
 
-**The screen:** the Studio was built and tested with a Hosyond 3.5" (the common "3.5 inch RPi LCD", the same
-ILI9486 and XPT2046 chips as Waveshare's (A)). The (C) is the same design run faster; it's not yet tried. Either
-sits on the pins; the installer sets up each (below).
+**The screen:** the (C) is tried on the Pi 4 (`--screen c`: Raspberry Pi OS's `piscreen` overlay at 48 MHz, turned
+to `rotate=270`). The Studio was first built with a Hosyond 3.5" (the common "3.5 inch RPi LCD", the same ILI9486
+and XPT2046 chips as Waveshare's (A)). Either sits on the pins; the installer sets up each (below).
 
 ## Putting it together
 
@@ -60,10 +62,12 @@ bash fm1-bt-bridge/install.sh --dac --screen c
 ```
 
 - `--dac`: the DAC HAT's driver. The DAC is then the master out (its headphone and RCA outs); the Pi's own jack
-  gets a copy for headphones and CUE (tried on a Pi 3 B+: the DAC's outs; the Pi's jack beside it not yet)
-- `--screen c`: the Waveshare (C). Without it, the Hosyond / Waveshare (A) settings: the Studio's `xoxo35` overlay
+  gets a copy for headphones and CUE (tried: the DAC's outs on a Pi 3 B+, its headphone out on the Pi 4; the Pi's jack beside it not
+  yet). The Studio sets the DAC's analog stage to −6 dB as it starts: half the hiss in IEMs
+- `--screen c`: the Waveshare (C) (tried on the Pi 4). Without it, the Hosyond / Waveshare (A) settings: the Studio's `xoxo35` overlay
   (piscreen with the screen maker's panel start-up: blacker blacks), made on the Pi by `config/xoxo35.sh`
-- On a Pi 4 the installer also makes the Studio a USB audio + MIDI interface on its USB-C port (below)
+- On a Pi 4 the installer also makes the Studio a USB audio + MIDI interface on its USB-C port (below), and the
+  Studio plays more at once: 32 pad voices (16 on a Pi 3), 8 notes a XO-4 track (4)
 
 ## The Studio as a USB interface
 

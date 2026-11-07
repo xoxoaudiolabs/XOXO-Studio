@@ -2,90 +2,91 @@
 
 [![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:36)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
 
-**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen, on a real Studio (a Pi 3 B+). The picture is the Studio's own screen as it was tapped; the sound is the Studio's output from a second run of the same taps with nothing extra recording the screen, unprocessed apart from one overall gain. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in's SYNTH A. The DJ decks follow XO-4: SYNC takes its tempo and brings a deck in on its bar. Credits are at the end of the video.
+**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen on a real Studio (a Pi 3 B+), with the Studio's own sound. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in. Credits are at the end of the video.
 
-> **This is a beta.** Version 0.2.2 BETA has been built and used on two Raspberry Pi 3s and one Raspberry Pi 4, and much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) (what has and hasn't been tried on hardware) and [Known limitations](#known-limitations). The Pi 4 build has been put together once (2026-11-07): its USB interface worked with a Windows 11 PC, audio and MIDI both ways.
+A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: a groovebox (XO-4) with a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument.
 
-A portable studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: a groovebox (XO-4) with a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, and a web app for a phone. It began as the FM-1 Companion Studio, with the FM-1 taken out, so it isn't tied to one instrument: it's made for USB and Bluetooth MIDI gear and USB sound sources. What it has been tried with so far is listed under [Tested](#tested).
+> **This is a beta.** Version 0.2.2 has been built and used on three Studios: two Raspberry Pi 3s and one Raspberry Pi 4. Much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) and [Known limitations](#known-limitations). Nothing here is claimed beyond what's been tried.
 
-The version shows on the boot screen and in MORE > STUDIO SETTINGS > ABOUT.
+The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 
-### The beta at a glance
+## The beta at a glance
 
 | Part | Tried on hardware | Not yet tried |
 |---|---|---|
-| Install, boot, the touchscreen | on a Pi 3 B+ (Hosyond 3.5", SPI) and a Pi 3 B (UCTRONICS 3.5", HDMI) | a Pi 4; the Waveshare (A) and (C); a fresh install with the `xoxo35` screen set-up; the `--screen hdmi` option itself |
-| XO-4 and the pads | used by hand on the screen; the sound measured on the Pi; the FX heard | finger drumming, live REC, RPT; XO-4's timing by ear; its MIDI track to real gear |
-| Mixer and sound out | USB sources heard (two FM-1s, an Ember Nanocore, a USB mic), the DAC HAT's outs, a Bluetooth speaker; mute, solo and level measured | sound out of the Pi's own jack; CUE |
-| DJ decks | played by touch, music from a USB drive | a controller (the Hercules, MIDI LEARN) |
-| Two Studios linked | clock, start/stop, REC from the leader on both, the link's latency measured, over a 100 ft cable too | sound heard across by ear; REC from the follower |
-| A Pocket linked | a Pocket linking and its sound into the Studio; its MIDI with a stand-in Pocket on a PC | the speaker handover; the mix back to a Pocket; a Pocket's FM-1s each on its own stream; linked REC with a Pocket |
-| MIDI | network MIDI; a route sending clock to a USB device | notes from a Bluetooth or USB keyboard through the routes; arp and chord |
-| Recording | takes started from the web page on two linked Studios | a take listened back on the Studio; the sample EDITOR |
-| Web app | on a phone and a PC: the tabs, Settings, the MIDI grid; the theme and Latency changed from a phone | adding music from a phone; USB out and the link settings changed from it |
-| Updates from the web app | installed from a local release file on the Pi | an update from GitHub; going back when a new version won't start (tried on a PC only) |
+| Install, boot, touchscreen | Pi 4 (Waveshare 3.5" (C), DAC HAT); Pi 3 B+ (Hosyond 3.5" SPI); Pi 3 B (UCTRONICS 3.5" HDMI) | Waveshare (A); a fresh install with the `xoxo35` screen set-up; the `--screen hdmi` option itself |
+| Pi 4 as a USB interface | Windows 11, no driver: audio and MIDI both ways | a DAW; macOS or Linux; the power/data splitter; latency |
+| XO-4 and the pads | used by hand on the screen; the sound measured; the FX heard | finger drumming, live REC, RPT; XO-4's timing by ear; its MIDI track to real gear |
+| Mixer and sound out | USB sources heard (two FM-1s, an Ember Nanocore, a USB mic); the DAC HAT's outs; a Bluetooth speaker; mute, solo and level measured | the Pi's own 3.5 mm jack; CUE |
+| DJ decks | played by touch, music from a USB drive; SYNC to XO-4 measured | a controller (the Hercules, MIDI LEARN) |
+| Two Studios linked | clock, start/stop, REC from the leader on both, the link's latency measured | sound heard across by ear; REC from the follower |
+| A Pocket linked | its link and its sound into the Studio | the speaker handover; the mix back to a Pocket; its FM-1s on their own streams |
+| MIDI | network MIDI; clock out a route to a USB device | a keyboard's notes through the routes; arp and chord |
+| Recording | takes from the web page on two linked Studios | a take listened back on the Studio; the sample EDITOR |
+| Web app | on a phone and a PC: the tabs, Settings, the MIDI grid | adding music from a phone; USB out and the link settings from it |
+| Updates | from GitHub on a Pi 3 B+ (v0.2.0, then v0.2.1); without a password on a Pi 3 B | going back when a new version won't start (tried on a PC only) |
+| Shutting down | ends on SAFE TO UNPLUG (a Pi 3 B, SPI screen) | — |
 
 ## Hardware
 
 **The parts, their cost (about $129–138 from PiShop.us) and how they go together: [docs/BUILD.md](docs/BUILD.md).** In short:
 
-- **Raspberry Pi 4** (1 GB), the planned build: its USB-C port is to make the Studio a USB audio + MIDI interface for a computer. **Not built or tried yet.** So far the Studio has run on a **Raspberry Pi 3 B+** and a **Pi 3 B** (its CPU load with everything running at once hasn't been measured: see [Known limitations](#known-limitations))
-- A 3.5" touchscreen: the Hosyond 3.5" "3.5 inch RPi LCD" on the pins (ILI9486 display, XPT2046 touch; tried). Waveshare's (A), the same design, and (C) haven't been tried. Or the UCTRONICS 3.5" HDMI touchscreen: the picture on HDMI, its touch on the pins (tried on a Pi 3 B)
-- A microSD card (16 GB or more)
-- Sound out: a Bluetooth speaker (tried: a JBL Go 3), the InnoMaker DAC HAT's headphone and RCA outs (tried), or the Pi's own 3.5 mm jack (not yet heard on hardware). Bluetooth headphones haven't been tried. For Bluetooth sound, a USB Bluetooth dongle is recommended: the Pi 3's own Bluetooth sounds poor with XO-4 and the decks (see [Known limitations](#known-limitations)); tried: a TP-Link UB500, whose firmware crashes every few minutes on a Pi 3 B+, so not recommended (another not yet tried)
-- A good power supply: a Pi 3 on a weak one runs under-voltage and slows down (seen on the second test Studio)
-- Optional: the InnoMaker HiFi DAC HAT, USB MIDI keyboards and controllers (a keyboard's notes through the routes not yet tried), USB audio (a keyboard's own sound, an audio interface), a PiSugar 3 Plus battery (its charge is read: tried), a Hercules DJControl Inpulse 200 MK2 for the DJ decks (not yet tried on the Studio)
+- **Raspberry Pi 4** (1 GB): the main build. Its USB-C port makes the Studio a USB audio + MIDI interface for a computer. Built once so far (2026-11-07). The Studio also runs on a **Raspberry Pi 3 B+** and a **Pi 3 B** (no USB interface there).
+- **A 3.5" touchscreen** (480×320): the Waveshare 3.5" (C) (tried on the Pi 4), the Hosyond "3.5 inch RPi LCD" (tried; Waveshare's (A) is the same design, not tried), or the UCTRONICS 3.5" HDMI touchscreen (tried on a Pi 3 B).
+- **Sound out:** the InnoMaker HiFi DAC HAT's headphone and RCA outs (both tried on a Pi 3 B+; its headphone out on the Pi 4), a Bluetooth speaker (tried: a JBL Go 3), or the Pi's own 3.5 mm jack (not yet heard). On a Pi 3, use a USB Bluetooth dongle for speakers (see [Known limitations](#known-limitations)).
+- **A good power supply.** A Pi 3 on a weak one runs under-voltage and slows down, and its Wi-Fi drops (seen on a test Studio). A Pi 4 powered only from a computer's USB port runs under-voltage too: give it its own supply (through the splitter, docs/BUILD.md).
+- **A microSD card** (16 GB or more).
+- **Optional:** USB MIDI keyboards and controllers, USB audio (a keyboard's own sound, an audio interface), a PiSugar 3 Plus battery (its charge is read: tried), a Hercules DJControl Inpulse 200 MK2 for the decks (not yet tried on the Studio).
 
 ## Set up
 
-1. **Flash the card** with Raspberry Pi Imager: your Pi (*Raspberry Pi 4*, or *3*), *Raspberry Pi OS Lite*. In its settings, set the hostname `XOXOStudio`, a user name and password, your Wi-Fi, and **enable SSH**.
+1. **Flash the card** with Raspberry Pi Imager: your Pi (*Raspberry Pi 4* or *3*), *Raspberry Pi OS Lite (64-bit)*. In its settings, set a hostname (`XOXOStudio`; give a second Studio its own name), a user name and password, your Wi-Fi, and **enable SSH**.
 2. **Boot the Pi** (give it a few minutes the first time).
-3. **Get the app onto the Pi**, either way:
-   - **From a download** (tried): on GitHub, *Code › Download ZIP*, unzip it, and from the unzipped `XOXO-Studio-main` folder:
+3. **Get the app onto the Pi**, one of these ways:
+   - **A release, downloaded on the Pi** (tried on the Pi 4). On the Pi (`ssh YOUR_USER@xoxostudio.local`), for the newest tag (here v0.2.2):
      ```
-     scp -r fm1-bt-bridge YOUR_USER@xoxostudio.local:~
+     curl -fsSL https://github.com/xoxoaudiolabs/XOXO-Studio/archive/refs/tags/v0.2.2.tar.gz | tar xz
+     mv XOXO-Studio-0.2.2 XOXO-Studio && cd XOXO-Studio
      ```
-   - **With git** (not yet tried; updates later are a `git pull`). On the Pi (`ssh YOUR_USER@xoxostudio.local`):
-     ```
-     sudo apt-get update && sudo apt-get install -y git
-     git clone https://github.com/xoxoaudiolabs/XOXO-Studio.git
-     ```
-     and use `XOXO-Studio/fm1-bt-bridge` below.
-4. **Install** over SSH, then reboot (it asks for your password once):
+   - **The ZIP from a computer** (tried on a Pi 3 B+): on GitHub, *Code › Download ZIP*, unzip it, and from the unzipped folder: `scp -r fm1-bt-bridge YOUR_USER@xoxostudio.local:~`
+   - **With git** (not yet tried): `sudo apt-get install -y git && git clone https://github.com/xoxoaudiolabs/XOXO-Studio.git && cd XOXO-Studio`
+4. **Install**, then reboot (it asks for your password once):
    ```
-   ssh YOUR_USER@xoxostudio.local
-   bash fm1-bt-bridge/install.sh
+   bash fm1-bt-bridge/install.sh --dac --screen c
    sudo reboot
    ```
-   Options, for the parts you have (e.g. `bash fm1-bt-bridge/install.sh --dac --screen c`):
-   - `--dac`: the InnoMaker HiFi DAC HAT (it adds the DAC's driver to `config.txt`; tried). The DAC is then the Studio's master out: its headphone (aux) and RCA outs both carry the main mix, and MASTER in the mixer sets its level. The Pi's own 3.5 mm jack gets a copy, for headphones and CUE (not yet heard). A Bluetooth speaker gets a copy of the master (tried). The Studio sets the DAC's analog stage to −6 dB as it starts, which halves its hiss in IEMs on the DAC's headphone jack (heard quieter, 2026-11-07, a Pi 4); MASTER sets the level as before, its loudest 6 dB lower.
-   - `--screen c`: the Waveshare 3.5" (C) (tried 2026-11-07 on a Pi 4, with `--dac`: the picture right side up).
-   - Without `--screen`: the Hosyond 3.5" (the Waveshare (A) is the same design), with the Studio's own overlay, `xoxo35`: Raspberry Pi OS's `piscreen` with the panel started as the screen maker starts it (blacker blacks; `config/xoxo35.sh` makes it on the Pi). The overlay was made and used on a running Studio; a fresh install with it hasn't been tried yet.
-   - `--screen hdmi`: the 3.5" HDMI touchscreen (UCTRONICS): HDMI sent 720x480, which the screen scales to its panel, and its touch on SPI CE0 with its interrupt on GPIO 25. An SPI screen's overlay from before is switched off (it holds the same pins). These settings were tried, set by hand; the option itself hasn't been run yet.
-   - On a Pi 4 the installer also sets up the USB interface (its USB-C port), with nothing to choose. (Tried 2026-11-07 on Windows 11, no driver: audio and MIDI both ways; see docs/BUILD.md. Powered from the PC's port alone the Pi was under-voltage: power it separately.)
-   - On a Pi 4 (or newer) the sampler plays up to 32 pads at once (16 on a Pi 3) and each XO-4 track up to 8 notes (4), so a chord rings on under the next. (2026-11-07, a Pi 4: 32 pad voices took 37% of one core; not yet listened to.)
-   On the first start the Studio asks for the touch setup (four targets) before HOME.
+   Options, for the parts you have:
+   - `--dac`: the InnoMaker HiFi DAC HAT (tried on a Pi 3 B+, and its headphone out on the Pi 4). The DAC is the master out: its headphone and RCA outs carry the main mix, and MASTER in the mixer sets its level. The Pi's own jack gets a copy for headphones and CUE (not yet heard). A Bluetooth speaker gets a copy of the master (tried). The Studio sets the DAC's analog stage to −6 dB as it starts, which halves its hiss in IEMs (heard quieter on the Pi 4); its loudest is 6 dB lower.
+   - `--screen c`: the Waveshare 3.5" (C) (tried on the Pi 4: right side up).
+   - No `--screen`: the Hosyond 3.5" / Waveshare (A), with the Studio's `xoxo35` overlay for blacker blacks (made and used on a running Studio; a fresh install with it not yet tried).
+   - `--screen hdmi`: the UCTRONICS 3.5" HDMI touchscreen (its settings tried, set by hand; the option itself not yet run).
+   - On a Pi 4 the installer also sets up the USB interface on its USB-C port, with nothing to choose (tried: see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)), and the Studio plays more at once: up to 32 pad voices (16 on a Pi 3) and 8 notes a XO-4 track (4), so a chord rings on under the next (measured, not yet listened to).
+5. **On the first start** the Studio asks for the touch setup (four targets) before HOME.
 
-**Updating from the web app:** Settings > Software shows the version installed and the newest release on GitHub (tags `v0.1`, `v0.2` …). **Update…** asks for a hold on the Studio's screen, then installs that release with its own installer and restarts the app; if the new version doesn't start, the one before is put back. The update replaces the app's code and system files only: settings, pairings, kits, songs, samples, recordings and plug-ins are kept elsewhere and aren't touched, and nor are the boot settings (`config.txt`, `cmdline.txt`: the screen, the DAC), which change only when `install.sh` is run by hand. A Studio installed before 0.1 needs `install.sh` run by hand once first. Tried so far: an install from a local release file on the Pi, the way the update runs it (the boot files unchanged, every file still the user's). Not yet tried: an update from GitHub, the hold on the screen starting one, and going back on the Pi (tried on a PC only).
+## Updating
 
-**Updating with git** (not yet tried): on the Pi, `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
+**From the Studio or the web app:** MORE › STUDIO SETTINGS › SOFTWARE UPDATE on the screen, or Settings › Software in the web app, shows the version installed and the newest release on GitHub (its tags: `v0.2.2` …). **Update** (from the web app, after a hold on the Studio's screen) installs that release with its own installer and restarts the app; if the new version doesn't start, the one before is put back (tried on a PC only). Settings, pairings, kits, songs, samples, recordings and plug-ins are kept, and so are the boot settings (the screen, the DAC), Bluetooth and the network settings, which change only when `install.sh` is run by hand. Where the Studio's sudo asks for a password, the update installs the Studio's own files without one. A Studio installed before 0.1 needs `install.sh` run by hand once first.
+
+Tried: a Pi 3 B+ updated itself from GitHub to v0.2.0 and then v0.2.1 (2026-11-07; v0.2.1's update left `config.txt` untouched); a Pi 3 B installed an update without a password (from a local release file). A Studio whose Wi-Fi has dropped says it couldn't ask GitHub: switching Wi-Fi off and on in STUDIO SETTINGS brings it back.
+
+**With git** (not yet tried): `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
 
 ## The web app
 
-At `http://xoxostudio.local` (or the address in MORE > STUDIO SETTINGS > ABOUT, as a QR code). It's the same web app as the FM-1 Companions' (Studio and Pocket): it shows what each box has. Served from this box it's named XOXO Studio, with its own home-screen app id, so a phone can keep it beside a Companion's.
+At `http://xoxostudio.local` (or the address in MORE › STUDIO SETTINGS › ABOUT, as a QR code). It's the same web app as the FM-1 Companions' (Studio and Pocket) and shows what each box has; served from this box it's named XOXO Studio, with its own home-screen app id.
 
 Its tabs:
-- **Status:** what you play with: the tempo, start / stop, the metronome, speaker, volume, the mixer (with DECKS while they play), a linked Pocket, keyboard, Record
-- **Studio:** XO-4's patterns A–H, Play / Stop, MIDI IN and the synths' starting sounds; the pads' kits; what's on each DJ deck; the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
-- **MIDI:** the routes and presets. On a phone the routes' grid stands its destinations' names up, so every route fits across the screen
+- **Status:** the tempo, start / stop, the metronome, speaker, volume, the mixer (with DECKS while they play), a linked Pocket, keyboard, Record
+- **Studio:** XO-4's patterns A–H, Play / Stop, MIDI IN and the synths' starting sounds; the pads' kits; the DJ decks; the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
+- **MIDI:** the routes and presets (on a phone the grid's destination names stand up, so every route fits across)
 - **Library** (samples), **Editor**, **Rec** (the recordings)
-- **Settings:** the Studio's own: the clock's FOLLOW / BOX and click level, the audio rate and Latency, USB out, the Studio link (Follow Studio, what a Pocket sends, the mix back, linked REC), the screen's theme, About (the version, Wi-Fi, links) and Software (updates)
+- **Settings:** the clock, the audio rate and Latency, USB out, the Studio link, the screen's theme, About, and Software (updates)
 
 ## What's inside
 
 The pictures are drawn on a PC by the Studio's own drawing code with a made-up studio (`python tools/studio_screens.py docs/images`), at twice the screen's 480×320: they're not photos of the device.
 
-EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
+The tab bar: HOME, MIXER, MIDI, RECORD, XO-4, EDITOR, DECKS, MORE. EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
 
 ### HOME
 
@@ -162,12 +163,13 @@ Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and th
 
 ### MORE and STUDIO SETTINGS
 
-**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS (the plug-in host, tested on a PC only: plug-ins themselves are separate projects, such as the FM-1 Companion plug-in, and none ships with this beta), STUDIO SETTINGS and SHUT DOWN (not yet tried from the screen). **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
+**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS, STUDIO SETTINGS and SHUT DOWN (it ends on SAFE TO UNPLUG: tried). **PLUG-INS** lists the plug-ins in `~/xoxo-plugins` and switches each on or off (the Studio asks first: a plug-in is code that runs as the Studio does). None ships with the Studio: XOXO Audio Labs' own (Synths, Tester Tools, FM-1 Companion) are in their own repository, XOXO-Studio-Plugins, with what each has been tried with; Synths and Tester Tools have run on a Pi 3 B+ Studio. **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, SOFTWARE UPDATE, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
 
 | | |
 |---|---|
 | <img src="docs/images/studio-more.png" width="400" alt="MORE"><br>**MORE** | <img src="docs/images/studio-settings.png" width="400" alt="STUDIO SETTINGS"><br>**STUDIO SETTINGS** |
 | <img src="docs/images/studio-about.png" width="400" alt="ABOUT"><br>**ABOUT** | |
+
 
 ### Linking boxes, and USB out
 
@@ -178,88 +180,75 @@ Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and th
 - **The link in the journal:** each network MIDI peer linking, linking again, leaving (BY) or forgotten after going quiet is a line in the system journal (`journalctl | grep "network MIDI"`). A Pocket or a Studio following is forgotten after 25 s without a sync, a computer after 90 s.
 - **USB out:** with no DAC HAT, a USB audio interface's output gets a copy of the master (beside the Pi's jack or a Bluetooth speaker, or as the master when there's neither). MORE > AUDIO > **USB out**, shown while one is plugged in: AUTO (the first whose card has no MIDI, so an interface rather than a synth; an FM-1 has no output at all), one picked by name, or OFF. MASTER in the mixer sets its level (as a DAC HAT's). (Tried: a test tone measured at an interface's output; not yet heard by ear.)
 
+
+### The Pi 4 as a USB interface
+
+On a Pi 4 the Studio is also a USB audio + MIDI device on its USB-C port, **XOXO Studio**: USB Audio Class 2, stereo, 48 kHz, each way, and one MIDI port each way. Class drivers come with Windows 10 and 11, macOS and Linux.
+
+- **Audio to the computer:** the Studio's mix, as an input in a DAW. It's every source but the computer's own sound, so a DAW monitoring its input can't feed back.
+- **Audio from the computer:** a source in the Studio's mixer, COMPUTER, on the speaker, the headphones and in recordings.
+- **MIDI both ways:** COMPUTER in the MIDI routes, beside network MIDI.
+
+Tried (2026-11-07, the Pi 4 on Windows 11, no driver installed): Windows listed *Speakers (XOXO Studio)*, *Microphone (XOXO Studio)* and a MIDI port; a tone from the PC reached the Studio bit for bit and was heard on its DAC; a tone in the Studio's mix reached the PC's input; SysEx went through both ways. Power the Pi on its own supply, not from the computer: on the computer's port alone it was under-voltage. Not yet tried: a DAW, macOS or Linux, the power/data splitter, MIDI notes through the routes, the latency. The wiring is in [docs/BUILD.md](docs/BUILD.md#the-studio-as-a-usb-interface).
+
 ## Known limitations
 
-- **The Pi 4 build isn't built or tried yet:** the Pi 4 itself, the Studio as a computer's USB audio + MIDI interface, the Waveshare (C) screen, the DAC HAT on a Pi 4, the passive case. The software for it is written and tested on a PC only.
-- **Not everything is tried on hardware.** Parts of the Studio have only run on a PC so far: see [Tested](#tested) for what has and hasn't been tried on a Pi.
-- **Wi-Fi can stop answering.** Twice (2026-11-02 and 03) the Studio still answered ping on Wi-Fi but nothing else (no SSH, no web page, from a PC or a phone); the first time, a reboot of the Studio brought it back. The cause isn't found.
-- **A Bluetooth speaker can come up silent.** Once, a JBL Go 3 switched on came up connected but silent, even after the Studio's own reconnect; another reconnect (switching the speaker off and on, or SPEAKER on the screen) brought it back. It played after each of two later power cycles. The cause isn't found.
-- **Two hardware setups so far:** a Raspberry Pi 3 B+ with the Hosyond 3.5" SPI touchscreen (ILI9486 / XPT2046), and a Pi 3 B with the UCTRONICS 3.5" HDMI touchscreen. Other Pis and other screens haven't been tried, and the screens are drawn for 480×320 only.
-- **USB out:** only with no DAC HAT (with one, the DAC is the master out and a USB interface gets nothing).
-- **Two Studios linked: the pads are the slow part.** The link itself measured about 12–22 ms one way (see [Tested](#tested)). A pad's sound passes a 1024-frame pipe, a block written ahead and a 10 ms player before the Studio's mixer: about 40–50 ms, worked out from the code, not measured. So a pad played across the link spends most of its round trip there (XO-4's synths the same).
-- **CPU.** Each part was measured on its own on a Pi 3 B+ (see [Tested](#tested)): XO-4 about 30% of one core while it plays, the pads about 20%, both decks playing 28% (49% with REVERB on both). Everything running at once hasn't been measured.
-- **Audio dropouts on a Pi 3 under load: found and fixed, not yet heard over a long session.** Before this beta's last fix, a busy Pi 3 B+ dropped blocks (256 frames, 5 ms, a click): with both DJ decks playing, about 3 in 24 s. The cause: the players that hand the pads', XO-4's and the decks' sound to PipeWire (`pw-cat`) ran at the normal priority (the decks' lowered), so a busy Pi made them late. They now run at real-time priority, through RTKit (see [Tested](#tested) for the numbers). RTKit allows a user 15 real-time processes and PipeWire's loopbacks take most of them; if a player is refused (more USB sources, plug-ins), it plays at the normal priority as before. A 3:27 recording of the tour after the fix had 3 lost blocks (26 before).
-- **RECORD's capture loses a block now and then; record at Latency SAFE.** In a 60 s take with parts on (XO-4 and the Synths plug-in playing, 2026-11-03), the XO-4 and SYNTH A parts had about 8 small skips and 2 lost blocks each, at the same moments in both, while a recording of the DAC's output over the same minute had 2 small skips and none lost: the recorder falls behind, not the sound. Measured since (the Pi 3 B+, a test tone with a known sample in every frame recorded the way RECORD records parts, 1-4 minutes a run, a few runs): at Latency LOWER (blocks of 256) the recorder lost 0 to 3 blocks a minute; at SAFE (1024), the default, about 0.3 to 0.7 a minute. A recorder at real-time priority, or writing through a pipe, did no better: not kept. Each crash of a Bluetooth dongle also cost a gap (see the next point): a 6-minute take with the speaker keeping the clock had two gaps of 256 frames, both at the dongle's crashes. Now a DAC HAT keeps the clock over a Bluetooth speaker (the speaker re-timed to it), so a speaker's stall no longer stops the rest; a dongle's crash still cost one gap in a test (about 0.1 s). Not yet tried: a take at SAFE listened back, an hour of play by ear, two decks at once, recording and METERS together under load.
-- **The Pi 3's own Bluetooth sounds poor; use a USB Bluetooth dongle.** On a Pi 3 B+ (2026-11-03), a JBL Go 3 on the Pi's own Bluetooth had dropouts and a dull sound while the DAC's outs played clean. What the Studio sends the speaker matched the DAC's output over 30 s, so it's the Bluetooth link: a 40 s trace (btmon) showed it sending in stalls of up to about 140 ms at SBC bitpool 14-16 (about 53 is normal), with Wi-Fi power saving on or off. On a TP-Link UB500 dongle (Realtek RTL8761BU) the same speaker heard clean (the user's report), and the trace showed 75 packets a second, gaps of 20 ms at most, bitpool 53. Plugged in, a dongle takes over all of Bluetooth by itself (it's powered on first, then the Pi's own off: one that won't power on, blocked by rfkill, which systemd keeps for each USB port, leaves the Pi's own in use, tested on a PC); unplugged, the Pi's own takes over again; a speaker paired on one has to be paired again on the other the first time. Opening XO-4 or DECKS with a speaker on the Pi's own Bluetooth shows a word about it (once each). A dongle plugged straight back in after being pulled once failed to start (its firmware); unplugged for 10 s and plugged in again it did. **The UB500's own firmware crashes on the Pi 3 B+** (the kernel: "RTL: hw err"), each time dropping the speaker for a few seconds: 7 times in 6 minutes during one recording, about every 1-2 minutes over an hour (2026-11-03), and twice in the 25 minutes after PipeWire and the app were restarted. It crashed with nothing but the speaker on it: no Bluetooth LE advertising or connections, its USB power saving off, the Pi not under-voltage. So it's the dongle's firmware (or its USB link to the Pi), not the Studio; the UB500 Plus has the same chip (RTL8761B). Not yet tried: another dongle (one with a CSR8510 chip, such as TP-Link's UB400, is the next to try), the UB500 on a USB extension away from the Pi, Bluetooth MIDI keyboards moving to a dongle, a Pi 4's own Bluetooth.
-- **The mix can clip with loud sources together.** With XO-4 at 80% and the decks at 100%, the master hit full scale 216 times in 15 s (measured at the JBL's feed on the Pi, 2026-11-03), heard as harshness on the speaker. Since then XO-4 (with the pads) and the decks are each 6 dB down at the source; a 3:27 tour take after that (XO-4 at 60%) peaked at 0.68 with no clipping. There's still no limiter on the master, and USB sources aren't turned down: with several loud channels up high, it can still clip.
-- **XO-4:**
-  - Patterns can't be copied yet.
-  - The synths can't be played live from a keyboard yet: XO-4 isn't a MIDI destination in the routes.
-  - Eight patterns (A–H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
-- **DJ decks:** one FX at a time a deck. The Hercules DJControl Inpulse 200 MK2 has its own mapping; other controllers go through MIDI LEARN, which hasn't been tried with real hardware.
-- **Speaker battery:** shown only when the speaker reports its battery to the Pi's Bluetooth (BlueZ). Many speakers don't, and then nothing shows.
-- **Web page:** plain HTTP on the local network (`http://xoxostudio.local`), no password: anyone on the same network can use it. (An update from it still needs a hold on the Studio's screen.)
-- **Old names inside:** some names in the code still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names). They're internal, and they're left as they are for now.
+- **Not everything is tried on hardware.** Some parts have only run on a PC: see [Tested](#tested).
+- **Power matters.** A Pi 3 on a weak supply runs under-voltage: it slows down, and its Wi-Fi can drop and not come back by itself (seen on a test Studio; switching Wi-Fi off and on in STUDIO SETTINGS reconnects it). A Pi 4 on a computer's USB port alone runs under-voltage too.
+- **Hiss in IEMs on the DAC HAT's headphone jack.** With nothing playing, the DAC is sent pure silence, so the hiss is the board's own (its headphone amp, or the power). The Studio's −6 dB analog setting halves it; what's left wasn't changed in software. Not yet tried: the Pi 4 on its own supply, which may lower it.
+- **Wi-Fi can stop answering.** Twice (2026-11-02 and 03) a Studio still answered ping on Wi-Fi but nothing else; a reboot brought it back. The cause isn't found.
+- **A Bluetooth speaker can come up silent** after it reconnects, now and then; another reconnect (the speaker off and on, or SPEAKER on the screen) brings it back. The cause isn't found.
+- **The Pi 3's own Bluetooth sounds poor; use a USB Bluetooth dongle.** On a Pi 3 B+ a JBL Go 3 on the Pi's own Bluetooth had dropouts and a dull sound (a trace showed stalls of up to 140 ms at a low bitrate); on a TP-Link UB500 dongle it played clean. Plugged in, a dongle takes over Bluetooth by itself, and unplugged, the Pi's own takes over again (a speaker is paired once on each). **The UB500's firmware crashes on a Pi 3 B+** about every 1-2 minutes, dropping the speaker for a few seconds each time, so it isn't recommended. Not yet tried: another dongle (one with a CSR8510 chip, such as TP-Link's UB400), a Pi 4's own Bluetooth.
+- **RECORD's capture can lose a block now and then; record at Latency SAFE** (the default). Measured on a Pi 3 B+: at SAFE about 0.3-0.7 lost blocks a minute, at LOWER 0-3. The sound itself isn't affected, only the take.
+- **The mix can clip with loud sources together.** XO-4 (with the pads) and the decks are 6 dB down at the source, but there's no limiter on the master and USB sources aren't turned down.
+- **Screens are drawn for 480×320 only.**
+- **USB out** works only with no DAC HAT (with one, the DAC is the master out).
+- **Two Studios linked:** the link measured about 12-22 ms one way, but a pad's sound adds about 40-50 ms before the Studio's mixer (worked out from the code, not measured).
+- **XO-4:** patterns can't be copied yet, and the synths can't be played live from a keyboard (XO-4 isn't a MIDI destination yet). Eight patterns (A-H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
+- **DJ decks:** one FX at a time a deck. Controllers other than the Hercules go through MIDI LEARN (not yet tried with hardware).
+- **Speaker battery** shows only for speakers that report it over Bluetooth.
+- **The web page** is plain HTTP on the local network with no password: anyone on the same network can use it (an update from it still needs a hold on the Studio's screen).
+- **Old names inside:** some internal names still say fm1 (the `fm1-bt-bridge` folder, `~/fm1-library`, the service names).
 
 ## Tested
 
-**On hardware** (2026-10-28: a Raspberry Pi 3 B+ on Raspberry Pi OS Lite, Trixie, 64-bit; a 3.5" ILI9486 / ADS7846 touchscreen; a PiSugar battery):
-- installed from the GitHub ZIP as above: the installer ran to the end with no errors in its log
-- after the reboot the app, its sampler and the web page start; the screen and the touch are found; the settings hold a touch calibration and a theme picked on the screen
-- the battery's charge is read, with a green bolt beside its percent while it charges that goes when the charger is unplugged (2026-11-01, the user's report)
-- the web page loads from a PC at `xoxostudio.local`, as XOXO Studio, with its own manifest and icon
-- the tab bar with DECKS on it looks right on the Studio's screen
-- XO-4's FM synth: 8 voices (two tracks' 4-note chords) take 22% of one core, measured with the app running; it writes its demo WAV there (the demo not yet listened to)
-- XO-4's engine, with a demo pattern put in by hand and the box clock started from the web page: the XO-4 source and the pads (the 808 KIT, played by XO-4's drum track) both carry sound, measured by recording each source on the Pi (peaks 0.66 and 0.81); XO-4 takes about 30% of one core while it plays, the pads about 20%
-- the XO-4 tab, used by hand on the Studio's screen: works well (the user's report, 2026-10-28)
-- XO-4's GRID on the Studio's screen (2026-11-02): its cells hit by finger, "works well" (the user's report); the screen grabbed on the Pi showed it as drawn on the PC
-- "< HOME" at the top left of MIXER, SAMPLER, RECORD, MIDI and MORE looks right on the Studio's screen (the user's report; the SAMPLER tab has since become XO-4's DRUMS)
-- SAMPLER and RECORD full screen (no tab bar) look right on the Studio's screen (the user's report; SAMPLER since replaced as above)
-- HOME's tempo - / + beside the BPM work well on the Studio's screen (the user's report)
-- HOME listing every source with its mixer level looks right on the Studio's screen (the user's report; the decks' row not yet seen with the decks playing there)
-- the FX (the pads' punch-in FX, XO-4's synth FX, the decks' ECHO, REVERB, FLANGER, BRAKE) sound good on the Studio (the user's report, 2026-10-28)
-- XO-4's MIDI IN: starts off on the Studio, the app runs with it (its effect on notes tested on the PC only)
-- the web page's Studio tab (2026-10-29): it loads from the Studio and shows XO-4, the kits and the decks; XO-4's pattern changed from the page and back (checked in the page's status). Not yet tried from a phone: MIDI IN, the sounds, loading a kit, adding music, the decks' rows while they play, the DECKS level
-- the Pocket's sound over the link (2026-10-29, over Wi-Fi): the Studio makes POCKET its own mixer channel while the Pocket is linked, an FM-1 on the Pocket plays out of the Studio's speaker, and it comes back after the Pocket's sender restarts (the user's reports). Not yet tried: the speaker handover, the latency by ear
-- the Pocket on a direct Ethernet cable (2026-10-29): the Studio's eth0 takes 169.254.115.88 and keeps it past NetworkManager's DHCP timeout, the Pocket finds the Studio there by DNS-SD and links over it, and the Pocket answers a ping over the cable in about 1.5 ms. The Pocket's sound over the cable: "seems good now" (the user's report, after the Pocket's bridge restarted; before that it sent only silence, which the Pocket session traces to the FM-1's input needing to be opened afresh). Not yet tried after a reboot
-- the Pocket link's Studio side, with a stand-in Pocket on a PC over Wi-Fi: it joins the Studio's network MIDI as "FM-1 Companion Pocket" and gets the Studio's clock (2026-10-29); the Studio's Ethernet setting is loaded by NetworkManager with no error
-- the DJ decks played by touch alone (no controller), music from a USB drive, out of a JBL Go 3 over Bluetooth (the user's report, 2026-10-28, after the fix for their volume starting at 0)
-- the DJ decks' CPU (2026-10-28, the Pi 3 B+, both decks playing): 28% of one core without FX, both ECHO 31%, both FLANGER 40%, both REVERB 49%
-- the InnoMaker HiFi DAC HAT on the Pi 3 B+ (2026-11-01): `install.sh --dac` adds its driver, the Pi lists it as BossDAC, the Studio makes it the master out (every mixer channel linked to it, the Pi's jack a copy) and both its headphone (aux) and RCA outs play (the user's report). A Bluetooth speaker's copy of it plays too (a JBL Go 3, 2026-11-02, the user's report). Once that morning the JBL, switched on, came up connected but silent, even after the Studio's own reconnect; another reconnect brought it back, and it played after each of two later power cycles (the cause isn't found). Not yet tried: CUE on the Pi's jack beside it
-- USB sound sources in the mixer (2026-11-02, the Pi 3 B+ with the DAC HAT): two FM-1s, an Ember Nanocore and an ATR2100x USB mic plugged in at once, each its own mixer channel beside the pads and XO-4 (six, all linked to the DAC's master, checked on the Pi), and every source heard out of both the DAC's outs and the JBL Go 3 (the user's report). Not yet tried: their levels set by ear, mute and solo
-- the mixer's mute, solo and level, measured (2026-11-02, the same Studio, `tools/mixer_test.py`): a 997 Hz tone at -20 dBFS into XO-4, set from the web page's commands and measured at the DAC's master and the JBL's sink on the Pi. It arrived at -20.0 dBFS at both; muting XO-4 silenced it and unmuting brought it back; soloing SAMPLER silenced it and unsoloing brought it back; soloing XO-4 kept it; XO-4's level at 50 took it down 18 dB and 100 brought it back; every setting was back as it was after. 10/10, twice. Not by ear; not tried on the USB channels or CUE
-- two Studios linked (2026-11-01: a Pi 3 B+ with the DAC HAT leading, a Pi 3 B with the 3.5" HDMI touchscreen following, on an Ethernet cable and over Wi-Fi): Follow Studio links them (the leader's journal: "XOXO Studio Link on FM-1CompanionStudio linked from 169.254.40.59"), the follower takes the leader's tempo (100 BPM), Stop and Start from the leader's web page stop and start both, REC and STOP from it start and stop a take on both, and the follower's master arrives on the leader's STUDIO channel (a stream, measured on the Pi; only silence so far: nothing made sound on the follower). Not yet tried: sound heard across, REC started on the follower, a Pocket and a Studio linked at once
-- the link's own latency between two Studios (2026-11-01, a short Ethernet cable; the follower throttled to 600 MHz by under-voltage): a click into the leader's XO-4, its mix back to the follower, looped there straight into its link for the test, and back on the leader's STUDIO; the leader's output recorded both, the click and its copy, so the gap is the round trip to the sample (`tools/snake_time.py`, which says how). Settled (30-70 s after a Latency change; before that it starts high and comes down): LOWER 34-44 ms round trip, LOWEST 24-40 ms, so about 17-22 ms and 12-20 ms one way; no receiver overruns. While settling, LOWER and LOWEST both read 85-104 ms. Over a 100 ft Ethernet cable (2026-11-02, LOWER, the same tool; the follower under-voltage again by the end, at 600 MHz; the cable's own ping 0.65 ms round trip): 106 ms at first, 60-64 ms a minute in, then 36-41 ms round trip (about 18-20 ms one way) for four readings over three minutes, and a last one with three clicks at 24-26 ms; receiver overruns not checked
-- the leader's mix back to a following Studio (2026-11-01): the leader sent FELUCCA, SAMPLER and XO-4 but not STUDIO; a tone played into the leader's XO-4 arrived at the follower at the level it was sent (measured on the Pi) and plays on its USB interface
-- the leader's clock out a following Studio's Box routes (2026-11-01): with Box>U:Felucca on, the follower sent its FM-1 clock at the leader's 100 BPM (122 bytes in 3 s, counted by the kernel), none with the route off and again with it on, switched from the web page; the FM-1 followed (the user's report)
-- USB out (2026-11-01, the Pi 3 B with no DAC HAT, a PCM2902 "USB Audio CODEC" interface and an FM-1 plugged in): AUTO picked the interface, not the FM-1, and a test tone played into the master came out of the interface's output (measured at its output, on the Pi). Not yet heard by ear
-- the latency between two Studios (2026-11-01, Tester Tools 0.2 on the leader: a note out over network MIDI, the follower's first pad playing it, its sound timed back on the leader's STUDIO; the follower throttled to 600 MHz by under-voltage): SAFE 172 ms round trip, LOW 128, LOWER 87-107 (two runs), LOWEST 87; the follower took each step from the leader by itself, and the leader's STUDIO receiver had no overruns at any step in those 6 minutes
-- the 3.5" HDMI touchscreen (2026-11-01, the Pi 3 B that ran FM-1 Companion Studio): with its own touch overlay and no SPI screen's, the Studio draws on it full screen (720x480) and its touch works after the touch setup (the user's report). With the SPI screen's overlay added as well (what `install.sh` did before `--screen hdmi`), touch was dead
-- the screen's `xoxo35` overlay (2026-11-02, the Hosyond 3.5" on the Pi 3 B+): with `piscreen`'s start-up the backlight showed through and the blacks were washed out; with the maker's the blacks are blacker and the near-black steps of a test card (8, 16, 24 of 255) still show (the user's report). The Studio starts and draws with it. VCOM tried live from 0x91 down to 0x4A; the maker's 0x91 kept. `config/xoxo35.sh` made the same overlay byte for byte on the Pi. Not yet checked: touch with it; `install.sh` making it on a fresh install, or switching a box set up with `piscreen`
-- the beta's version and MORE > ABOUT (2026-11-03, the Pi 3 B+): ABOUT's WEB APP code scanned with a phone opens the Studio's web app (the user's report); all three codes decode to their addresses (read back from the drawn page on a PC with OpenCV). Not yet seen on the Studio: the boot screen's new version line (drawn on a PC only); THE CODE needs the GitHub repo public to open for others
-- MORE > STUDIO SETTINGS (2026-11-03, the Pi 3 B+): Wi-Fi, the theme, the touch setup and ABOUT moved there, used on the Studio's screen (the user's report)
-- the speaker scan and pairing (2026-11-03, the Pi 3 B+ on its own Bluetooth): the scan list showed every speaker the Pi had ever paired, a JBL that was off among them; it now lists only what was heard during the scan (the scan code run on the Studio over SSH: an AG-04 and a TV listed, the JBL that was off not). Pairing removed the speaker and looked for it again for 6 s each time, and an AG-04 that advertises only now and then failed "Not found" over and over; now a speaker is removed first only if it was paired already, and looked for (10 s) only if the Pi no longer knows it. The AG-04 then paired and played (it paired during the user's tries, before this fix was installed). Tested on a PC; not yet: a pairing on the Studio with the fix
-- BLUETOOTH DEVICES (2026-11-03, the Pi 3 B+ on a UB500): its list read on the Studio (the code the page runs, over SSH): two speakers paired, the one playing marked connected. the page on the Studio's screen looks right (the user's report). forgetting a device there worked (the user's report; which one wasn't noted). A speaker, a keyboard and the hold to confirm also tested on a PC
-- the web app on a phone (2026-11-03): the MIDI routes' grid fits across the phone's screen with every destination (the user's report; checked at 375 px wide in a browser too, every tab with nothing wider than the screen)
-- the web app's Settings tab (2026-11-03, the Pi 3 B+, at 375 px wide in a browser): the clock, audio, Studio link, screen, About and Software sections show the Studio's settings as they are; the seven tabs fit across; Status keeps what's played with. From a phone, the theme and Latency changed from the page: "works well" (the user's report). Not yet tried from the page: USB out, the link's settings
-- updating from the web app (2026-11-03, the Pi 3 B+): `install.sh` run by hand installed `fm1-update` and its sudoers line (the sudoers file checked by `visudo`); then `fm1-update` installed this code from a local release file, as root for the user, as the web app's update does: `config.txt` and `cmdline.txt` unchanged (their checksums), no file in the user's folders left owned by root, the app and the web page running again. Settings > Software shows v0.1 installed and, with the repository private and untagged, "no releases on GitHub yet". Not yet tried: an update from GitHub (needs the repository public and a newer tag), the hold-press on the screen starting one, the put-back when a new version doesn't start (tested on a PC only)
-- updating without a password (2026-11-06, the second Studio, a Pi 3 B that began as an FM-1 Companion box: its `fm1-update` FM-1 Companion's, and sudo there asks for a password): MORE > STUDIO SETTINGS > SOFTWARE UPDATE said "Up to date (v0.1)"; the update found `fm1-update` not usable and installed this code from a local release file as the Studio's user (`install-app.sh`, 2.7 s, nothing asked), restarted the app and saw it come back. Not yet tried: one from GitHub (needs a tag newer than v0.1), the put-back on the Studio (tested on a PC only)
-- shutting down on the 3.5" SPI screen (2026-11-07, the second Studio): the screen keeps its last picture once the Pi is off, so it had looked stuck on "Shutting down"; now it ends on SAFE TO UNPLUG (the shutdown hook, put in by hand with the password once). Not yet tried: install.sh putting the hook in, a refused power-off on a Studio (tested on a PC only)
-- the DJ decks' SYNC to XO-4 (2026-11-03, the Pi 3 B+, XO-4 at 100 BPM on the box's clock, a 100 BPM click track on deck A): deck A synced and started, its clicks against XO-4's drums recorded on the Pi at the DAC's output: 1.4 ms early on average, each 4 s within about ±7 ms over 16 s. Not yet checked: its bar landing on XO-4's (by ear or measured), two decks synced at once, a Hercules
-- the players at real-time priority (2026-11-03, the Pi 3 B+, XO-4 and a synced deck playing, four busy loops loading all four cores for 60 s, PipeWire's underrun counts): before, the decks 645-888, the pads 126-216, XO-4 31-134; after, the pads 0 and XO-4 0, the decks 58 in the first minute and 0 in the second (the user may have been starting and stopping the deck in the first). The DAC's sink 0 to 4 throughout
-- the pads in XO-4's channel (2026-11-03, the Pi 3 B+): both players feed `fm1-xo4-in` and the Studio runs 5 loopbacks instead of 7; 30 s of the pads' output with XO-4 playing: no hit missing, every bar the same to the sample. Not yet checked: the MIXER screen without a SAMPLER channel on the Studio, a kit played by hand through it
-- a Bluetooth dongle taking over (2026-11-03, the Pi 3 B+, a TP-Link UB500, a JBL Go 3 paired on both): plugged in, the Pi's own Bluetooth powered off, the dongle on and the JBL playing through it; unplugged, the Pi's own back on and the JBL reconnected to it by itself (checked on the Pi); the switch "quick" (the user's report). Not yet tried: Bluetooth MIDI keyboards across a switch, a speaker paired on only one of them (the "pair again" message, tested on a PC), the warning on XO-4 and DECKS seen on the Studio (tested on a PC)
-- the DAC HAT keeping the clock over a Bluetooth speaker (2026-11-03, the Pi 3 B+, a JBL Go 3 on a UB500): after the WirePlumber rule and a restart of PipeWire and the app, PipeWire's graph is driven by the DAC with the JBL following, the JBL reconnected by itself and played, and over the next 3 minutes at SAFE XO-4's and the pads' players and the JBL had no underruns. Not yet tried: a fresh install with the rule, a take listened back, the Pi's own Bluetooth with it, a Studio without a DAC HAT (nothing changes there: the rule matches only the HAT)
-- the mix's headroom (2026-11-03): with XO-4, the pads and the decks 6 dB down at the source, a 3:27 recording of the tour on the Studio (XO-4 at 60%) peaked at 0.68, no sample at full scale (measured from the DAC's monitor by the tour video's tools). Not yet measured: XO-4 at 80% with the decks at 100% again
-- the EDITOR with an empty take (2026-11-03): the app died on one (a REC under a second, opened in the EDITOR); now a flat line (tested on a PC)
-- RECORD with parts on (2026-11-03, the Pi 3 B+): takes came out empty (0 frames, every part) when one source's link failed: the parts' links were made in one pw-cli, and a failed link stops its other lines (tried on the Studio). Now one pw-cli a source: a take through the app, a tone into XO-4, recorded 8.5 s with every part. Not yet tried: with the Synths plug-in's source, whose link likely failed
-- XO-4's synths (2026-11-03): a note restarted while still sounding, or a fifth note, cut the old voice at once, a jump of about 21 normal steps (112 times a minute in "Pocket Groove", rendered on a PC); now it fades in 5 ms (a normal step). The small skips in recordings while XO-4 played turned out to be RECORD's capture, not the sound (see [Known limitations](#known-limitations))
-- the decks' fade (2026-11-03): PLAY, stop and CUE on deck A clean on the DAC (the user's report); on a PC, a test of PLAY, a hot cue, a jump, back to the cue and a stop keeps the waveform's step under 0.03 (main's code jumped 0.98)
-- the link's journal lines (2026-11-01): linked, left (BY) and forgotten lines seen in the Studio's journal, from a stand-in computer on a PC, a Pocket and a Studio following
+What has been tried on hardware, by Studio. "The user's report" is what was seen or heard by the person testing; everything else was measured on the Pi.
 
-**Not yet tried on hardware:** a Pi 4 and everything of its build (the USB interface, the Waveshare (C), the case); sound heard out of the Pi's 3.5 mm jack; XO-4 by ear (its timing against the pads, the MIDI track to real gear); the mixer by ear (levels, mute and solo) and CUE; a Pocket's FM-1s on their own; linked REC with a Pocket; a take listened back on the Studio; XO-4's DRUMS by hand (finger drumming, levels, ratchets, nudge, live REC, RPT, the kit pages from XO-4); the EDITOR tab and the sample editor; notes from a Bluetooth or USB keyboard through the MIDI routes, arp and chord; the DJ decks with a controller (MIDI LEARN, a Hercules); Bluetooth headphones; Bluetooth MIDI on a USB Bluetooth dongle; shutting down from the screen; an update from GitHub; sound heard across two linked Studios.
+**The Pi 4 Studio** (2026-11-07: Raspberry Pi 4 B 1 GB, Raspberry Pi OS Lite 64-bit (Trixie), Waveshare 3.5" (C), InnoMaker HiFi DAC HAT):
+- installed from the v0.2.1 release downloaded on the Pi, `install.sh --dac --screen c`: the DAC (BossDAC), the screen and the USB interface came up after the reboot. The screen was upside down at `rotate=90`; at `rotate=270` it's right side up (the user's report), and `--screen c` now sets 270
+- headroom, the Studio's engines rendered with no sound beside the running app: the pads at 16 voices take 36% of one core (32 voices: 37%), two XO-4 tracks with full chords about 9%, both decks 13%. "One Studio flat out" (all four XO-4 tracks with chords, 16 pad voices, both decks) used about 23% of the whole Pi; the app's own audio first had dropouts at six of those at once. It stayed at 1800 MHz, 45.8 °C at most, and never throttled. RAM: about 600 MB free idle, 490 MB with one Studio flat out
+- the USB interface on Windows 11 (see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)): audio and MIDI both ways
+- the DAC's −6 dB analog setting: the hiss in IEMs quieter (the user's report); the app sets it each start
+- the plug-ins' packages (FluidSynth 2.4.4, TimGM6mb, FluidR3) installed. The plug-ins themselves not yet switched on there
 
-**On a PC:** the test suite passes (2026-11-03: 230 tests; each `tests/test_*.py` with its own runner, `tests/test_desk.py` and `tests/test_netmidi.py` through pytest. Run all at once in one pytest process, some fail on each other's leftovers: run them file by file). The screen pictures under [What's inside](#whats-inside) are drawn by the Studio's own code on a PC.
+**The first Studio** (from 2026-10-28: Raspberry Pi 3 B+, Raspberry Pi OS Lite 64-bit (Trixie), Hosyond 3.5" SPI touchscreen, a PiSugar battery, the DAC HAT from 2026-11-01):
+- install, boot, the screen and touch, the touch calibration and theme kept; the battery's charge with a charging bolt (the user's report)
+- XO-4 used by hand, its GRID by finger, the FX sound good (the user's report); XO-4 and the pads' sound measured; CPU on one core: XO-4 about 30% while it plays, the pads about 20%, both decks 28% (49% with REVERB on both)
+- the DAC HAT: both its outs play (the user's report), the master out with every mixer channel linked to it
+- USB sources in the mixer: two FM-1s, an Ember Nanocore and an ATR2100x USB mic at once, each its own channel, heard out of the DAC and a JBL Go 3 (the user's report)
+- the mixer's mute, solo and level measured with a test tone (`tools/mixer_test.py`): every step right, twice
+- the DJ decks played by touch from a USB drive (the user's report); SYNC to XO-4 within about ±7 ms over 16 s; PLAY, stop and CUE without clicks (the user's report)
+- the players at real-time priority: under four busy cores, the pads' and XO-4's underruns went from over a hundred to 0
+- Bluetooth: the speaker scan, BLUETOOTH DEVICES and forgetting a device (the user's report); a UB500 dongle taking over and handing back
+- the web app on a phone and a PC: the tabs, Settings, the MIDI grid at phone width; the theme and Latency changed from a phone (the user's report)
+- MORE › STUDIO SETTINGS and ABOUT's QR codes (the web app's code scanned with a phone: the user's report)
+- updates from GitHub, started on the Studio: to v0.2.0, then v0.2.1, which left `config.txt` untouched
+- the Synths and Tester Tools plug-ins (see the plug-ins' own repository)
+
+**The second Studio** (from 2026-11-01: Raspberry Pi 3 B, the UCTRONICS 3.5" HDMI touchscreen, later a 3.5" SPI screen):
+- the HDMI touchscreen full screen, its touch after the touch setup (the user's report)
+- updating without a password (from a local release file, as the Studio's user)
+- shutting down: it ends on SAFE TO UNPLUG (the user's report)
+- USB out: a test tone measured at a USB interface's output
+
+**Linked:**
+- two Studios (Pi 3 B+ leading, Pi 3 B following, over Ethernet and Wi-Fi): Follow Studio links them, the follower takes the leader's tempo, Start, Stop, REC and STOP; the follower's sound arrives on the leader's STUDIO channel (a stream, measured); the leader's mix back arrives at the follower at the level sent; the leader's clock goes out the follower's routes to its FM-1 (the user's report)
+- the link's latency (`tools/snake_time.py`): about 12-22 ms one way, settled, also over a 100 ft cable; with Tester Tools, a pad on the follower: 172 ms round trip at SAFE, 87 at LOWEST
+- a Pocket: over Wi-Fi and a direct Ethernet cable it links, and its FM-1 plays out of the Studio's speaker as POCKET (the user's report); its MIDI with a stand-in Pocket on a PC
+
+**Not yet tried on hardware:** a Pi 4's own Bluetooth; the Pi 4 on the power/data splitter; the USB interface with a DAW, macOS or Linux; the Pi 4's extra voices by ear; sound out of the Pi's 3.5 mm jack; XO-4 by ear (its timing against the pads, its MIDI track to real gear); the mixer by ear and CUE; a Pocket's FM-1s on their own streams; linked REC with a Pocket; a take listened back on the Studio; XO-4's DRUMS by hand (finger drumming, ratchets, nudge, live REC, RPT); the EDITOR and the sample editor; a keyboard's notes through the MIDI routes, arp and chord; the DJ decks with a controller; Bluetooth headphones; Bluetooth MIDI on a dongle; sound heard across two linked Studios; an update putting the old version back.
+
+**On a PC:** the test suite passes, file by file (each `tests/test_*.py` with its own runner; `tests/test_desk.py` and `tests/test_netmidi.py` through pytest). The screen pictures under [What's inside](#whats-inside) are drawn by the Studio's own code on a PC.
 
 ## License and credits
 
