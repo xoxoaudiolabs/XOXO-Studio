@@ -1,4 +1,4 @@
-# XOXO Studio (beta 0.1)
+# XOXO Studio (beta 0.2.2)
 
 [![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:36)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
 
