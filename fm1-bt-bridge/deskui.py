@@ -573,7 +573,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         master = ([("master", "MASTER", "DAC" if a.dac else "USB", 2, a.state.get("master", 100) / 100,
                     f"{a.state.get('master', 100)}%")]
                   if a.dac or getattr(a, "usb_out", None) else [])   # a DAC HAT (or USB out): the master out
-        speaker = a.sink["label"].upper()[:14] if a.sink else (a.state.get("last_name") or "NONE").upper()[:14]
+        last = (a.state.get("last_name") or "").upper()[:14]     # not connected: said so, as the web page does
+        speaker = (a.sink["label"].upper()[:14] if a.sink else "CONNECTING..." if getattr(a, "connecting", False)
+                   else f"{last} (OFF)" if last else "NONE")    # (the last one's name alone looked connected)
         if a.sink and getattr(a, "spk_battery", None) is not None:   # the speaker reports its battery
             speaker = f"{speaker}  BAT {a.spk_battery}%"
         volume = f"{a.volume}%" if a.volume is not None else ""

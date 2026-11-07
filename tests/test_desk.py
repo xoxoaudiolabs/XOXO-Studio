@@ -1393,6 +1393,25 @@ def test_shutdown_screen(monkeypatch):
     install = (Path(bridge.__file__).parent / "install.sh").read_text()
     assert "system-shutdown/fm1-unplug" in install and "unplug.raw" in install
 
+
+def test_home_speaker_not_connected():
+    """HOME's SPEAKER row: the last speaker's name alone looked connected when it wasn't (the second Studio's JBL,
+    2026-11-07): "(OFF)" after it, CONNECTING... while it connects, its name once it is"""
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS, last_mac="20:18:5B:EF:AA:B0", last_name="JBL Go 3"))
+    app.save_settings = lambda: None
+    ui = deskui.DeskUI(app, app.display)
+    speaker = lambda: next(r[2] for r in ui.home_rows() if r[0] == "spk")
+    app.sink = None
+    assert speaker() == "JBL GO 3 (OFF)"
+    app.connecting = True
+    assert speaker() == "CONNECTING..."
+    app.connecting, app.sink = False, {"label": "JBL Go 3"}
+    assert speaker() == "JBL GO 3"
+    app.sink, app.state["last_name"] = None, None
+    assert speaker() == "NONE"
+
 def test_home_tempo():
     """HOME's tempo - / +: a tap is 1 BPM, a hold 10, within 30-300; following another clock, they leave it be"""
     import bridge
