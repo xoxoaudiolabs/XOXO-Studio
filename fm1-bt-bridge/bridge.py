@@ -2759,6 +2759,10 @@ def main():
         if box["build"] == "desk":            # the Studio's sampler and XO-4, each in a process of its own
             import pads
             import xo4
+            import xo4synth
+            if "fast" in box["can"]:          # a Pi 4 or newer: twice the pads' voices (an MPC 2000's 32), and
+                pads.VOICES = 32              # XO-4's chords ring on under the next (8 a track, 4 a step still)
+                xo4synth.VOICES = 8
             pad_process = pads.PadProcess(state["audio_rate"])
             pad_process.start()
             xo4_process = xo4.XO4Process(state["audio_rate"], pads_conn=pad_process.xo4_conn)

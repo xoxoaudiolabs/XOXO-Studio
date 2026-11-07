@@ -129,6 +129,21 @@ def test_bench_and_demo():
         assert w.getnchannels() == 2 and w.getframerate() == RATE and w.getnframes() >= 5 * RATE
 
 
+def test_voices_set_at_start():
+    """a fast board's count (bridge.py sets VOICES before XO-4 starts) is the one a Synth made later takes"""
+    before = xo4synth.VOICES
+    try:
+        xo4synth.VOICES = 8
+        s = xo4synth.Synth(RATE)
+        for k in range(8):
+            s.note_on(48 + k)
+        assert s.max == 8 and len([v for v in s.voices if not v.cut]) == 8
+        assert xo4synth.Synth(RATE, voices=2).max == 2
+    finally:
+        xo4synth.VOICES = before
+    assert xo4synth.Synth(RATE).max == before
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

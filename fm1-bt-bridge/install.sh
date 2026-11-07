@@ -112,8 +112,7 @@ done
 # that panel and half again the frames of 16 MHz (the meters smoother; tested 2026-10-24).
 # The Waveshare (C) (--screen c) is the same chips run faster (its "125 MHz" design): Waveshare's own overlay
 # (waveshare35c) when it's in the overlays folder (Raspberry Pi OS doesn't ship it), else piscreen at 48 MHz.
-# Not yet tried on a (C): if its picture is wrong, put Waveshare's waveshare35c.dtbo in the overlays folder and run
-# this again with --screen c.
+# Tried on a (C) with piscreen (2026-11-07, a Pi 4): right side up at rotate=270. Waveshare's own overlay not tried.
 # The Hosyond / Waveshare (A) (the default): xoxo35, piscreen with the screen maker's panel start-up (config/xoxo35.sh:
 # piscreen's left the backlight showing through and the blacks washed out, tested 2026-11-02); piscreen if it can't
 # be made.
@@ -126,7 +125,7 @@ fi
 if [ "$SCREEN_KIND" = c ] && [ -f "$OVERLAYS/waveshare35c.dtbo" ]; then
     SCREEN="dtoverlay=waveshare35c,rotate=90"
 elif [ "$SCREEN_KIND" = c ]; then
-    SCREEN="dtoverlay=piscreen,speed=48000000,rotate=90"
+    SCREEN="dtoverlay=piscreen,speed=48000000,rotate=270"   # (90 shows a (C) upside down: tried 2026-11-07)
 elif [ -f "$OVERLAYS/xoxo35.dtbo" ]; then
     SCREEN="dtoverlay=xoxo35,speed=24000000,rotate=90"
 elif [ -f "$OVERLAYS/waveshare35a.dtbo" ]; then

@@ -21,6 +21,13 @@ def board(path=MODEL):
         return ""
 
 
+def fast(model):
+    """a Pi 4 / 400 / 5 or a Compute Module 4 / 5: about twice a Pi 3's speed a core (measured 2026-11-07: a Pi 4
+    ran four of the Studio's sound at full load at once, every engine at its cap, before its blocks came late)"""
+    return model.startswith(("Raspberry Pi 4", "Raspberry Pi 400", "Raspberry Pi 5",
+                             "Raspberry Pi Compute Module 4", "Raspberry Pi Compute Module 5"))
+
+
 def hdmi35(width, height):
     """the 3.5" HDMI touchscreen's framebuffer: HDMI set to a whole multiple of its 480x320 panel, or 1.5x
     (install.sh --screen hdmi: the screen shows no signal at 480x320 itself, and scales what it gets down to its
@@ -55,7 +62,7 @@ def detect(setting="auto", model=None, screen="look"):
     """-> {"build": "pocket" or "desk", "board", "screen": (device, w, h) or None, "can": set()}
 
     can: "touch" and "color" (the desk box's screen), "cores" (4 of them: smooth meters, more at once),
-    "usb_ports" (built-in USB ports: no hub, no 12 Mbit/s setting)."""
+    "usb_ports" (built-in USB ports: no hub, no 12 Mbit/s setting), "fast" (a Pi 4 or newer: more voices)."""
     model = board() if model is None else model
     screen = touchscreen() if screen == "look" else screen
     zero = "Zero" in model
@@ -70,4 +77,6 @@ def detect(setting="auto", model=None, screen="look"):
         can.add("cores")
     if model and not zero:
         can.add("usb_ports")
+    if fast(model):
+        can.add("fast")
     return {"build": build, "board": model, "screen": screen, "can": can}

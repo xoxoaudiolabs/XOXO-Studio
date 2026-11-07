@@ -28,6 +28,10 @@ def test_which_box():
     assert box["build"] == "desk" and {"touch", "color", "usb_ports"} <= box["can"]
     assert device.detect(model=PI3, screen=None)["build"] == "pocket"   # no touchscreen yet: the OLED's code
     assert device.detect("desk", model=ZERO, screen=None)["build"] == "desk"     # the setting wins
+    assert "fast" not in box["can"]                                   # a Pi 3: the voices as they were
+    assert "fast" in device.detect(model="Raspberry Pi 4 Model B Rev 1.5", screen=TFT)["can"]
+    assert device.fast("Raspberry Pi 5 Model B Rev 1.0") and device.fast("Raspberry Pi 400 Rev 1.0")
+    assert not device.fast(ZERO) and not device.fast("Raspberry Pi 3 Model B Plus Rev 1.3") and not device.fast("")
     with tempfile.TemporaryDirectory() as tmp:                       # the framebuffer's size from sysfs
         root = Path(tmp)
         (root / "fb0").mkdir()

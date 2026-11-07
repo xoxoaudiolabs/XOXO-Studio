@@ -67,8 +67,8 @@ class Voice:
 class Synth:
     """one XO-4 synth track: its patch and up to VOICES notes"""
 
-    def __init__(self, rate=48000, patch=None, voices=VOICES):
-        self.rate, self.max = rate, voices
+    def __init__(self, rate=48000, patch=None, voices=None):
+        self.rate, self.max = rate, voices or VOICES
         self.patch = clean_patch(patch)
         self.voices = []
 
