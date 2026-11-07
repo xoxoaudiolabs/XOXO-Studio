@@ -6,6 +6,7 @@ main loop, so they go through the same code as the joystick. Writes to the FM-1'
 firmware) aren't commands: they still wait for a hold-press on the box (library.ask_box).
 """
 import re
+import threading
 import time
 
 import blemidi
@@ -139,7 +140,30 @@ class WebLink:
     def web_update(self):
         """the web app's update (update.py): asked for a hold-press on the screen first, as shutting down is"""
         import update
-        info = update.check()
+        return self.update_checked(update.check())
+
+    def check_update(self):
+        """STUDIO SETTINGS > SOFTWARE UPDATE: GitHub asked on a thread of its own (up to 10 s), its answer posted
+        back ("software"): up to date, why not, or Update? with a hold-press (as the Pocket's Software update)"""
+        if getattr(self, "update_checking", False):
+            return
+        self.update_checking = True
+        self.say("Checking for an update...", 10)
+
+        def ask():
+            import update
+            try:
+                info = update.check(fresh=True)
+            except Exception as e:            # (whatever goes wrong: said on the screen, never a dead thread)
+                info = {"busy": None, "helper": True, "newer": False, "error": str(e)[:40] or "the check failed"}
+            self.post("software", info)
+
+        threading.Thread(target=ask, daemon=True).start()
+
+    def update_checked(self, info):
+        """update.check()'s answer -> a short message for the screen, or None once Update? is asked"""
+        import update
+        self.update_checking = False
         why = info["busy"] or (None if info["helper"] else "needs install.sh once") \
             or (None if info["newer"] else info["error"] or f"up to date ({info['installed']})")
         if why:
