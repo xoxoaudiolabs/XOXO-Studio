@@ -619,7 +619,7 @@ def test_tab_bar():
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.render(0.0, force=True)
-    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "EDITOR", "XO4", "DECKS", "REC", "MIDI", "MORE"] and deskui.TAB_LABEL["XO4"] == "XO-4"
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"] and deskui.TAB_LABEL["XO4"] == "XO-4"
     assert "PADS" not in deskui.TABS and "PADS" not in deskui.TAB_LABEL               # the pads: in XO-4's DRUMS
 
     def press(key):
