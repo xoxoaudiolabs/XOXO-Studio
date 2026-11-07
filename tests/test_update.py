@@ -121,7 +121,7 @@ def test_page_and_screen():
     was = update.installed, update.HELPER, update.start
     helper = TMP / "fm1-update"
 
-    class Studio:
+    class Studio(weblink.WebLink):
         def __init__(self):
             self.said, self.asked, self.screen = [], None, "status"
 
@@ -156,6 +156,53 @@ def test_page_and_screen():
     finally:
         update.installed, update.HELPER, update.start = was
         server.shutdown()
+
+
+def test_settings_tile():
+    """STUDIO SETTINGS > SOFTWARE UPDATE: GitHub asked on a thread of its own, its answer posted back ("software"):
+    up to date said, a failed check said, else Update? with a hold-press (as the Pocket's Software update)"""
+    import queue
+    import deskui
+    import weblink
+    assert ("SOFTWARE UPDATE", ("update", None)) in deskui.STUDIO_SETTINGS
+    was = update.check
+
+    class Studio(weblink.WebLink):
+        def __init__(self):
+            self.said, self.asked, self.screen, self.events = [], None, "status", queue.Queue()
+
+        def say(self, text, seconds=1.0):
+            self.said.append(text)
+
+        def ask(self, title, lines, action, back="pick"):
+            self.asked = (title, lines, action, back)
+
+        def post(self, *event):
+            self.events.put(event)
+
+    newest = {"busy": None, "helper": True, "newer": True, "error": None, "installed": "v0.1", "newest": "v0.2"}
+    try:
+        for info, said in ((dict(newest, newer=False), "up to date (v0.1)"), (None, "Update: boom")):
+            studio = Studio()
+            if info:
+                update.check = lambda fresh=False, info=info: info
+            else:
+                update.check = lambda fresh=False: (_ for _ in ()).throw(OSError("boom"))   # a failed check: said
+            studio.check_update()
+            assert studio.update_checking and "Checking" in studio.said[-1]
+            studio.check_update()                                     # tapped again while it asks: once
+            event = studio.events.get(timeout=5)
+            assert event[0] == "software" and studio.events.empty()
+            text = studio.update_checked(event[1])
+            assert said in text and not studio.update_checking and studio.asked is None
+        studio = Studio()
+        update.check = lambda fresh=False: newest
+        studio.check_update()
+        assert studio.update_checked(studio.events.get(timeout=5)[1]) is None
+        title, lines, _, back = studio.asked
+        assert title == "Update?" and lines[0] == "v0.1 > v0.2" and back == "status"
+    finally:
+        update.check = was
 
 
 def test_scripts():

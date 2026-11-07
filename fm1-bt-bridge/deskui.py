@@ -45,7 +45,8 @@ DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "pla
 MORE = [("PLAYING", ("menu", "play")), ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")),
         ("PLUG-INS", ("plugins", None)), ("STUDIO SETTINGS", ("settings", None)), ("SHUT DOWN", ("off", None))]
 STUDIO_SETTINGS = [("WI-FI", ("wifi", None)), ("BLUETOOTH DEVICES", ("row", "btdevices")), ("THEME", ("theme", None)),
-                   ("TOUCH SETUP", ("calibrate", None)), ("ABOUT", ("about", None))]     # MORE > STUDIO SETTINGS: the box's own settings
+                   ("TOUCH SETUP", ("calibrate", None)), ("SOFTWARE UPDATE", ("update", None)),
+                   ("ABOUT", ("about", None))]     # MORE > STUDIO SETTINGS: the box's own settings
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
@@ -924,7 +925,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
                         width=2 if off else 0)
             value = (self.theme_label() if what[0] == "theme" else
                      ("ON" if self.app.wifi else "OFF") if what[0] == "wifi" else
-                     ("ON" if self.decks_proc and self.decks_proc.running() else "OFF") if what[0] == "decks" else "")
+                     ("ON" if self.decks_proc and self.decks_proc.running() else "OFF") if what[0] == "decks" else
+                     "..." if what[0] == "update" and getattr(self.app, "update_checking", False) else "")
             dy = -8 if value else 0
             self.centre(img, (box[0], box[1] + dy, box[2], box[3] + dy), label,
                         t.bg if hot else (255, 112, 92) if off else t.c[4])
@@ -990,6 +992,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             return
         if kind == "calibrate":
             self.calibrate()
+            return
+        if kind == "update":                       # STUDIO SETTINGS > SOFTWARE UPDATE (weblink.check_update)
+            a.check_update()
             return
         if kind == "off":                          # the Studio has no power key: shut down, held to confirm
             a.ask("Shut down?", ["The Studio switches off.", "Recordings are finished first."], a.shutdown,

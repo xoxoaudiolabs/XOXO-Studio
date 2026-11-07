@@ -2661,6 +2661,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             elif event and event[0] == "status" and event[1]:
                 self.last_activity = time.monotonic()     # connects and disconnects wake the screen
                 self.wake()
+            elif event and event[0] == "software":        # STUDIO SETTINGS > SOFTWARE UPDATE: what GitHub said
+                self.message, self.message_until = None, 0.0     # ("Checking..." off: the answer replaces it)
+                text = self.update_checked(event[1])
+                if text:
+                    self.say(text, 3)
             elif event and event[0] == "latency_follow":  # Follow Studio: the leader's Latency step
                 self.set_latency(event[1])
             elif event and event[0] == "mmc":             # the linked Pocket's REC or STOP (linked REC)
