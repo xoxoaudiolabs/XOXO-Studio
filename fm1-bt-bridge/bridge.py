@@ -513,6 +513,16 @@ def computer_node(objects):
     return None
 
 
+DAC_CARD = "BossDAC"       # the DAC HAT's ALSA card (the Allo Boss driver's name for it)
+
+
+def dac_quiet(card=DAC_CARD):
+    """the PCM5122's analog stage at -6 dB (its "Analogue" control: 0 is -6 dB, 1 is 0 dB): its hiss halved in
+    IEMs, heard on the DAC's headphone jack with nothing playing (2026-11-07, a Pi 4). MASTER (the sink's volume)
+    sets the level as before; the loudest it goes is 6 dB lower, on the RCA line out too"""
+    return run(["amixer", "-q", "-c", card, "sset", "Analogue", "0"], timeout=5)[0] == 0
+
+
 def dac_node(objects):
     """a DAC HAT on the GPIO header (I2S: the InnoMaker HiFi DAC HAT, a PCM5122, as the Allo Boss's driver names
     it), as {"id", "name", "label"}, or None. Its headphone amp and RCA line out carry the same sound"""
@@ -1360,6 +1370,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.dac = dac_node(objects)
             if plugged != (self.dac is None):
                 self.say("DAC: the master out" if self.dac else "DAC gone", 2)
+            if self.dac:
+                dac_quiet()
             self.post("status", True)
         usb = self.usb_out
         if usb and self.usb_set != (usb["id"], self.state["master"]):    # USB out: MASTER sets its level

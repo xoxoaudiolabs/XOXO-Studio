@@ -2052,6 +2052,17 @@ def test_receive_only_device_a_column_only():
 
 
 
+def test_dac_quiet(monkeypatch):
+    """the DAC's analog stage set to -6 dB (its hiss in IEMs halved), by amixer on its card"""
+    import bridge
+    calls = []
+    monkeypatch.setattr(bridge, "run", lambda cmd, **k: calls.append(cmd) or (0, ""))
+    assert bridge.dac_quiet()
+    assert calls == [["amixer", "-q", "-c", "BossDAC", "sset", "Analogue", "0"]]
+    monkeypatch.setattr(bridge, "run", lambda cmd, **k: (1, "amixer: Invalid card number"))
+    assert not bridge.dac_quiet()                                    # no DAC card: nothing else happens
+
+
 def test_dac_is_the_master_out():
     """a DAC HAT: the master out (its headphone and RCA outs), whatever else is there; the Pi's jack the phones (a
     copy, CUE, the click); a Bluetooth speaker a copy; MASTER its level, on MIXER, HOME and the web page"""
