@@ -38,6 +38,7 @@ def cached(tag):
 
 def test_versions():
     assert update.version("v0.2") == (0, 2) and update.version("0.1 BETA") == (0, 1)
+    assert update.version("v0.2.0") == (0, 2, 0) > update.version("v0.1") and update.newest_of(["v0.1", "v0.2.0"])[0] == "v0.2.0"
     assert update.version("1.0.3") == (1, 0, 3) and update.version("nothing") is None
     assert update.label((0, 2)) == "v0.2" and update.version("v0.9") < update.version("v0.10")   # numbers, not text
     assert update.newest_of(TAGS) == ("v0.10", (0, 10))            # v-tags only: not studio-v1.6, not v1.0-beta
