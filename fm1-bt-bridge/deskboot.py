@@ -4,7 +4,12 @@ the start-up's steps until HOME takes over, and XOXO//AUDIO//LABS.
 Two moments use it. Early in boot, before the app runs, a udev rule copies splash.raw onto the screen as soon as
 the touchscreen's framebuffer appears (install.sh; the kernel's console is kept off the screen), so the boot text
 never shows. Then the app draws the steps over it (main(): show() after each one). save() writes splash.raw from
-the theme in use, so the next boot's first picture matches."""
+the theme in use, so the next boot's first picture matches.
+
+Shutting down uses it too (off_frame). The touchscreen keeps its last picture once the Pi is off (its light runs
+from the 5 V pin), so the app leaves "SHUTTING DOWN" with a wait, and at the very end of the power-off, after
+everything else has stopped, systemd's shutdown hook (config/fm1-unplug, from install.sh) copies unplug.raw onto
+the screen: SAFE TO UNPLUG."""
 
 from pathlib import Path
 
@@ -16,6 +21,8 @@ W, H = 480, 320
 STEPS = ("STARTING THE SAMPLER", "STARTING MIDI", "STARTING AUDIO", "FINDING YOUR DEVICES")
 VERSION = "0.1 BETA"
 SPLASH = Path.home() / ".local" / "share" / "fm1-bridge" / "splash.raw"   # RGB565, what udev copies at boot
+UNPLUG = SPLASH.with_name("unplug.raw")             # RGB565, what the shutdown hook copies at the very end
+HOOK = Path("/usr/lib/systemd/system-shutdown/fm1-unplug")   # the shutdown hook (install.sh): root's to put there
 
 
 def theme(state):
@@ -54,6 +61,21 @@ def frame(t, step=None, version=VERSION):
     return img
 
 
+def off_frame(t, final=False, hook=None):
+    """the picture a shutdown leaves: final (the hook's, the Pi off): SAFE TO UNPLUG; else the wait for it, or
+    (no hook here yet: install.sh not run since it came) for the Pi's green light to go out"""
+    if hook is None:
+        hook = HOOK.exists()
+    img = Image.new("RGB", (W, H), t.bg)
+    mark(img, 96, ("XOXO", "//", "STUDIO"), 3, t.hi, t.c[2])
+    wait = "WAIT FOR SAFE TO UNPLUG" if hook else "UNPLUG WHEN THE GREEN LIGHT GOES OUT"
+    lines = (("SAFE TO UNPLUG", t.hi),) if final else (("SHUTTING DOWN...", t.hi), (wait, t.c[2]))
+    for i, (text, colour) in enumerate(lines):
+        st.text(img, ((W - st.text_size(text)[0]) // 2, 170 + 24 * i), text, colour)
+    mark(img, H - 30, ("XOXO", "//", "AUDIO", "//", "LABS"), 1, t.hi, t.c[2])
+    return img
+
+
 def show(display, t, step=None):
     display.show_rgb(frame(t, step))
 
@@ -65,13 +87,17 @@ def rgb565(img):
 
 
 def save(t, path=SPLASH):
-    """splash.raw for the next boot's first picture, in this theme (only written when it changes)"""
-    data = rgb565(frame(t))
-    try:
-        if path.exists() and path.read_bytes() == data:
-            return False
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        return True
-    except OSError:
-        return False
+    """splash.raw for the next boot's first picture, and unplug.raw for a shutdown's last, in this theme (each
+    only written when it changes); True when the boot's changed"""
+    wrote = False
+    for where, img in ((path, frame(t)), (path.with_name(UNPLUG.name), off_frame(t, final=True))):
+        data = rgb565(img)
+        try:
+            if where.exists() and where.read_bytes() == data:
+                continue
+            where.parent.mkdir(parents=True, exist_ok=True)
+            where.write_bytes(data)
+            wrote = wrote or where == path
+        except OSError:
+            pass
+    return wrote

@@ -1,0 +1,14 @@
+#!/bin/sh
+# The Studio's last picture: SAFE TO UNPLUG, copied onto the touchscreen at the very end of a power-off, after
+# everything else has stopped (systemd runs this from /usr/lib/systemd/system-shutdown/, $1: poweroff, halt,
+# reboot or kexec). The screen keeps it once the Pi is off. The app writes unplug.raw (deskboot.save); install.sh
+# puts its place below.
+RAW=@UNPLUG@
+case "$1" in poweroff|halt) ;; *) exit 0 ;; esac
+[ -f "$RAW" ] || exit 0
+for d in /sys/class/graphics/fb*; do
+    case "$(cat "$d/name" 2>/dev/null)" in
+        fb_ili9486|ili9486drmfb) cat "$RAW" > "/dev/${d##*/}" ;;
+    esac
+done
+exit 0

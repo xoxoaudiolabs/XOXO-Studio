@@ -1207,6 +1207,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.mutes, self.solos = set(), set()  # the mixer's MUTE and SOLO, by key (not saved: a restart clears them)
         self.box = {"build": "pocket", "board": "", "screen": None, "can": set()}   # main() fills it in
         self.desk = None                      # the desk box's touch screens (deskui.DeskUI), from main()
+        self.powering_off = False             # shutdown asked the system to power off: nothing more drawn
         self.pads = None                      # the Studio's sampler (pads.PadProcess), from main()
         self.xo4 = None                       # XO-4 (xo4.XO4Process), from main()
         self.metro_sent = None                # what the MIDI process was last told about the metronome
@@ -2327,8 +2328,19 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.loop.stop()
         self.mixer.stop()
         time.sleep(1.5)
-        self.display.power(False)
-        run(["sudo", "-n", "systemctl", "poweroff"], timeout=10)
+        if self.desk:      # the touchscreen keeps its last picture after power-off: the wait for SAFE TO UNPLUG
+            import deskboot   # (the shutdown hook draws that at the very end: config/fm1-unplug)
+            self.display.show_rgb(deskboot.off_frame(self.desk.theme))
+        else:
+            self.display.power(False)
+        self.powering_off = True              # nothing drawn over it now
+        code, out = run(["sudo", "-n", "systemctl", "poweroff"], timeout=10)
+        if code != 0:                         # refused (or failed): the Studio stays on, and says so
+            self.powering_off, self.busy = False, None
+            if not self.desk:
+                self.display.power(True)
+            self.say(("Can't shut down: " + (out.strip().splitlines() or ["?"])[-1])[:60], 8)
+            self.render(force=True)
 
     # ---- input
 
@@ -2434,6 +2446,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                 self.editor_view() if self.screen == "editor" else None)
 
     def render(self, force=False):
+        if self.powering_off:                 # shutting down: the last picture stays (shutdown)
+            return
         now = time.monotonic()
         if self.desk:                         # the Studio draws every screen itself (deskui, deskpages)
             self.desk.render(now, force)
