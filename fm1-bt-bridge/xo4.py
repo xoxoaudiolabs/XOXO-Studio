@@ -7,6 +7,9 @@
   SYNTH 2  another, with its own patch (both through XO-4's own punch-in FX, padfx.py: the pads have theirs)
   MIDI     notes out through the MIDI routes (their source "XO4"), sent by the MIDI process when they're due
 
+Played live: with MIDI IN on, the routes' SMP notes (a keyboard's) play the track picked on XO-4's screen: DRUMS
+the pads, SYNTH 1 or 2 that synth (Live: notes, the sustain pedal, the pitch and mod wheels), heard from the next block. Not recorded.
+
 Each track has its own length (1-64 steps of a 16th), so tracks of different lengths drift and meet again; a
 step: its notes, a velocity, a length in steps, and a nudge (in 64ths of a step, early or late of the grid).
 Live REC: with REC on and playing, pads played (a tap, a note into the pads) go onto the drums' nearest step, at
@@ -404,6 +407,61 @@ class Engine:
         return self.seq.record(self.song, pad, vel, t)
 
 
+class Live:
+    """notes played on a synth from the keys (MIDI IN, a synth picked): note on / off, the sustain pedal (CC 64:
+    notes let go while it's down ring on until it's up), the pitch wheel, the mod wheel (CC 1: a vibrato), all
+    notes off (CC 120, 123)"""
+
+    def __init__(self, synths):
+        self.synths = synths
+        self.held = set()                       # (synth, note): keys down
+        self.pedal = [False, False]             # each synth's sustain pedal
+        self.sustained = set()                  # (synth, note): let go with the pedal down
+
+    def play(self, track, messages):
+        if track not in (SYNTH1, SYNTH2):
+            return
+        k = track - SYNTH1
+        for m in messages:
+            if len(m) < 3:
+                continue
+            kind, a, b = m[0] & 0xF0, m[1] & 0x7F, m[2] & 0x7F
+            if kind == 0x90 and b:
+                self.sustained.discard((k, a))
+                self.held.add((k, a))
+                self.synths[k].note_on(a, b)
+            elif kind in (0x80, 0x90):
+                self.held.discard((k, a))
+                if self.pedal[k]:
+                    self.sustained.add((k, a))
+                else:
+                    self.synths[k].note_off(a)
+            elif kind == 0xB0 and a == 64:
+                self.pedal[k] = b >= 64
+                if not self.pedal[k]:
+                    for s, note in [x for x in self.sustained if x[0] == k]:
+                        self.sustained.discard((s, note))
+                        if (s, note) not in self.held:
+                            self.synths[s].note_off(note)
+            elif kind == 0xE0:                  # the pitch wheel: 14 bits, 8192 the middle
+                self.synths[k].set_bend(((b << 7 | a) - 8192) / 8192)
+            elif kind == 0xB0 and a == 1:       # the mod wheel: a vibrato
+                self.synths[k].set_wheel(b / 127)
+            elif kind == 0xB0 and a in (120, 123):
+                self.off(k)
+
+    def off(self, k=None):
+        """every live note (of synth k, or both) let go, the pedal up"""
+        for s, note in [x for x in self.held | self.sustained if k is None or x[0] == k]:
+            self.held.discard((s, note))
+            self.sustained.discard((s, note))
+            self.synths[s].note_off(note)
+        for s in ((0, 1) if k is None else (k,)):
+            self.pedal[s] = False
+            self.synths[s].set_bend(0)          # (the wheels back where they rest)
+            self.synths[s].set_wheel(0)
+
+
 OUT_LEVEL = 0.5                             # -6 dB: room in the mix (the pads play in this channel too, at
                                             # theirs; XO-4 at 80% and the decks at 100% clipped, 2026-11-03)
 
@@ -462,6 +520,7 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
         pass
     engine, step_shown, pattern_shown = Engine(rate), None, None
     auditions = []                              # (when it ends, synth, note): notes tapped on the screen
+    live = Live(engine.synths)                  # notes played from the keys (MIDI IN on a synth)
     ahead = 1024 / rate + 0.010                 # as the pads: a block written now is heard after the pipe and pw-cat
     base, frames = None, 0
     try:
@@ -487,6 +546,10 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
                     elif msg[0] == "played":              # ("played", pad, velocity, time): a pad played live
                         if engine.played(int(msg[1]), int(msg[2]), float(msg[3])):
                             app_conn.send(("song", engine.song))
+                    elif msg[0] == "live":              # ("live", track, [MIDI messages]): from the keys, now
+                        live.play(msg[1], msg[2])
+                    elif msg[0] == "live_off":          # the keys moved off the synths: their notes end
+                        live.off()
                     elif msg[0] == "audition":          # ("audition", track, [notes], velocity): heard now
                         if msg[1] in (SYNTH1, SYNTH2):
                             synth = engine.synths[msg[1] - SYNTH1]

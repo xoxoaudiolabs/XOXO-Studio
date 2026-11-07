@@ -21,7 +21,7 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 | DJ decks | played by touch, music from a USB drive; SYNC to XO-4 measured | a controller (the Hercules, MIDI LEARN) |
 | Two Studios linked | clock, start/stop, REC from the leader on both, the link's latency measured | sound heard across by ear; REC from the follower |
 | A Pocket linked | its link and its sound into the Studio | the speaker handover; the mix back to a Pocket; its FM-1s on their own streams |
-| MIDI | network MIDI; clock out a route to a USB device | a keyboard's notes through the routes; arp and chord |
+| MIDI | network MIDI; clock out a route to a USB device; a USB keyboard playing XO-4's synth (Pi 4) | a keyboard's notes out to other gear through the routes; arp and chord |
 | Recording | takes from the web page on two linked Studios | a take listened back on the Studio; the sample EDITOR |
 | Web app | on a phone and a PC: the tabs, Settings, the MIDI grid | adding music from a phone; USB out and the link settings from it |
 | Updates | from GitHub on a Pi 3 B+ (v0.2.0, then v0.2.1); without a password on a Pi 3 B | going back when a new version won't start (tried on a PC only) |
@@ -124,9 +124,10 @@ The Studio's own groovebox, still growing (`fm1-bt-bridge/xo4.py`, `xo4synth.py`
   - **DRUMS:**
     - **The pads:** played (they sound while held, playing or not) and picked for the steps: the steps put the picked pad on or off.
     - **The hit just put on:** its LEVEL, ratchet and the step's NUDGE − / +. QUANT: live REC on the grid, or where it was played.
-    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4, full screen, with KIT, RPT, FX, REC and EDIT above them. **MIDI IN:** off at first, so a synth or the Pocket on the MIDI routes plays only itself; on, the routes' SMP column plays the pads (and live REC records them). Clock and start/stop still reach the pads either way. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
+    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4, full screen, with KIT, RPT, FX, REC and EDIT above them. **MIDI IN:** off at first, so a synth or the Pocket on the MIDI routes plays only itself; on, the routes' SMP column plays the track picked: on DRUMS the pads (and live REC records them), on SYN 1 or SYN 2 that synth. Clock and start/stop still reach the pads either way. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
   - **SYN 1, SYN 2, MIDI:**
     - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
+    - **Played from a keyboard:** with MIDI IN on (on the DRUMS page, or in the web app), a keyboard on the MIDI routes plays the synth picked, with its velocity, a sustain pedal, the pitch wheel (two semitones each way) and the mod wheel (a vibrato, up to half a semitone); back on DRUMS it plays the pads again. What's played isn't recorded onto the steps. Tried on the Pi 4 with a USB keyboard on SYN 1 and SYN 2, its pitch and mod wheels and a sustain pedal too (the user's report).
     - **FX:** XO-4's own sixteen punch-in FX on the two synths' sound (hold one, or LATCH it), apart from the pads' FX.
     - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.
     - **Emptying a step:** tap the selected step again.
@@ -204,7 +205,7 @@ Tried (2026-11-07, the Pi 4 on Windows 11, no driver installed): Windows listed 
 - **Screens are drawn for 480×320 only.**
 - **USB out** works only with no DAC HAT (with one, the DAC is the master out).
 - **Two Studios linked:** the link measured about 12-22 ms one way, but a pad's sound adds about 40-50 ms before the Studio's mixer (worked out from the code, not measured).
-- **XO-4:** patterns can't be copied yet, and the synths can't be played live from a keyboard (XO-4 isn't a MIDI destination yet). Eight patterns (A-H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
+- **XO-4:** patterns can't be copied yet, and notes played on a synth from a keyboard aren't recorded onto its steps. Eight patterns (A-H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
 - **DJ decks:** one FX at a time a deck. Controllers other than the Hercules go through MIDI LEARN (not yet tried with hardware).
 - **Speaker battery** shows only for speakers that report it over Bluetooth.
 - **The web page** is plain HTTP on the local network with no password: anyone on the same network can use it (an update from it still needs a hold on the Studio's screen).
@@ -218,6 +219,7 @@ What has been tried on hardware, by Studio. "The user's report" is what was seen
 - installed from the v0.2.1 release downloaded on the Pi, `install.sh --dac --screen c`: the DAC (BossDAC), the screen and the USB interface came up after the reboot. The screen was upside down at `rotate=90`; at `rotate=270` it's right side up (the user's report), and `--screen c` now sets 270
 - headroom, the Studio's engines rendered with no sound beside the running app: the pads at 16 voices take 36% of one core (32 voices: 37%), two XO-4 tracks with full chords about 9%, both decks 13%. "One Studio flat out" (all four XO-4 tracks with chords, 16 pad voices, both decks) used about 23% of the whole Pi; the app's own audio first had dropouts at six of those at once. It stayed at 1800 MHz, 45.8 °C at most, and never throttled. RAM: about 600 MB free idle, 490 MB with one Studio flat out
 - the USB interface on Windows 11 (see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)): audio and MIDI both ways
+- a USB keyboard (an M-Audio Keystation 61es) playing XO-4's SYN 1 and SYN 2 live through MIDI IN, with its pitch and mod wheels and a sustain pedal (the user's report); at Latency SAFE the delay was noticeable, at LOWER it felt tighter (the user's report; not measured)
 - the DAC's −6 dB analog setting: the hiss in IEMs quieter (the user's report); the app sets it each start
 - the plug-ins' packages (FluidSynth 2.4.4, TimGM6mb, FluidR3) installed. The plug-ins themselves not yet switched on there
 
@@ -246,7 +248,7 @@ What has been tried on hardware, by Studio. "The user's report" is what was seen
 - the link's latency (`tools/snake_time.py`): about 12-22 ms one way, settled, also over a 100 ft cable; with Tester Tools, a pad on the follower: 172 ms round trip at SAFE, 87 at LOWEST
 - a Pocket: over Wi-Fi and a direct Ethernet cable it links, and its FM-1 plays out of the Studio's speaker as POCKET (the user's report); its MIDI with a stand-in Pocket on a PC
 
-**Not yet tried on hardware:** a Pi 4's own Bluetooth; the Pi 4 on the power/data splitter; the USB interface with a DAW, macOS or Linux; the Pi 4's extra voices by ear; sound out of the Pi's 3.5 mm jack; XO-4 by ear (its timing against the pads, its MIDI track to real gear); the mixer by ear and CUE; a Pocket's FM-1s on their own streams; linked REC with a Pocket; a take listened back on the Studio; XO-4's DRUMS by hand (finger drumming, ratchets, nudge, live REC, RPT); the EDITOR and the sample editor; a keyboard's notes through the MIDI routes, arp and chord; the DJ decks with a controller; Bluetooth headphones; Bluetooth MIDI on a dongle; sound heard across two linked Studios; an update putting the old version back.
+**Not yet tried on hardware:** a Pi 4's own Bluetooth; the Pi 4 on the power/data splitter; the USB interface with a DAW, macOS or Linux; the Pi 4's extra voices by ear; sound out of the Pi's 3.5 mm jack; XO-4 by ear (its timing against the pads, its MIDI track to real gear); the mixer by ear and CUE; a Pocket's FM-1s on their own streams; linked REC with a Pocket; a take listened back on the Studio; XO-4's DRUMS by hand (finger drumming, ratchets, nudge, live REC, RPT); the EDITOR and the sample editor; a keyboard's notes out to other gear through the MIDI routes, arp and chord; the DJ decks with a controller; Bluetooth headphones; Bluetooth MIDI on a dongle; sound heard across two linked Studios; an update putting the old version back.
 
 **On a PC:** the test suite passes, file by file (each `tests/test_*.py` with its own runner; `tests/test_desk.py` and `tests/test_netmidi.py` through pytest). The screen pictures under [What's inside](#whats-inside) are drawn by the Studio's own code on a PC.
 

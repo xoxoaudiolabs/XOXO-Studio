@@ -239,6 +239,39 @@ def test_out_level_leaves_room():
     assert list(out) == [16383, -16383, 32439, -32439]
 
 
+def test_live_keys_on_a_synth():
+    """notes from the keys on SYNTH 2: they sound while held; with the sustain pedal down they ring on after
+    they're let go, until it's up; all notes off and live_off end them; other tracks' notes are ignored"""
+    engine = xo4.Engine(RATE)
+    live = xo4.Live(engine.synths)
+    s2 = engine.synths[1]
+    live.play(xo4.SYNTH2, [[0x90, 60, 100], [0x90, 64, 90]])
+    assert s2.sounding() == [60, 64] and engine.synths[0].sounding() == []
+    live.play(xo4.SYNTH2, [[0x90, 64, 0]])                     # a note-on at velocity 0: let go
+    assert [v.note for v in s2.voices if v.stage not in ("release", "done")] == [60]
+    live.play(xo4.SYNTH2, [[0xB0, 64, 127], [0x80, 60, 0]])    # pedal down, then the key up: still held
+    assert [v.note for v in s2.voices if v.stage not in ("release", "done")] == [60]
+    live.play(xo4.SYNTH2, [[0xB0, 64, 0]])                     # pedal up: let go
+    assert [v.note for v in s2.voices if v.stage not in ("release", "done")] == []
+    live.play(xo4.SYNTH2, [[0x90, 67, 100], [0xB0, 123, 0]])
+    assert [v.note for v in s2.voices if v.stage not in ("release", "done")] == []
+    live.play(xo4.SYNTH1, [[0x90, 48, 100]])
+    live.play(xo4.DRUMS, [[0x90, 36, 100]])
+    assert engine.synths[0].sounding() == [48]
+    engine.render(512)                                              # (a block heard before it's let go)
+    live.play(xo4.SYNTH1, [[0xE0, 0x7F, 0x7F], [0xB0, 1, 127]])     # the pitch wheel up, the mod wheel up
+    assert engine.synths[0].bend > 0.999 and engine.synths[0].wheel == 1.0
+    live.play(xo4.SYNTH1, [[0xE0, 0x00, 0x40]])                     # the pitch wheel back to the middle
+    assert engine.synths[0].bend == 0.0
+    live.play(xo4.SYNTH1, [[0xE0, 0x00, 0x00]])                     # all the way down
+    assert engine.synths[0].bend == -1.0 and engine.synths[1].bend == 0.0
+    live.off()
+    assert engine.synths[0].bend == 0.0 and engine.synths[0].wheel == 0.0     # the wheels let go with the keys
+    assert [v for v in engine.synths[0].voices if v.stage not in ("release", "done")] == []
+    import numpy as np
+    assert np.abs(engine.render(512)[0]).max() > 0                  # the release still heard
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

@@ -13,7 +13,8 @@ the decks are: the step grid and the keys need the height the tab bar takes.
               ratchet (X1-X4), the step's NUDGE - / +; QUANT (live REC on the grid, or where it was played)
   below       DRUMS: KIT (the kits: load, save, new), RPT (note repeat), FX (the pads' punch-in FX), PADS (the 16 pads big,
               4x4 as on an MPC, full screen: KIT, RPT, FX, REC, EDIT above them), MIDI IN (off at first: notes from
-              the MIDI routes, a synth's or the Pocket's, don't play the pads; on, the routes' SMP column does), EDIT,
+              the MIDI routes, a synth's or the Pocket's, don't play the pads; on, the routes' SMP column plays the
+              track picked here: DRUMS the pads, SYNTH 1 or 2 that synth, a keyboard played live), EDIT,
               and the 16 pads:
               played (they sound while held, playing or not; with REC on, recorded) and picked for the steps; EDIT on,
               a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling, trimming). These
@@ -378,6 +379,8 @@ class DeskXO4:
 
     def xo4_pick_track(self, k):
         self.xo4_track, self.xo4_step, self.xo4_page, self.xo4_sound = k, None, 0, False
+        if hasattr(self.app, "set_xo4_keys"):   # MIDI IN plays the track picked (the MIDI track: as it was)
+            self.app.set_xo4_keys(k)
         self.xo4_rev += 1
 
     def xo4_play_pad(self, i, down):
@@ -492,7 +495,8 @@ class DeskXO4:
         self.xo4_save(song)
 
     def xo4_toggle_midi_in(self):
-        """MIDI IN: the routes' notes play XO-4's pads (on) or not (off: a synth on the routes plays only itself)"""
+        """MIDI IN: the routes' notes play the track picked (on: the pads, or SYNTH 1 / 2) or not (off: a synth on
+        the routes plays only itself)"""
         self.app.set_xo4_midi_in(not self.app.state.get("xo4_midi_in"))
         self.xo4_rev += 1
 

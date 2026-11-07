@@ -440,6 +440,36 @@ def test_xo4_midi_in_off():
     assert bridge.pads.sent == [b"\xf8", b"\x90\x3c\x40"]
 
 
+def test_xo4_keys_play_a_synth():
+    """MIDI IN on with a synth picked on XO-4: a keyboard's notes and pedal go to XO-4 for that synth, not the
+    pads (real-time still reaches them); back on DRUMS (or MIDI IN off) the synth's live notes are let go"""
+    class FakeXO4:
+        def __init__(self):
+            self.sent = []
+
+        def send(self, msg):
+            self.sent.append(msg)
+    bridge = make_bridge()
+    bridge.xo4 = FakeXO4()
+    bridge.set_xo4_keys(True, 2)
+    bridge.from_controllers(bytes([0x90, 0x3c, 0x40]))
+    bridge.deliver("USB>SMP", [bytes([0xf8]), bytes([0xb0, 0x40, 0x7f]), bytes([0xb0, 0x07, 0x64]),
+                               bytes([0x80, 0x3c, 0x00])])
+    assert bridge.pads.sent == [bytes([0xf8])]
+    assert bridge.xo4.sent == [("live", 2, [[0x90, 0x3c, 0x40]]),
+                               ("live", 2, [[0xb0, 0x40, 0x7f], [0x80, 0x3c, 0x00]])]   # CC 7: not the synth's
+    bridge.deliver("USB>SMP", [bytes([0xe0, 0x00, 0x60]), bytes([0xb0, 0x01, 0x40])])     # the pitch, mod wheels
+    assert bridge.xo4.sent[-1] == ("live", 2, [[0xe0, 0x00, 0x60], [0xb0, 0x01, 0x40]])
+    assert bridge.pads.sent == [bytes([0xf8])]
+    bridge.set_xo4_keys(True, 0)
+    assert bridge.xo4.sent[-1] == ("live_off",)
+    bridge.from_controllers(bytes([0x90, 0x24, 0x40]))
+    assert bridge.pads.sent == [bytes([0xf8]), bytes([0x90, 0x24, 0x40])]
+    bridge.set_xo4_keys(True, 1)
+    bridge.set_xo4_keys(False, 1)
+    assert bridge.xo4.sent[-1] == ("live_off",) and bridge.xo4_in is False
+
+
 def test_a_computer_on_usb_c():
     """a Pi 4 Studio as a computer's USB MIDI device (the f_midi gadget): one more device, named COMPUTER"""
     controllers = blemidi.UsbControllers(lambda message, name=None: None)

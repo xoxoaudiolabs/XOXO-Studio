@@ -144,6 +144,45 @@ def test_voices_set_at_start():
     assert xo4synth.Synth(RATE).max == before
 
 
+def pitch_of(synth, blocks=40):
+    """a held note's pitch (Hz) from its rising zero crossings, after the first blocks"""
+    out = np.concatenate([synth.render(512)[:, 0] for _ in range(blocks)])[512 * 4:]
+    rising = np.nonzero((out[:-1] <= 0) & (out[1:] > 0))[0]
+    return (len(rising) - 1) * RATE / (rising[-1] - rising[0])
+
+
+def test_pitch_wheel_bends():
+    """the pitch wheel all the way up: two semitones higher; all the way down: two lower; back: the note's own"""
+    synth = xo4synth.Synth(RATE, {"index": 0.0, "sustain": 1.0, "attack": 0.002})
+    synth.note_on(69, 100)                                          # A 440
+    assert abs(pitch_of(synth) - 440.0) < 1.0
+    synth.set_bend(1.0)
+    assert abs(pitch_of(synth) - 440.0 * 2 ** (2 / 12)) < 1.0
+    synth.set_bend(-1.0)
+    assert abs(pitch_of(synth) - 440.0 * 2 ** (-2 / 12)) < 1.0
+    synth.set_bend(0.0)
+    assert abs(pitch_of(synth) - 440.0) < 1.0
+    synth.set_bend(5.0)
+    assert synth.bend == 1.0
+
+
+def test_mod_wheel_vibrato():
+    """the mod wheel up: the pitch wobbles around the note (its average the note), at about VIBRATO_HZ"""
+    synth = xo4synth.Synth(RATE, {"index": 0.0, "sustain": 1.0, "attack": 0.002})
+    synth.note_on(69, 100)
+    synth.set_wheel(1.0)
+    out = np.concatenate([synth.render(512)[:, 0] for _ in range(200)])[RATE // 10:]
+    rising = np.nonzero((out[:-1] <= 0) & (out[1:] > 0))[0]
+    periods = np.diff(rising)
+    freqs = RATE / periods
+    assert abs(np.mean(freqs) - 440.0) < 2.0
+    low, high = 440.0 * 2 ** (-xo4synth.VIBRATO / 12), 440.0 * 2 ** (xo4synth.VIBRATO / 12)
+    assert freqs.min() < 440.0 * 2 ** (-0.35 / 12) and freqs.min() > low - 3
+    assert freqs.max() > 440.0 * 2 ** (0.35 / 12) and freqs.max() < high + 3
+    synth.set_wheel(0.0)
+    assert abs(pitch_of(synth) - 440.0) < 1.0
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

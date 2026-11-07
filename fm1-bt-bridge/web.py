@@ -517,7 +517,7 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
   <div class="line"><span class="k">Pattern</span><span class="v" id="x-state">–</span></div>
   <div class="patgrid" id="x-pats"></div>
   <div class="line"><span class="k">Transport</span><button class="primary" id="x-play" onclick="cmd({cmd:'xo4',action:'play'})">▶ Play</button></div>
-  <div class="line"><span><span class="k">MIDI in</span><br><span class="dim small">notes from the MIDI routes play its pads</span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
+  <div class="line"><span><span class="k">MIDI in</span><br><span class="dim small">notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth</span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
   <div class="line"><span class="k">SYN 1 sound</span><select id="x-s1" onchange="xo4Sound(1, this.value)"></select></div>
   <div class="line"><span class="k">SYN 2 sound</span><select id="x-s2" onchange="xo4Sound(2, this.value)"></select></div>
   <p class="dim small" style="margin:6px 0 0">While it plays, a pattern starts on the next bar. Steps are made on the Studio's screen.</p>

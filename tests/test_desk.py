@@ -1490,7 +1490,7 @@ def test_web_studio_status_and_commands():
     app.save_settings = lambda: None
     sent = []
     app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"], "net_hosts": {"FM-1 Companion Pocket": "169.254.66.49"},
-                              "set_xo4_in": lambda self, on: sent.append(on), "clock": None,
+                              "set_xo4_in": lambda self, on, track=0: sent.append(on), "clock": None,
                               "peer": None, "enabled": True, "error": None})()
     st = app.web_status()
     assert st["xo4"]["pattern"] == "A" and st["xo4"]["midi_in"] is False and st["xo4"]["sounds"][0] == "KEYS"

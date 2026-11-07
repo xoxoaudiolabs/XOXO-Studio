@@ -56,7 +56,7 @@ DEFAULTS = {
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
     "plugins": {},          # the plug-ins: {id: {"on": bool, "settings": {...}}} (plugins.py)
-    "xo4_midi_in": False,   # XO-4's MIDI IN: the routes' notes (the SMP column) play its pads; off, they don't
+    "xo4_midi_in": False,   # XO-4's MIDI IN: the routes' notes (the SMP column) play the track picked (the pads, a synth)
     "routes": None,         # the MIDI matrix: {"BT>SMP": {...}, ...}; None = every route as it starts
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
     "metronome": False,     # a click on the speaker in time with the clock
@@ -1758,12 +1758,22 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.set_song(song)
 
     def set_xo4_midi_in(self, on):
-        """XO-4's MIDI IN: the routes' notes play its pads (on) or not"""
+        """XO-4's MIDI IN: the routes' notes play the track picked on XO-4's screen (on) or not"""
         self.state["xo4_midi_in"] = bool(on)
         self.save_settings()
-        if self.midi and hasattr(self.midi, "set_xo4_in"):
-            self.midi.set_xo4_in(self.state["xo4_midi_in"])
+        self.send_xo4_in()
         self.song_rev = getattr(self, "song_rev", 0) + 1
+
+    def set_xo4_keys(self, track):
+        """the track picked on XO-4's screen: MIDI IN's notes play it (0 DRUMS: the pads; 1, 2: SYNTH 1, 2; the
+        MIDI track leaves it as it was). Not saved: XO-4 opens on DRUMS"""
+        if track in (0, 1, 2) and track != getattr(self, "xo4_keys", 0):
+            self.xo4_keys = track
+            self.send_xo4_in()
+
+    def send_xo4_in(self):
+        if self.midi and hasattr(self.midi, "set_xo4_in"):
+            self.midi.set_xo4_in(self.state["xo4_midi_in"], getattr(self, "xo4_keys", 0))
 
     def xo4_sound(self, track, name):
         """a synth track's (1, 2) starting sound (xo4.SOUNDS), as the SOUND page's buttons"""

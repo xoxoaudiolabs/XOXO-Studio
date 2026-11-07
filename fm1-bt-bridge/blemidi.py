@@ -888,6 +888,13 @@ def mmc_command(message):
     return None
 
 
+def live_message(m):
+    """a message a synth played from the keys takes: note on / off, the pitch wheel, the mod wheel (CC 1), the
+    sustain pedal (CC 64), all notes off (CC 120, 123)"""
+    return bool(m) and len(m) >= 3 and (m[0] & 0xE0 == 0x80 or m[0] & 0xF0 == 0xE0
+                                        or (m[0] & 0xF0 == 0xB0 and m[1] in (1, 64, 120, 123)))
+
+
 def device_key(name):
     return DEVICE + str(name).replace(">", "")[:32]
 
@@ -1163,6 +1170,8 @@ class MidiBridge:
         self.xo4, self.xo4_notes = xo4, xo4_notes   # XO-4 (the Studio): the grid to it, its MIDI track's notes from it
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
         self.xo4_in = False                 # XO-4's MIDI IN (its DRUMS row): off, the routes' notes don't play its pads
+        self.xo4_keys = 0                   # ... the track they play: 0 the pads (DRUMS), 1 / 2 XO-4's SYNTH 1 / 2
+        self.xo4_lock = threading.Lock()    # (the grid and the live notes share XO-4's pipe)
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         self.follow = None                    # Follow Studio: this Studio's link to the one it follows (Invitation)
         if net:
@@ -1255,6 +1264,11 @@ class MidiBridge:
         elif dest == "SMP":
             if not self.xo4_in:               # MIDI IN off: only real-time (clock, start, stop) reaches the pads
                 messages = [m for m in messages if m and m[0] >= 0xF8]
+            elif self.xo4_keys in (1, 2):     # a synth picked on XO-4: its notes (and the sustain pedal) to it
+                live = [list(m) for m in messages if live_message(m)]
+                if live:
+                    self.to_xo4(("live", self.xo4_keys, live))
+                messages = [m for m in messages if m and m[0] >= 0xF8]
             if self.pads is not None and messages:
                 with self.pads_lock:
                     try:
@@ -1264,6 +1278,21 @@ class MidiBridge:
         else:
             for m in messages:
                 self.to_ble(m)
+
+    def to_xo4(self, msg):
+        if self.xo4 is not None:
+            with self.xo4_lock:
+                try:
+                    self.xo4.send(msg)
+                except (BrokenPipeError, OSError):
+                    self.xo4 = None
+
+    def set_xo4_keys(self, on, track):
+        """MIDI IN on or off, and the track it plays; a synth let go of (MIDI IN off, another track): its live
+        notes end"""
+        if self.xo4_keys in (1, 2) and (not on or track != self.xo4_keys):
+            self.to_xo4(("live_off",))
+        self.xo4_in, self.xo4_keys = bool(on), track if track in (0, 1, 2) else 0
 
     def arp_tick(self):
         """a clock tick for the arpeggiators"""
@@ -1355,11 +1384,7 @@ class MidiBridge:
                             self.pads.send(("grid",) + tuple(grid))
                         except (BrokenPipeError, OSError):
                             self.pads = None
-                if self.xo4 is not None:
-                    try:
-                        self.xo4.send(("grid",) + tuple(grid))
-                    except (BrokenPipeError, OSError):
-                        self.xo4 = None
+                self.to_xo4(("grid",) + tuple(grid))
                 if self.pads is None and self.xo4 is None:
                     return
                 sent, sent_at = grid, now
@@ -1691,8 +1716,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.transport(command[1])
             elif command[0] == "routes":           # ("routes", {route key: settings})
                 bridge.set_routes(command[1])
-            elif command[0] == "xo4_in":           # ("xo4_in", on): XO-4's MIDI IN
-                bridge.xo4_in = bool(command[1])
+            elif command[0] == "xo4_in":           # ("xo4_in", on[, track]): XO-4's MIDI IN, the track it plays
+                bridge.set_xo4_keys(command[1], command[2] if len(command) > 2 else bridge.xo4_keys)
             elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
                 bridge.controllers.rules = [[str(p), str(n)] for p, n in command[1]]
             elif command[0] == "cards":            # ("cards", [[card, name]]): USB devices the plug-ins name by card
@@ -1908,8 +1933,9 @@ class MidiProcess:
     def set_routes(self, routes):
         self.conn.send(("routes", routes))
 
-    def set_xo4_in(self, on):
-        self.conn.send(("xo4_in", bool(on)))
+    def set_xo4_in(self, on, track=0):
+        """XO-4's MIDI IN: on, the routes' SMP notes play the pads (track 0) or SYNTH 1 / 2 (1, 2)"""
+        self.conn.send(("xo4_in", bool(on), int(track)))
 
     def set_names(self, rules):
         """the plug-ins' MIDI device names (plugins.Host.midi_names)"""

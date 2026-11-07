@@ -5,7 +5,8 @@ with numpy, as the pads are (pads.py): float32 stereo, -1..1.
 A voice: a sine carrier at the note's pitch, its phase moved by a sine modulator at RATIO times that pitch. How far
 it's moved is the modulation INDEX (radians), and the index has its own envelope: it starts at INDEX x the note's
 velocity and falls to MOD_SUSTAIN of that over MOD_DECAY seconds (exponentially), so a note starts bright and
-mellows: plucks, keys, bells (a ratio that isn't a whole number), basses (ratio 1 or 0.5). The voice's level is
+mellows: plucks, keys, bells (a ratio that isn't a whole number), basses (ratio 1 or 0.5). A keyboard's pitch
+wheel bends every note BEND semitones each way (a move glides over a block), and its mod wheel adds a vibrato. The voice's level is
 an ADSR: ATTACK, DECAY to SUSTAIN, RELEASE after the note is let go, all straight ramps, as the pads' are.
 
 Every sum runs over a whole block (no Python loop a sample): what a Pi 3 can afford for eight voices, two
@@ -27,6 +28,9 @@ LIMITS = {"ratio": (0.25, 16.0), "index": (0.0, 12.0), "mod_decay": (0.005, 10.0
           "attack": (0.0, 10.0), "decay": (0.005, 10.0), "sustain": (0.0, 1.0), "release": (0.005, 10.0),
           "level": (0.0, 1.0)}
 TWO_PI = 2.0 * math.pi
+BEND = 2.0                                  # semitones: the pitch wheel all the way up or down
+VIBRATO = 0.5                               # semitones: the mod wheel all the way up, a vibrato this deep ...
+VIBRATO_HZ = 5.5                            # ... this fast
 CUT = 0.005                                 # s: a voice let go for another (the same note again, a fifth note)
                                             # fades this fast; gone at once it was a click mid-wave (112 a minute
                                             # in "Pocket Groove", 2026-11-03)
@@ -71,6 +75,10 @@ class Synth:
         self.rate, self.max = rate, voices or VOICES
         self.patch = clean_patch(patch)
         self.voices = []
+        self.bend = 0.0                         # the pitch wheel: -1..1 (BEND semitones each way)
+        self.wheel = 0.0                        # the mod wheel: 0..1 (a vibrato up to VIBRATO semitones)
+        self.bent = 0.0                         # the semitones the last block ended on (a move glides a block)
+        self.lfo = 0.0                          # the vibrato's phase (radians)
 
     def set_patch(self, patch):
         self.patch = clean_patch(dict(self.patch, **(patch or {})))
@@ -157,6 +165,36 @@ class Synth:
         v.level = float(out[-1])
         return out
 
+    def set_bend(self, value):
+        """the pitch wheel, -1..1"""
+        self.bend = max(-1.0, min(1.0, float(value)))
+
+    def set_wheel(self, value):
+        """the mod wheel, 0..1"""
+        self.wheel = max(0.0, min(1.0, float(value)))
+
+    def pitch_walk(self, n, steps):
+        """the pitch wheel and the vibrato over the next n frames -> (each frame's phase steps from the block's
+        start, in frames at the note's own pitch; the block's total), or None when the pitch is the note's own"""
+        num = np()
+        target = self.bend * BEND
+        if not self.wheel and not target and not self.bent:
+            self.lfo = 0.0
+            return None
+        semis = self.bent + (target - self.bent) * (steps + 1) / n             # a move: a glide across the block
+        if self.wheel:
+            lfo_inc = TWO_PI * VIBRATO_HZ / self.rate
+            semis = semis + self.wheel * VIBRATO * num.sin(num.float32(self.lfo) + num.float32(lfo_inc) * steps)
+            self.lfo = (self.lfo + lfo_inc * n) % TWO_PI
+        else:
+            self.lfo = 0.0
+        self.bent = target
+        ratio = num.exp2(semis / 12.0).astype(num.float32)
+        walk = num.cumsum(ratio, dtype=num.float32)
+        total = float(walk[-1])
+        walk -= ratio                           # (frame i: the steps before it)
+        return walk, total
+
     def curves(self, n):
         """(0..n-1, the index's decay over n frames from 1) as float32, made once for each block size and decay"""
         num, key = np(), (n, self.patch["mod_decay"])
@@ -173,21 +211,23 @@ class Synth:
         mono = num.zeros(n, dtype=num.float32)
         steps, fall = self.curves(n)
         sus = p["mod_sustain"]
+        bent = self.pitch_walk(n, steps) if self.voices else None
+        walk, total = bent if bent else (steps, n)
         for v in self.voices:
             start = v.age
             env = self.envelope(v, n)
             depth = p["index"] * v.velocity * (1.0 - sus) * math.exp(-start / (p["mod_decay"] * self.rate))
             index = depth * fall + p["index"] * v.velocity * sus          # the index's envelope, this block
             mod_inc = v.inc * p["ratio"]
-            phase = num.sin(num.float32(v.mod) + num.float32(mod_inc) * steps)
+            phase = num.sin(num.float32(v.mod) + num.float32(mod_inc) * walk)
             phase *= index
-            phase += num.float32(v.carrier) + num.float32(v.inc) * steps
+            phase += num.float32(v.carrier) + num.float32(v.inc) * walk
             out = num.sin(phase)
             out *= env
             out *= num.float32(p["level"] * v.velocity)
             mono += out
-            v.carrier = (v.carrier + v.inc * n) % TWO_PI
-            v.mod = (v.mod + mod_inc * n) % TWO_PI
+            v.carrier = (v.carrier + v.inc * total) % TWO_PI
+            v.mod = (v.mod + mod_inc * total) % TWO_PI
         self.voices = [v for v in self.voices if v.stage != "done"]
         return num.repeat(mono[:, None], 2, axis=1)
 
