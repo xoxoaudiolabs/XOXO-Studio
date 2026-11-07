@@ -85,8 +85,10 @@ def test_check():
 def test_run():
     """run(): installs with fm1-update, restarts, waits for the app; put back when it doesn't come up"""
     calls = []
-    was = (update.installed, update.helper, update.restart, update.came_back, update.busy, update.newest)
+    was = (update.installed, update.helper, update.restart, update.came_back, update.busy, update.newest,
+           update.root_ready)
     try:
+        update.root_ready = lambda: True
         update.installed = lambda: (0, 1)
         update.busy = lambda *a, **k: None
         update.helper = lambda *args: (calls.append(("helper",) + args), (True, "Installed v0.2"))[1]
@@ -108,18 +110,75 @@ def test_run():
         calls.clear()
         assert update.run() == 0 and calls == [] and "up to date" in update.read_state()["message"]
     finally:
-        (update.installed, update.helper, update.restart, update.came_back, update.busy, update.newest) = was
+        (update.installed, update.helper, update.restart, update.came_back, update.busy, update.newest,
+         update.root_ready) = was
+
+
+def test_without_root():
+    """no usable fm1-update (missing, FM-1 Companion's, or not allowed without a password): the release's
+    install-app.sh run as the user, nothing asked; the code before put back when the new one doesn't start; a
+    release without install-app.sh refused with nothing touched"""
+    import io
+    import tarfile
+    calls = []
+    was = (update.installed, update.restart, update.came_back, update.busy, update.newest, update.fetch,
+           update.APP, update.WORK, update.HELPER, update.helper)
+    app, work = TMP / "app", TMP / "work"
+
+    def release(dest, with_app=True):
+        script = (b'mkdir -p "$APP_DIR"; echo new > "$APP_DIR/bridge.py"; echo "Installed"\n')
+        with tarfile.open(dest, "w:gz") as tar:
+            if with_app:
+                info = tarfile.TarInfo("XOXO-Studio-0.2/fm1-bt-bridge/install-app.sh")
+                info.size = len(script)
+                tar.addfile(info, io.BytesIO(script))
+            info = tarfile.TarInfo("XOXO-Studio-0.2/README.md")
+            tar.addfile(info, io.BytesIO(b""))
+    try:
+        companion = TMP / "fm1-update-companion"
+        companion.write_text("#!/bin/bash\nREPO=xoxoaudiolabs/FM-1-Companion\n")
+        update.HELPER = str(companion)
+        assert not update.root_ready()                                  # FM-1 Companion's: not ours
+        assert update.check()["helper"] and not update.check()["root"]  # an update can run all the same
+        update.APP, update.WORK = app, work
+        app.mkdir()
+        (app / "bridge.py").write_text("old\n")
+        os.environ["APP_DIR"] = str(app)
+        update.helper = lambda *args: calls.append(("helper",) + args)
+        update.installed = lambda: (0, 1)
+        update.busy = lambda *a, **k: None
+        update.restart = lambda: calls.append(("restart",))
+        update.newest = lambda fresh=False: (("v0.2", (0, 2)), None)
+        update.fetch = lambda tag, dest: release(dest)
+        update.came_back = lambda within=0: True
+        if shutil.which("bash"):
+            assert update.run() == 0 and calls == [("restart",)]          # no fm1-update asked for
+            assert (app / "bridge.py").read_text() == "new\n" and update.read_state()["state"] == "done"
+            assert (work / "previous" / "bridge.py").read_text() == "old\n"
+            calls.clear()
+            update.came_back = lambda within=0: False                      # doesn't start: the old code back
+            assert update.run() == 1 and calls == [("restart",), ("restart",)]
+            assert (app / "bridge.py").read_text() == "new\n"             # (the previous run's, kept as previous)
+            assert "put back" in update.read_state()["message"]
+        calls.clear()
+        (app / "bridge.py").write_text("old\n")
+        update.fetch = lambda tag, dest: release(dest, with_app=False)    # a release from before install-app.sh
+        assert update.run() == 1 and calls == [] and (app / "bridge.py").read_text() == "old\n"
+        assert "over SSH" in update.read_state()["message"]
+    finally:
+        os.environ.pop("APP_DIR", None)
+        (update.installed, update.restart, update.came_back, update.busy, update.newest, update.fetch,
+         update.APP, update.WORK, update.HELPER, update.helper) = was
 
 
 def test_page_and_screen():
     """Library > Software: the page shows the versions; Update is a command the Studio takes, asking for its
-    hold-press (weblink.web_update); refused while there's no helper or nothing newer"""
+    hold-press (weblink.web_update), with or without fm1-update; refused while there's nothing newer"""
     import weblink
     server = web.ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    was = update.installed, update.HELPER, update.start
-    helper = TMP / "fm1-update"
+    was = update.installed, update.start
 
     class Studio(weblink.WebLink):
         def __init__(self):
@@ -139,12 +198,9 @@ def test_page_and_screen():
         page = urllib.request.urlopen(base + "/", timeout=10).read()
         assert b"<h2>Software</h2>" in page and b"function updateNow(" in page
         info = json.load(urllib.request.urlopen(base + "/api/update", timeout=10))
-        assert info["installed"] == "v0.1" and info["newer"] and not info["helper"]
+        assert info["installed"] == "v0.1" and info["newer"] and info["helper"] and not info["root"]
         assert web.check_command({"cmd": "update"}) == {"cmd": "update"}
-        assert "install.sh" in web_update(studio) and studio.asked is None   # no fm1-update yet: once by hand
-        helper.write_text("#!/bin/sh\n")
-        update.HELPER = str(helper)
-        assert web_update(studio) is None
+        assert web_update(studio) is None                              # no fm1-update: asked all the same
         title, lines, action, back = studio.asked
         assert title == "Update?" and lines[0] == "v0.1 > v0.2" and back == "status"
         started = []
@@ -154,7 +210,7 @@ def test_page_and_screen():
         cached("v0.1")
         assert "up to date" in web_update(studio)
     finally:
-        update.installed, update.HELPER, update.start = was
+        update.installed, update.start = was
         server.shutdown()
 
 
@@ -214,15 +270,18 @@ def test_scripts():
     assert "grep -q FM1_UPDATE_USER" in helper and 'cp -a "$APP" "$WORK/previous"' in helper
     install = (ROOT / "fm1-bt-bridge/install.sh").read_text()
     for needed in ('if [ -z "${FM1_UPDATE_USER:-}" ]; then', "/usr/local/sbin/fm1-update\\n", 'chown -R "$USER:"',
-                   '"$DIR/update.py"', 'if [ -z "$UPDATE" ] || ! all_installed; then',
+                   '. "$DIR/install-app.sh"', 'if [ -z "$UPDATE" ] || ! all_installed; then',
                    "as_user systemctl --user daemon-reload",
                    'if [ -z "$UPDATE" ]; then                  # the boot settings'):
         assert needed in install, needed
+    app = (ROOT / "fm1-bt-bridge/install-app.sh").read_text()        # the no-root part: the code, never sudo
+    assert '"$DIR/update.py"' in app and '"$DIR/install-app.sh"' not in app and "sudo" not in app
+    assert install.index('. "$DIR/install-app.sh"') < install.index('if [ -n "$UPDATE" ]; then                  # (written as root')
     boot = install.index("# the boot settings, to the DAC's below")
     assert boot < install.index('SCREEN="dtoverlay=xoxo35') < install.index("fi                                          # (the boot settings)")
     bash = shutil.which("bash")
     if bash:
-        for script in ("fm1-bt-bridge/install.sh", "fm1-bt-bridge/config/fm1-update"):
+        for script in ("fm1-bt-bridge/install.sh", "fm1-bt-bridge/install-app.sh", "fm1-bt-bridge/config/fm1-update"):
             assert subprocess.run([bash, "-n", str(ROOT / script)]).returncode == 0, script
 
 

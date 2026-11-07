@@ -12,7 +12,9 @@ The web page asks for it (Library > Software); the Studio asks for a hold-press 
 start() runs `update.py run` as a systemd unit of its own (it outlives the app's restart). That asks
 /usr/local/sbin/fm1-update (root, no password: install.sh's sudoers) to install the release with its own
 install.sh, restarts the app and waits for it: if it doesn't come back, the code from before is put back
-(fm1-update --back) and started again.
+(fm1-update --back) and started again. Where fm1-update can't run (missing, FM-1 Companion's, or not allowed
+without a password: root_ready), nothing is asked either: the release's install-app.sh installs the Studio's own
+files as its user (user_install), and the system's files wait for install.sh or fm1-update.
 
   python3 update.py check     the installed version and the newest, as JSON
   python3 update.py run       update now (what the Studio starts)
@@ -40,6 +42,8 @@ HELPER = "/usr/local/sbin/fm1-update"
 STATE = library.RUNTIME / "fm1-update.json"     # where an update is up to, for the web page (and the screen)
 CACHE = library.RUNTIME / "fm1-update-newest.json"
 LOG = Path.home() / ".cache" / "fm1-bridge" / "update.log"
+APP = Path.home() / ".local" / "share" / "fm1-bridge"     # the Studio's code
+WORK = Path.home() / ".cache" / "fm1-bridge" / "update"   # user_install's download and the code before it
 CACHE_FOR = 600                 # s: GitHub answers 60 unauthenticated asks an hour
 BACK_WITHIN = 120               # s: the app's status has to come back within this after the restart
 
@@ -132,15 +136,27 @@ def busy(status=None):
     return None
 
 
+def root_ready():
+    """fm1-update can run here: the Studio's own (not FM-1 Companion's, left by a box that was one) and allowed
+    without a password (install.sh's sudoers). Else an update installs the Studio's own files without root."""
+    try:
+        if f"REPO={REPO}\n" not in Path(HELPER).read_text():
+            return False
+        return subprocess.run(["sudo", "-n", "-l", HELPER], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def check(fresh=False):
     """for the web page: the installed version, the newest, whether there's one to install, and how the last
-    update went"""
+    update went. helper: an update can run here (always, now: without fm1-update it installs the Studio's own
+    files); root: with fm1-update (the system's files too)"""
     have = installed()
     found, error = newest(fresh)
     newer = bool(found and have and found[1] > have)
     return {"build": "studio", "installed": label(have), "newest": found and label(found[1]),
             "tag": found and found[0], "newer": newer, "error": error, "notes": NOTES,
-            "helper": Path(HELPER).exists(), "last": read_state(), "busy": busy()}
+            "helper": True, "root": root_ready(), "last": read_state(), "busy": busy()}
 
 
 def start():
@@ -149,8 +165,6 @@ def start():
     why = busy()
     if why:
         return why
-    if not Path(HELPER).exists():
-        return "this Studio needs one update over SSH first (install.sh) for the web app to update it"
     command = [sys.executable, str(Path(__file__).resolve()), "run"]
     if shutil.which("systemd-run"):
         command = ["systemd-run", "--user", "--collect", "--quiet", f"--unit=fm1-update-{int(time.time())}",
@@ -174,6 +188,67 @@ def helper(*args):
         log("  " + line)
     lines = [line for line in (done.stdout + done.stderr).splitlines() if line.strip()]
     return done.returncode == 0, lines[-1] if lines else ""
+
+
+def fetch(tag, dest):
+    """a release's source, as GitHub packs it, to dest"""
+    request = urllib.request.Request(f"https://codeload.github.com/{REPO}/tar.gz/refs/tags/{tag}",
+                                     headers={"User-Agent": "xoxo-studio"})
+    with urllib.request.urlopen(request, timeout=120) as reply, open(dest, "wb") as out:
+        shutil.copyfileobj(reply, out)
+
+
+def user_install(tag):
+    """without root (no fm1-update here): the release's install-app.sh, as the Studio's user: its code, fonts,
+    icons, kits, PipeWire and WirePlumber settings, user services. The code before kept to go back to (user_back).
+    -> (ok, its last line)"""
+    import tarfile
+    shutil.rmtree(WORK / "new", ignore_errors=True)
+    (WORK / "new").mkdir(parents=True)
+    try:
+        fetch(tag, WORK / "release.tar.gz")
+        with tarfile.open(WORK / "release.tar.gz") as tar:
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(WORK / "new", filter="data")
+            else:
+                tar.extractall(WORK / "new")
+    except (OSError, tarfile.TarError) as e:
+        return False, f"couldn't download {tag} ({str(e)[:60]})"
+    finally:
+        (WORK / "release.tar.gz").unlink(missing_ok=True)
+    found = sorted((WORK / "new").glob("*/fm1-bt-bridge/install-app.sh"))
+    if not found:
+        return False, f"{tag} can't be installed without root here: install it over SSH (README)"
+    shutil.rmtree(WORK / "previous", ignore_errors=True)
+    if APP.is_dir():
+        shutil.copytree(APP, WORK / "previous", symlinks=True)
+    try:
+        done = subprocess.run(["bash", str(found[0])], capture_output=True, text=True, timeout=1800,
+                              stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, str(e)
+    finally:
+        shutil.rmtree(WORK / "new", ignore_errors=True)
+    try:                                      # (its user services may have changed)
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for line in (done.stdout + done.stderr).splitlines():
+        log("  " + line)
+    lines = [line for line in (done.stdout + done.stderr).splitlines() if line.strip()]
+    return done.returncode == 0, lines[-1] if lines else f"Installed {tag}"
+
+
+def user_back():
+    """user_install's code from before put back -> (ok, a line)"""
+    if not (WORK / "previous").is_dir():
+        return False, "Nothing to go back to."
+    try:
+        shutil.rmtree(APP, ignore_errors=True)
+        shutil.copytree(WORK / "previous", APP, symlinks=True)
+    except OSError as e:
+        return False, str(e)
+    return True, "Put back the code from before the update."
 
 
 def came_back(within=BACK_WITHIN):
@@ -210,7 +285,8 @@ def run():
         return 1
     write_state("installing", f"Installing {label(found[1])} (a few minutes)",
                 started=time.time(), to=label(found[1]), before=label(have))
-    ok, last = helper()
+    root = root_ready()                       # (else the Studio's own files, no password: user_install)
+    ok, last = helper() if root else user_install(found[0])
     if not ok:
         write_state("error", f"The install didn't finish: {last[:100].rstrip('.')}. Nothing was restarted.",
                     before=label(have))
@@ -220,7 +296,7 @@ def run():
     if came_back():
         write_state("done", f"Updated to {label(found[1])}", to=label(found[1]), before=label(have))
         return 0
-    back, last = helper("--back")
+    back, last = helper("--back") if root else user_back()
     restart()
     write_state("error", f"{label(found[1])} didn't start, so {label(have)} was put back"
                 + ("" if back else f" (that failed too: {last[:60]}; install over SSH)"), before=label(have))
