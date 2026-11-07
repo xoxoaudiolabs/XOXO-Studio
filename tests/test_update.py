@@ -278,6 +278,19 @@ def test_scripts():
     app = (ROOT / "fm1-bt-bridge/install-app.sh").read_text()        # the no-root part: the code, never sudo
     assert '"$DIR/update.py"' in app and '"$DIR/install-app.sh"' not in app and "sudo" not in app
     assert install.index('. "$DIR/install-app.sh"') < install.index('if [ -n "$UPDATE" ]; then                  # (written as root')
+    # an update leaves the boot settings, Bluetooth and the network alone (raspi-config rewrote config.txt and
+    # rfkill ran in the first Studio's update to v0.2.0, 2026-11-07)
+    lines = install.splitlines()
+    for touchy in ("raspi-config", "rfkill", "systemctl enable --now bluetooth", "nmcli general reload",
+                   "/etc/NetworkManager/"):
+        for n, line in enumerate(lines):
+            if touchy in line.split("#")[0]:
+                opened = [k for k in range(n) if 'if [ -z "$UPDATE" ]' in lines[k]]
+                assert opened, (touchy, n)
+                k = opened[-1]
+                closed = [m for m in range(k + 1, n) if lines[m].strip().startswith("fi")
+                          and len(lines[m]) - len(lines[m].lstrip()) == len(lines[k]) - len(lines[k].lstrip())]
+                assert not closed, (touchy, n)
     boot = install.index("# the boot settings, to the DAC's below")
     assert boot < install.index('SCREEN="dtoverlay=xoxo35') < install.index("fi                                          # (the boot settings)")
     bash = shutil.which("bash")

@@ -76,10 +76,12 @@ if [ -z "$UPDATE" ] || ! all_installed; then  # (an update: only when it brings 
 fi
 
 echo "== Enabling SPI for the screen, Bluetooth, and permissions"
-sudo raspi-config nonint do_spi 0
-sudo raspi-config nonint do_i2c 0       # a PiSugar 3 battery, if there's one, answers on I2C
-sudo rfkill unblock bluetooth || true
-sudo systemctl enable --now bluetooth
+if [ -z "$UPDATE" ]; then   # boot settings (raspi-config writes config.txt) and Bluetooth's: never in an update
+    sudo raspi-config nonint do_spi 0
+    sudo raspi-config nonint do_i2c 0   # a PiSugar 3 battery, if there's one, answers on I2C
+    sudo rfkill unblock bluetooth || true
+    sudo systemctl enable --now bluetooth
+fi
 sudo usermod -aG bluetooth,gpio,spi,i2c,audio "$USER"
 CMDLINE=/boot/firmware/cmdline.txt
 [ -f "$CMDLINE" ] || CMDLINE=/boot/cmdline.txt
@@ -233,9 +235,11 @@ if [ "$BUILD" = desk ]; then              # network MIDI for a DAW (Kraken): lis
     echo "== Announcing the Studio's network MIDI (XOXO Studio, XOXO Studio MCU)"
     sudo install -D -m 644 "$DIR/config/fm1-midi.service" /etc/avahi/services/fm1-midi.service
     sudo install -D -m 644 "$DIR/config/fm1-midi-mcu.service" /etc/avahi/services/fm1-midi-mcu.service
-    echo "== Ethernet straight to another box (the Pocket): a link-local address when there's no router"
-    sudo install -D -m 644 "$DIR/config/50-fm1-ethernet-link.conf" /etc/NetworkManager/conf.d/50-fm1-ethernet-link.conf
-    sudo nmcli general reload conf || true
+    if [ -z "$UPDATE" ]; then             # the network's settings: never in an update
+        echo "== Ethernet straight to another box (the Pocket): a link-local address when there's no router"
+        sudo install -D -m 644 "$DIR/config/50-fm1-ethernet-link.conf" /etc/NetworkManager/conf.d/50-fm1-ethernet-link.conf
+        sudo nmcli general reload conf || true
+    fi
 fi
 
 echo "== Letting the bridge shut down, switch Wi-Fi and update from the web app without a password"

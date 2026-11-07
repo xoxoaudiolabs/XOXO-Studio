@@ -19,7 +19,7 @@ import xoxostyle as st
 
 W, H = 480, 320
 STEPS = ("STARTING THE SAMPLER", "STARTING MIDI", "STARTING AUDIO", "FINDING YOUR DEVICES")
-VERSION = "0.2.0 BETA"
+VERSION = "0.2.1 BETA"
 SPLASH = Path.home() / ".local" / "share" / "fm1-bridge" / "splash.raw"   # RGB565, what udev copies at boot
 UNPLUG = SPLASH.with_name("unplug.raw")             # RGB565, what the shutdown hook copies at the very end
 HOOK = Path("/usr/lib/systemd/system-shutdown/fm1-unplug")   # the shutdown hook (install.sh): root's to put there
