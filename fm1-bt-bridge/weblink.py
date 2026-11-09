@@ -54,6 +54,9 @@ class WebLink:
             "link_rec": self.state.get("link_rec", True),   # linked REC: REC on either box records on both (MMC)   # what a linked Pocket sends: "mix", "fm1s", "midi"
             "link_return": 46010 if self.state.get("link_return", True) else None,   # the Studio's master back to
                                               # a linked Pocket on this UDP port (bridge.RETURN_PORT), or None: off
+            "xowave_return": 46016 if self.xowave_return_address() else None,   # the mix, less XO-WAVE, going to
+                                              # a linked XO-Wave on this UDP port (bridge.XOWAVE_RETURN_PORT), or None
+            "xowave_return_on": self.state.get("xowave_return", True),   # Mix to XO-Wave (the setting)
             "latency": self.state.get("latency", "SAFE"),   # bridge.LATENCY's step
             "follow_studio": bool(self.state.get("follow_studio")),   # Follow Studio: on
             "usb_out": self.state.get("usb_out", "auto"),   # USB out (no DAC HAT): "auto", "off" or a node name;
@@ -243,8 +246,8 @@ class WebLink:
             if key == "link_audio" and value in ("mix", "fm1s", "midi"):
                 self.set_link_audio(value)
                 return None
-            if key == "link_return" and isinstance(value, bool):
-                self.state["link_return"] = value
+            if key in ("link_return", "xowave_return") and isinstance(value, bool):
+                self.state[key] = value
                 self.save_settings()
                 self.scan_now = True
                 return None

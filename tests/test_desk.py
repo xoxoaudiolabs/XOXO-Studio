@@ -2347,6 +2347,87 @@ def test_an_xowave_linked():
     app.state["link_rec"] = True
     assert app.link_rec_peer() == "XOXO Studio"
 
+def test_the_mix_back_to_an_xowave():
+    """a linked XO-Wave gets the Studio's mix less XO-WAVE (a mix-minus) on 46016, Mix to XO-Wave on (at first),
+    in the 46012 return's format, its own sender beside a Pocket's and a following Studio's; off, or unlinked: none"""
+    import bridge
+    import web
+    assert bridge.XOWAVE_RETURN_PORT == 46016 and bridge.XOWAVE_RETURN_SINK == "xowave-return"
+    assert bridge.DEFAULTS["xowave_return"] is True
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    assert app.xowave_return_address() is None                        # no XO-Wave
+    app.midi = type("M", (), {"net": ["XO-Wave on xowave", "FM-1 Companion Pocket", "XOXO Studio Link on studio2"],
+                              "net_hosts": {"XO-Wave on xowave": "169.254.7.7",
+                                            "FM-1 Companion Pocket": "169.254.10.20",
+                                            "XOXO Studio Link on studio2": "169.254.40.59"},
+                              "clock": None, "peer": None, "enabled": True, "error": None})()
+    assert app.xowave_return_address() == "169.254.7.7"               # its own, not the Pocket's or the Studio's
+    assert app.return_address() == "169.254.10.20" and app.studio_return_address() == "169.254.40.59"
+    assert len({id(app.link_return), id(app.studio_return), id(app.xowave_return)}) == 3   # three senders at once
+    assert len({app.link_return.path, app.studio_return.path, app.xowave_return.path}) == 3
+    assert app.xowave_mixer.prefix not in (app.studio_mixer.prefix, app.pc_mixer.prefix, app.mixer.prefix)
+    channels = [("u-felucca", {"name": "alsa_input.usb-Felucca", "label": "FELUCCA"}),
+                ("u-xowave", {"name": "xowave-in", "label": "XO-WAVE"}),
+                ("u-studio", {"name": "xoxo-studio-in", "label": "STUDIO"}),
+                ("u-xo4", {"name": "fm1-xo4", "label": "XO-4"})]
+    app.app_here = {"decks"}
+    assert [k for k, _, _ in app.xowave_feeds(channels)] == ["u-felucca", "u-studio", "u-xo4", "decks"]
+    assert [k for k, _, _ in app.studio_feeds(channels)] == ["u-felucca", "u-xowave", "u-xo4", "decks"]
+    conf = bridge.return_config("169.254.7.7", bridge.XOWAVE_RETURN_PORT, bridge.XOWAVE_RETURN_SINK,
+                                "XO-Wave (mix back)", "xowave-return")
+    for want in ('destination.ip = "169.254.7.7"', "destination.port = 46016", 'audio.format = "S16BE"',
+                 "audio.rate = 48000", "audio.channels = 2", "net.mtu = 1280", 'node.name = "xowave-return"',
+                 "core.name = xowave-return"):
+        assert want in conf
+    st = app.web_status()
+    assert st["xowave_return"] == 46016 and st["xowave_return_on"] is True
+    midi, app.midi = app.midi, None                                   # (MORE > AUDIO with no MIDI process)
+    app.settings_menu = "audio"
+    rows = {r[0]: r[2] for r in app.settings_rows()}
+    assert rows["xowave_return"] == "on"
+    app.setting = [r[0] for r in app.settings_rows()].index("xowave_return")
+    app.change_setting()
+    assert {r[0]: r[2] for r in app.settings_rows()}["xowave_return"] == "off"
+    app.midi = midi
+    assert app.state["xowave_return"] is False and app.xowave_return_address() is None
+    st = app.web_status()
+    assert st["xowave_return"] is None and st["xowave_return_on"] is False
+    assert app.return_address() == "169.254.10.20"                   # (the Pocket's own setting: untouched)
+    assert web.check_command({"cmd": "set", "key": "xowave_return", "value": True})
+    app.web_command({"cmd": "set", "key": "xowave_return", "value": True})
+    assert app.state["xowave_return"] is True and app.xowave_return_address() == "169.254.7.7"
+    app.midi.net, app.midi.net_hosts = ["FM-1 Companion Pocket"], {"FM-1 Companion Pocket": "169.254.10.20"}
+    assert app.xowave_return_address() is None and app.web_status()["xowave_return"] is None   # unlinked: none
+
+    started = []
+
+    class Proc:
+        def __init__(self, args, **kw):
+            started.append(args)
+            self.alive = True
+
+        def poll(self):
+            return None if self.alive else 0
+
+        def terminate(self):
+            self.alive = False
+
+        def wait(self, timeout=None):
+            return 0
+
+    popen, bridge.subprocess.Popen = bridge.subprocess.Popen, Proc
+    try:
+        app.xowave_return.ensure("169.254.7.7")
+        assert app.xowave_return.running() and len(started) == 1
+        assert "destination.port = 46016" in app.xowave_return.path.read_text()
+        proc = app.xowave_return.proc
+        app.xowave_return.ensure(None)                                  # unlinked, or off: torn down
+        assert not proc.alive and not app.xowave_return.running()
+    finally:
+        bridge.subprocess.Popen = popen
+
+
 def test_mix_back_to_the_pocket():
     """a linked Pocket gets the Studio's master back over the link (RTP to RETURN_PORT, its own format, 1-2 ms
     packets), Mix to Pocket on; off, or no Pocket: nothing sent"""

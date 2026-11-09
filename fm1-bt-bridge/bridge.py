@@ -75,6 +75,8 @@ DEFAULTS = {
     "latency": "SAFE",      # LATENCY's step: PipeWire's block and the Pocket link's buffer, lowered together
     "link_return": True,    # the Studio's master to a linked Pocket over the link (RETURN_PORT), its headphones:
                             # linked, sound and MIDI go both ways (the user, 2026-11-01)
+    "xowave_return": True,  # Mix to XO-Wave: the Studio's mix, less XO-WAVE, to a linked XO-Wave (XOWAVE_RETURN_PORT),
+                            # its headphones hearing the whole Studio (the user, 2026-11-09)
     "follow_studio": False, # Follow Studio: this Studio linked to another as a Pocket is (its clock, its mixer: this
                             # one's mix a channel there, its REC starting both); the other leads
     "usb_out": "auto",      # with no DAC HAT, the master copied to a USB audio interface's output: "auto" (the
@@ -703,7 +705,10 @@ LEADER_MIX = "xoxo-leader-mix"          # the follower's: that mix as it arrives
                                         # its link sends from (else it would go round: echo, then feedback)
 
 XOWAVE_PORT = 46030                     # XO-Wave (the wavetable synth) linked to this Studio: its sound, RTP in
-XOWAVE_IN = "xowave-in"                 # the same format (pipewire-fm1-pocket-in): XO-WAVE. Nothing goes back
+XOWAVE_IN = "xowave-in"                 # the same format (pipewire-fm1-pocket-in): XO-WAVE
+XOWAVE_RETURN_PORT = 46016              # the Studio's mix back to a linked XO-Wave (Mix to XO-Wave), less XO-WAVE
+XOWAVE_RETURN_SINK = "xowave-return"    # (a mix-minus: it never hears itself late), as the 46012 return: L16 S16BE
+                                        # 48 kHz stereo, MTU 1280 packets (return_config)
 
 
 def receiver_config(port, ms, node, description, core):
@@ -1220,6 +1225,9 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.studio_return = LinkReturn(STUDIO_RETURN_PORT, STUDIO_RETURN_SINK, "Studio following (mix back)",
                                         "xoxo-studio-return")   # the leader's: its mix-minus to a follower
         self.studio_mixer = Mixer(state["audio_rate"], "xoxo-ret-")   # every source but STUDIO, into it
+        self.xowave_return = LinkReturn(XOWAVE_RETURN_PORT, XOWAVE_RETURN_SINK, "XO-Wave (mix back)",
+                                        "xowave-return")   # a linked XO-Wave: the mix-minus to it (its own)
+        self.xowave_mixer = Mixer(state["audio_rate"], "xowave-ret-")  # every source but XO-WAVE, into it
         self.leader_in = LinkReturn(STUDIO_RETURN_PORT, LEADER_MIX, "", "xoxo-leader-mix")   # the follower's:
         self.leader_loop = Loopback(state["audio_rate"])   # the leader's mix arriving, and to its outputs
         self.app_set = {}                     # mixer key -> (node id, level) last set on a Studio app's sound
@@ -1430,7 +1438,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         channels = self.mix_channels()
         loops = [self.loop, self.jack_loop, self.card_loop, self.bt_loop, self.return_loop, self.follow_loop,
                  self.usb_loop, self.leader_loop]
-        mixers = (self.mixer, self.cue_mixer, self.pc_mixer, self.studio_mixer)
+        mixers = (self.mixer, self.cue_mixer, self.pc_mixer, self.studio_mixer, self.xowave_mixer)
         for loop in loops + [loop for m in mixers for loop in m.channels.values()]:
             if loop.follow(objects):           # an end came back anew: made again below, in this scan
                 self.post("status", False)
@@ -1461,6 +1469,13 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                                 for o in objects)
         self.studio_mixer.ensure(sent and STUDIO_RETURN_SINK, self.studio_feeds(channels) if sent else [])
         self.studio_mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels}
+                                     | {key: self.heard(key) for key in self.app_here})
+        wave = self.xowave_return_address()      # a linked XO-Wave: the mix, less XO-WAVE, to it (beside the above)
+        self.xowave_return.ensure(wave)
+        sent = wave and any(((o.get("info") or {}).get("props") or {}).get("node.name") == XOWAVE_RETURN_SINK
+                            for o in objects)
+        self.xowave_mixer.ensure(sent and XOWAVE_RETURN_SINK, self.xowave_feeds(channels) if sent else [])
+        self.xowave_mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels}
                                      | {key: self.heard(key) for key in self.app_here})
         card = self.card and self.card["name"]
         self.card_loop.ensure(card and main and main != card and "monitor:" + main, card, "fm1-card")
@@ -1541,9 +1556,24 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def studio_feeds(self, channels):
         """the leader's mix back to a following Studio: every source at its mixer level, and the apps (the decks),
         but not STUDIO, the follower's own sound (as the computer's: computer_feeds)"""
+        return self.mix_minus(channels, FOLLOW_IN)
+
+    def xowave_feeds(self, channels):
+        """the mix back to a linked XO-Wave: as studio_feeds, but not XO-WAVE, its own sound"""
+        return self.mix_minus(channels, XOWAVE_IN)
+
+    def mix_minus(self, channels, own):
+        """every source at its mixer level, and the apps (the decks), but the node own: a box's own sound"""
         feeds = [(key, node["name"], self.input_pair(key, node)) for key, node in channels
-                 if node.get("name") != FOLLOW_IN and self.mix_level(key) > 0]
+                 if node.get("name") != own and self.mix_level(key) > 0]
         return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
+
+    def xowave_return_address(self):
+        """Mix to XO-Wave on: a linked XO-Wave's address (its network MIDI session's), for its mix-minus, else None"""
+        if not self.state.get("xowave_return", True):
+            return None
+        hosts = getattr(self.midi, "net_hosts", None) or {}
+        return next((str(ip) for name, ip in sorted(hosts.items()) if netmidi.is_xowave(name)), None)
 
     def leader_out(self, main):
         """the follower: where the leader's mix plays, an output its link doesn't send from (not main, whose
@@ -2172,6 +2202,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     + [("rate", "Audio rate", rate), ("latency", "Latency", f"{latency[0].lower()} {latency[2]}ms"),
                        ("link_audio", "Pocket sends", LINK_AUDIO.get(self.state.get("link_audio"), "MIX")),
                        ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True))),
+                       ("xowave_return", "Mix to XO-Wave", onoff(self.state.get("xowave_return", True))),
                        ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True))),
                        ("follow_studio", "Follow Studio", self.follow_text())]
                     + usb_out + mix + parts + decks)
@@ -2228,6 +2259,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.card_loop.reopen(rate)
             self.cue_mixer.reopen(rate)
             self.pc_mixer.reopen(rate)
+            self.xowave_mixer.reopen(rate)
             self.say(f"{rate / 1000:g} kHz: audio restarts")
         elif key == "latency":
             names = [step[0] for step in LATENCY]
@@ -2251,6 +2283,11 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.save_settings()
             self.scan_now = True
             self.say("Mix to Pocket: on (over the link)" if self.state["link_return"] else "Mix to Pocket: off", 2)
+        elif key == "xowave_return":
+            self.state["xowave_return"] = not self.state.get("xowave_return", True)
+            self.save_settings()
+            self.scan_now = True
+            self.say("Mix to XO-Wave: on (less XO-WAVE)" if self.state["xowave_return"] else "Mix to XO-Wave: off", 2)
         elif key == "clock":
             self.set_clock("box" if self.state["clock_mode"] == "follow" else "follow")
         elif key == "tempo" or key.startswith("mix_"):
@@ -2867,6 +2904,8 @@ def main():
         app.card_loop.stop()
         app.cue_mixer.stop()
         app.pc_mixer.stop()
+        app.xowave_mixer.stop()
+        app.xowave_return.stop()
 
 
 if __name__ == "__main__":
