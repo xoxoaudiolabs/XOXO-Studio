@@ -490,6 +490,7 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
   <div class="line" id="s-srcline" hidden><span class="k">Sources</span><span class="v" id="s-src-in">–</span></div>
   <div class="line"><span class="k">Speaker</span><div class="row" style="justify-content:flex-end"><span class="v" id="s-spk">–</span><button id="s-spkbtn" onclick="speaker()" hidden>Connect</button></div></div>
   <div class="line" id="s-pocketline" hidden><span class="k">Pocket</span><span class="v" id="s-pocket">–</span></div>
+  <div class="line" id="s-xowaveline" hidden><span class="k">XO-Wave</span><span class="v" id="s-xowave">–</span></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2" aria-label="Volume"></div>
   <div class="line" id="s-masterline" style="display:block" hidden><div class="row" style="justify-content:space-between"><span class="k">Master out (DAC)</span><b id="s-masterv">–</b></div>
@@ -750,6 +751,8 @@ function renderStatus() {
   $("s-srcline").hidden = !st.sources; $("s-src-in").textContent = (st.sources || []).join(", ") || "none";
   $("s-pocketline").hidden = !st.pocket;
   if (st.pocket) $("s-pocket").textContent = "linked over " + (st.pocket === "cable" ? "the cable" : "the network") + " · POCKET in the mixer";
+  $("s-xowaveline").hidden = !st.xowave;
+  if (st.xowave) $("s-xowave").textContent = "linked over " + (st.xowave === "cable" ? "the cable" : "the network") + " · XO-WAVE in the mixer";
   const bat = !st.offline && st.battery;
   $("s-batline").hidden = !bat;
   if (bat) $("s-bat").textContent = `${bat.percent}%` + (bat.plugged ? " · charging" : "");

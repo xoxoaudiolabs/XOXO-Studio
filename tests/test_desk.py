@@ -2129,12 +2129,13 @@ def test_latency_steps_and_the_link_buffer():
         assert not bridge.set_link_buffer(44, conf) and not calls          # as shipped: nothing to do
         assert bridge.set_link_buffer(10, conf)
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 10") == 5 and "msec = 44" not in text
+        assert text.count("sess.latency.msec = 10") == 6 and "msec = 44" not in text
         assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
         assert bridge.set_link_buffer(18, conf, studio_ms=14)               # a following Studio's: its own
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 18") == 4 and text.count("sess.latency.msec = 14") == 1
+        assert text.count("sess.latency.msec = 18") == 4 and text.count("sess.latency.msec = 14") == 2
         assert "source.port = 46020\n      sess.latency.msec = 14" in text
+        assert "source.port = 46030\n      sess.latency.msec = 14" in text   # an XO-Wave's: a Studio's packets
         for name, quantum, _ in bridge.LATENCY:                # a following Studio's: a packet (or a block) and one
             packet = 1280 / 4 / 48                                    # of this Studio's blocks, no resets
             assert bridge.STUDIO_BUFFER[name] > max(packet, quantum / 48) + quantum / 48
@@ -2283,6 +2284,45 @@ def test_a_studio_following():
                                 "xoxo-studio-link")
     assert 'destination.port = 46020' in text and 'node.name = "xoxo-studio-link"' in text
     assert "core.name = xoxo-studio-link" in text and 'node.name = "fm1-pocket-return"' in bridge.return_config("x")
+
+
+def test_an_xowave_linked():
+    """XO-Wave (the wavetable synth) links as a Pocket does: its sound (UDP 46030) is a channel, XO-WAVE, only
+    while its network MIDI session is there; its receiver buffered as a Studio's (the same packets); the web
+    page says it's linked, not a Pocket; Linked REC isn't sent to it"""
+    import bridge
+    node = {"id": 9, "type": "PipeWire:Interface:Node",
+            "info": {"props": {"media.class": "Audio/Source", "node.name": "xowave-in"}}}
+    _, sources = bridge.pick_nodes([node])
+    assert [(n["label"], n["internal"]) for n in sources] == [("XO-WAVE", True)]
+    nodes = [{"name": "fm1-pocket", "label": "POCKET"}, {"name": "xoxo-studio-in", "label": "STUDIO"},
+             {"name": "xowave-in", "label": "XO-WAVE"}, {"name": "alsa_input.usb-x", "label": "EP-136"}]
+    label = lambda peers, mode="mix": [n["label"] for n in bridge.pocket_sources(nodes, peers, mode)]   # noqa
+    assert label([]) == ["EP-136"]
+    assert label(["XO-Wave on xowave"]) == ["XO-WAVE", "EP-136"]
+    assert label(["FM-1 Companion Pocket"]) == ["POCKET", "EP-136"]
+    assert label(["FM-1 Companion Pocket", "XO-Wave on xowave", "XOXO Studio Link on studio2"]) == [
+        "POCKET", "STUDIO", "XO-WAVE", "EP-136"]
+    assert label(["FM-1 Companion Pocket", "XO-Wave on xowave"], "midi") == ["XO-WAVE", "EP-136"]   # (Pocket's)
+    conf = (Path(bridge.__file__).parent / "config" / "pipewire-fm1-pocket-in.conf").read_text()
+    assert "source.port = 46030" in conf and 'node.name = "xowave-in"' in conf
+    assert bridge.XOWAVE_PORT == 46030 and bridge.XOWAVE_IN == "xowave-in"
+    text = bridge.pocket_in_conf(conf, 18, studio_ms=bridge.STUDIO_BUFFER["LOWER"])
+    assert f"source.port = 46030\n      sess.latency.msec = {bridge.STUDIO_BUFFER['LOWER']}" in text
+    assert "source.port = 46000\n      sess.latency.msec = 18" in text
+    assert "source.port = 46030\n      sess.latency.msec = 18" in bridge.pocket_in_conf(conf, 18)
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.midi = type("M", (), {"net": ["XO-Wave on xowave"], "net_hosts": {"XO-Wave on xowave": "169.254.7.7"},
+                              "clock": None, "peer": None, "enabled": True, "error": None})()
+    assert app.xowave_link() == "cable" and app.pocket_link() is None and app.pocket_linked()
+    assert app.link_rec_peer() is None
+    app.midi.net = ["XO-Wave on xowave", "FM-1 Companion Pocket"]
+    app.midi.net_hosts = {"XO-Wave on xowave": "10.0.0.7", "FM-1 Companion Pocket": "169.254.66.49"}
+    assert app.xowave_link() == "network" and app.pocket_link() == "cable"
+    assert app.link_rec_peer() == "FM-1 Companion Pocket"
+    st = app.web_status()
+    assert st["xowave"] == "network" and st["pocket"] == "cable"
 
     class Midi:
         net, follows, follow_address = [], None, None

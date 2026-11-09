@@ -401,6 +401,8 @@ def pick_nodes(objects, host=None):
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == FOLLOW_IN:        # a Studio following this one (port 46020)
             sources.append(dict(node, label="STUDIO", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name == XOWAVE_IN:        # an XO-Wave linked to this one (port 46030)
+            sources.append(dict(node, label="XO-WAVE", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name in POCKET_FM1S:      # one of the Pocket's FM-1s on its own stream
             label = (host and host.source_label(props, counts)) or "POCKET FM-1 " + name[-1].upper()  # (46002-6)
             sources.append(dict(node, label=label, internal=True, ports=ports.get(o.get("id"), [])))
@@ -416,9 +418,12 @@ def pocket_sources(sources, peers, mode="fm1s"):
     """the sources, with a Pocket's only while it's linked (peers: the network MIDI session's names). A Pocket that
     sends its FM-1s apart has a session for each one plugged in ("FM-1 Companion Pocket FM-1 A"): then only those
     FM-1s' channels, and not POCKET (the rest of its mix); else POCKET alone. mode: the Studio's Pocket sends
-    (LINK_AUDIO): "mix" POCKET alone (the Pocket's whole mix), "midi" none of them"""
+    (LINK_AUDIO): "mix" POCKET alone (the Pocket's whole mix), "midi" none of them. STUDIO only while a Studio
+    following this one is linked, XO-WAVE while an XO-Wave is (Pocket sends isn't theirs)"""
     if not any(netmidi.FOLLOW_NAME in str(p) for p in peers):    # STUDIO: only while a Studio follows this one
         sources = [n for n in sources if n["name"] != FOLLOW_IN]
+    if not any(netmidi.is_xowave(p) for p in peers):            # XO-WAVE: only while an XO-Wave is linked
+        sources = [n for n in sources if n["name"] != XOWAVE_IN]
     if not any("Pocket" in str(p) for p in peers) or mode == "midi":
         return [n for n in sources if not n["name"].startswith("fm1-pocket")]
     split = {m.group(1).lower() for m in (POCKET_FM1.search(str(p)) for p in peers) if m} if mode == "fm1s" else set()
@@ -636,7 +641,8 @@ LATENCY = [("SAFE", 1024, 44), ("LOW", 512, 24), ("LOWER", 256, 18), ("LOWEST", 
 # A Studio following this one (Follow Studio, UDP 46020) works in the same step's block, so no Pocket floor: its
 # buffer holds one of its packets (6.458 ms of sound: the MTU's worth, PipeWire's rtp-sink) or one of its blocks,
 # whichever is longer, and one of this Studio's, in whole packets (PipeWire's receiver asks for a multiple of
-# them): SAFE 7, LOW 4, LOWER and LOWEST 2 (6.5 + 5.3, 6.5 + 2.7)
+# them): SAFE 7, LOW 4, LOWER and LOWEST 2 (6.5 + 5.3, 6.5 + 2.7). An XO-Wave (UDP 46030) sends the same
+# packets (PipeWire's rtp-sink, net.mtu 1280), so its buffer is a Studio's too
 PACKET_MS = 1240 / 4 / 48               # (the MTU 1280 less the headers, 4 bytes a frame, at 48 kHz)
 STUDIO_BUFFER = {name: round(n * PACKET_MS, 2) for name, n in (("SAFE", 7), ("LOW", 4), ("LOWER", 2), ("LOWEST", 2))}
 POCKET_FLOOR = 512                      # the Pocket's smallest block (FM-1 Companion, a Zero W)
@@ -659,9 +665,10 @@ def set_rate(rate):
 
 def pocket_in_conf(text, ms, studio_ms=None):
     """the link's receiver configuration (pipewire-fm1-pocket-in.conf) with a buffer of ms on a Pocket's ports,
-    and of studio_ms (ms when None) on a following Studio's, FOLLOW_PORT"""
+    and of studio_ms (ms when None) on a following Studio's, FOLLOW_PORT, and an XO-Wave's, XOWAVE_PORT (the same
+    packets)"""
     def one(m):
-        mine = studio_ms if studio_ms is not None and int(m.group(2)) == FOLLOW_PORT else ms
+        mine = studio_ms if studio_ms is not None and int(m.group(2)) in (FOLLOW_PORT, XOWAVE_PORT) else ms
         return f"{m.group(1)}{mine}"
     return re.sub(r"(source\.port = (\d+)\s*\n\s*sess\.latency\.msec = )[0-9.]+", one, text)
 
@@ -694,6 +701,9 @@ STUDIO_RETURN_PORT = 46012              # the leader's mix back to a Studio foll
 STUDIO_RETURN_SINK = "xoxo-studio-return"   # (STUDIO: a mix-minus, so it never hears itself late or round again)
 LEADER_MIX = "xoxo-leader-mix"          # the follower's: that mix as it arrives, played on its outputs but the one
                                         # its link sends from (else it would go round: echo, then feedback)
+
+XOWAVE_PORT = 46030                     # XO-Wave (the wavetable synth) linked to this Studio: its sound, RTP in
+XOWAVE_IN = "xowave-in"                 # the same format (pipewire-fm1-pocket-in): XO-WAVE. Nothing goes back
 
 
 def receiver_config(port, ms, node, description, core):
@@ -1657,8 +1667,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.post("status", True)
 
     def pocket_linked(self):
-        """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket"), or a
-        Studio following this one"""
+        """a Pocket on the network MIDI session (the link: it starts the session, "FM-1 Companion Pocket"), a
+        Studio following this one or an XO-Wave"""
         return any(netmidi.linked_box(n) for n in (getattr(self.midi, "net", None) or []))
 
     def follow_address(self):
@@ -1789,10 +1799,20 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         return next((n for n, s in xo4.SOUNDS.items() if all(patch.get(k) == v for k, v in s.items())), "CUSTOM")
 
     def pocket_link(self):
-        """a linked Pocket: "cable" (a link-local address) or "network"; None: no Pocket"""
+        """a linked Pocket (or a Studio following this one): "cable" (a link-local address) or "network"; None: no
+        Pocket. An XO-Wave isn't one (xowave_link)"""
+        return self.box_link(lambda name: netmidi.linked_box(name) and not netmidi.is_xowave(name))
+
+    def xowave_link(self):
+        """a linked XO-Wave: "cable" or "network"; None: no XO-Wave"""
+        return self.box_link(netmidi.is_xowave)
+
+    def box_link(self, which):
+        """a linked box, its network MIDI session's name one which(name) takes: "cable" (a link-local address) or
+        "network"; None: none"""
         hosts = getattr(self.midi, "net_hosts", None) or {}
-        here = [ip for name, ip in hosts.items() if netmidi.linked_box(name)]
-        if not here and not self.pocket_linked():
+        here = [ip for name, ip in hosts.items() if which(name)]
+        if not here and not any(which(n) for n in (getattr(self.midi, "net", None) or [])):
             return None
         return "cable" if any(str(ip).startswith("169.254.") for ip in here) else "network"
 

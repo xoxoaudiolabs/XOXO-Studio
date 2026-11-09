@@ -1515,7 +1515,8 @@ class MidiBridge:
             return
         import netmidi
         self.follow = netmidi.Invitation(netmidi.follow_name(), self.from_leader, find=netmidi.other_studios())
-        self.net.refuse = lambda name: bool(self.follow) and "Pocket" in name   # (it links to the leader)
+        # a Pocket or an XO-Wave turned away while this one follows (it links to the leader)
+        self.net.refuse = lambda name: bool(self.follow) and ("Pocket" in name or netmidi.is_xowave(name))
         if not self.follow.start():
             self.follow = None
 

@@ -677,14 +677,16 @@ class MeterScreens:
                 self.link_rec_send("record")
 
     def link_rec_peer(self):
-        """the linked box REC goes to and comes from: a linked Pocket's network MIDI session, Linked REC on"""
+        """the linked box REC goes to and comes from: a linked Pocket's network MIDI session, Linked REC on (not an
+        XO-Wave's: Linked REC is a Pocket's and a Studio's)"""
         if not self.state.get("link_rec", True):
             return None
         midi = getattr(self, "midi", None)
         if self.state.get("follow_studio") and getattr(midi, "follows", None):
             return midi.follows               # (Follow Studio: the one it follows)
         return next((p for p in (getattr(midi, "net", None) or [])
-                     if netmidi.linked_box(p) and not re.search(r"FM-1 [A-C]$", str(p))), None)
+                     if netmidi.linked_box(p) and not netmidi.is_xowave(p) and not re.search(r"FM-1 [A-C]$", str(p))),
+                    None)
 
     def link_rec_send(self, command):
         peer = self.link_rec_peer()

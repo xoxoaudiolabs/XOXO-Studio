@@ -47,6 +47,7 @@ class WebLink:
             "live": self.live(),
             "mixer": self.web_mixer(),
             "pocket": self.pocket_link(),
+            "xowave": self.xowave_link(),     # a linked XO-Wave: "cable", "network" or None (XO-WAVE in the mixer)
             "pocket_fm1s": self.state.get("link_audio", "mix") == "fm1s",   # a linked Pocket's FM-1s' sound each on
                                               # its own stream (Pocket sends: FM-1s)
             "link_audio": self.state.get("link_audio", "mix"),
