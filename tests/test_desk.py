@@ -1527,6 +1527,34 @@ def test_studio_as_a_computers_usb_interface():
                node(32, "fm1-xo4", "Audio/Source"),
                node(33, "alsa_output.platform-bcm2835_audio.stereo-fallback", "Audio/Sink",
                     **{"alsa.card_name": "bcm2835 Headphones"})]
+    was = bridge.device.usb_host
+    bridge.device.usb_host = lambda: False        # the gadget's cards with nothing on the USB-C port: no computer
+    try:
+        assert bridge.computer_node(objects) is None
+        assert [n["label"] for n in bridge.pick_nodes(objects)[1]] == ["XO-4"]
+    finally:
+        bridge.device.usb_host = was
+    bridge.device.usb_host = lambda: True
+    try:
+        computer_plugged_in(bridge, objects)
+    finally:
+        bridge.device.usb_host = was
+
+
+def test_usb_host_is_the_port_configured(tmp_path):
+    """a computer on the USB-C port: its controller "configured"; "not attached" (nothing plugged in, or a
+    charger), no controller, or no /sys/class/udc (not a Pi 4): none"""
+    import device
+    (tmp_path / "fe980000.usb").mkdir()
+    (tmp_path / "fe980000.usb" / "state").write_text("not attached")
+    assert device.usb_host(tmp_path) is False
+    (tmp_path / "fe980000.usb" / "state").write_text("configured")
+    assert device.usb_host(tmp_path) is True
+    assert device.usb_host(tmp_path / "none") is False
+
+
+def computer_plugged_in(bridge, objects):
+    """(test_studio_as_a_computers_usb_interface) a computer on the USB-C port"""
     assert bridge.computer_node(objects) == {"id": 30, "name": "alsa_output.platform-fe980000.usb.stereo-fallback",
                                              "label": "COMPUTER"}
     assert bridge.jack_node(objects)["id"] == 33                      # the computer isn't taken for the jack
@@ -1539,6 +1567,7 @@ def test_studio_as_a_computers_usb_interface():
     app.computer = bridge.computer_node(objects)
     assert [k for k, _, _ in app.computer_feeds(channels)] == ["u-xo4", "decks"]
     assert bridge.computer_node(objects[2:]) is None
+
 
 def test_home_shows_every_source():
     """HOME: every source with its mixer level (a bar and a %), the decks while they run, then the speaker; two

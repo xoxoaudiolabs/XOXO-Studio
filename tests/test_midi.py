@@ -471,10 +471,19 @@ def test_xo4_keys_play_a_synth():
 
 
 def test_a_computer_on_usb_c():
-    """a Pi 4 Studio as a computer's USB MIDI device (the f_midi gadget): one more device, named COMPUTER"""
+    """a Pi 4 Studio as a computer's USB MIDI device (the f_midi gadget): one more device, named COMPUTER, while a
+    computer is plugged in; the gadget's port with nothing on the USB-C port: no device"""
     controllers = blemidi.UsbControllers(lambda message, name=None: None)
-    assert controllers.wanted(["f_midi:f_midi 24:0", "EP-136:EP-136 MIDI 1 16:0"]) == {
-        "COMPUTER": "f_midi:f_midi 24:0", "EP-136": "EP-136:EP-136 MIDI 1 16:0"}
+    was = blemidi.device.usb_host
+    try:
+        blemidi.device.usb_host = lambda: True
+        assert controllers.wanted(["f_midi:f_midi 24:0", "EP-136:EP-136 MIDI 1 16:0"]) == {
+            "COMPUTER": "f_midi:f_midi 24:0", "EP-136": "EP-136:EP-136 MIDI 1 16:0"}
+        blemidi.device.usb_host = lambda: False
+        assert controllers.wanted(["f_midi:f_midi 24:0", "EP-136:EP-136 MIDI 1 16:0"]) == {
+            "EP-136": "EP-136:EP-136 MIDI 1 16:0"}
+    finally:
+        blemidi.device.usb_host = was
 
 
 def test_plugin_names_midi_devices():

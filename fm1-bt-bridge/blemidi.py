@@ -16,6 +16,7 @@ import re
 import threading
 import time
 
+import device                           # a computer on the USB-C port (usb_host)
 import iocard                           # the I/O card's DIN jacks
 
 MIDI_SERVICE = "03b80e5a-ede8-4b33-a751-6ce34ec4c700"
@@ -753,8 +754,9 @@ class UsbControllers:
                 if iocard.din_port(name):
                     out[iocard.DIN] = name
                 continue
-            if low.startswith("f_midi"):               # a computer on a Pi 4 Studio's USB-C (xoxo-usb-gadget.sh)
-                out.setdefault(COMPUTER, name)
+            if low.startswith("f_midi"):               # a computer on a Pi 4 Studio's USB-C (xoxo-usb-gadget.sh),
+                if device.usb_host():                  # while one is plugged in (the gadget's port is there anyway)
+                    out.setdefault(COMPUTER, name)
                 continue
             out.setdefault(name.split(":")[0], name)
         return out

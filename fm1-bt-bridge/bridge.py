@@ -386,8 +386,10 @@ def pick_nodes(objects, host=None):
         elif named:                                  # a plug-in's device (the FM-1 Companion's FM-1s): its name
             sources.append(dict(node, label=named, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name.startswith("alsa_input.") and is_computer(text):
-            # the computer's sound over USB (a Pi 4 Studio as its interface): a source, COMPUTER
-            sources.append(dict(node, label="COMPUTER", internal=True, ports=ports.get(o.get("id"), [])))
+            # the computer's sound over USB (a Pi 4 Studio as its interface): a source, COMPUTER, while a
+            # computer is plugged in (the gadget's card is there without one)
+            if device.usb_host():
+                sources.append(dict(node, label="COMPUTER", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name.startswith("alsa_input.") and ".usb-" in name:
             # the USB card's own name ("EP-136"), not the description ("... Analog Stereo")
             node["label"] = props.get("alsa.card_name") or props.get("node.nick") or label
@@ -501,7 +503,9 @@ def is_computer(text):
 
 def computer_node(objects):
     """the computer's side of the USB link: the sink the Studio plays into (the computer's input, in its DAW), as
-    {"id", "name", "label"}, or None (not a Pi 4, or no computer plugged in)"""
+    {"id", "name", "label"}, or None (not a Pi 4, or no computer plugged in: the gadget's card is there anyway)"""
+    if not device.usb_host():
+        return None
     for o in objects:
         if o.get("type") != "PipeWire:Interface:Node":
             continue

@@ -11,6 +11,17 @@ from pathlib import Path
 
 MODEL = Path("/proc/device-tree/model")
 FRAMEBUFFERS = Path("/sys/class/graphics")
+UDC = Path("/sys/class/udc")               # a Pi 4's USB-C port as a USB device (xoxo-usb-gadget.sh): its controller
+
+
+def usb_host(path=UDC):
+    """a computer on the USB-C port, using the Studio as its USB interface: the port's controller "configured"
+    (the computer has taken the gadget). The gadget's sound card and MIDI port are there from start with nothing
+    plugged in (the controller "not attached"), so their being there doesn't mean a computer is"""
+    try:
+        return any((p / "state").read_text().strip() == "configured" for p in path.iterdir())
+    except OSError:
+        return False
 
 
 def board(path=MODEL):
