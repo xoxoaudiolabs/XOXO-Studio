@@ -28,12 +28,14 @@ def test_packets():
     assert netmidi.decode(b"\xff\xffIN") == []                      # a session command: not MIDI
 
 
-def test_session(capsys):
+def test_session(capsys, request):
     got = []
     session = netmidi.Session("FM-1 Companion", 15004, got.append)
     assert session.start()
     mac = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     mac_data = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    request.addfinalizer(mac.close)
+    request.addfinalizer(mac_data.close)
     mac.settimeout(2)
     mac_data.settimeout(2)
     invite = b"\xff\xffIN" + struct.pack(">III", 2, 0xABCD, 0x5151) + b"Pat's Mac\0"
@@ -89,12 +91,13 @@ def test_follow_studio_names():
 
 
 
-def test_a_pocket_turned_away(capsys):
+def test_a_pocket_turned_away(capsys, request):
     """a Studio following another turns a Pocket's invitation down (NO), so the Pocket links to the one leading"""
     session = netmidi.Session("XOXO Studio", 15008, lambda m, p=None: None, by_peer=True)
     session.refuse = lambda name: "Pocket" in name
     assert session.start()
     pocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    request.addfinalizer(pocket.close)
     pocket.settimeout(2)
     invite = b"\xff\xffIN" + struct.pack(">III", 2, 0x1234, 0x77) + b"FM-1 Companion Pocket\0"
     pocket.sendto(invite, ("127.0.0.1", 15009))

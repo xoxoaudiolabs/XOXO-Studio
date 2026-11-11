@@ -6,7 +6,9 @@ DIR holds DejaVuSans.ttf and DejaVuSans-Bold.ttf, the fonts the Pi uses
 (default: /usr/share/fonts/truetype/dejavu). Needs Pillow; no Pi or HAT.
 """
 import argparse
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -15,6 +17,7 @@ from pathlib import Path
 from PIL import Image, ImageFont
 
 TMP = Path(tempfile.mkdtemp(prefix="fm1-shots-"))      # an empty library: the same pictures on any computer
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)          # (gone when the run ends)
 os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
 import bridge  # noqa: E402

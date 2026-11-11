@@ -397,7 +397,7 @@ def find_studios(timeout=2.5, sock=None):
             if again and time.monotonic() >= again:
                 ask([one for one in socks if not records[id(one)]])
                 again = None
-            ready, _, _ = select.select(socks, [], [], min(left, again - time.monotonic()) if again else left)
+            ready, _, _ = select.select(socks, [], [], max(0.0, min(left, again - time.monotonic())) if again else left)
             if not ready:
                 if again:
                     continue

@@ -15,6 +15,7 @@ FX: the punch-in FX (padfx.py, sixteen of SLOOP's) on the pads' sound: hold one,
 from pathlib import Path
 
 import library
+import meters
 import pads
 import xoxostyle as st
 
@@ -188,7 +189,7 @@ class DeskPads:
         for k, (label, action) in enumerate(actions):
             self.button(img, d, (8 + k * bw, y, 8 + (k + 1) * bw - 6, y + 40), label, action,
                         color=(255, 112, 92) if label == "SAMPLE" else None, key=("pad-act", label))
-        tip = "NOTE " + __import__("meters").note_name(pads.note_of(i)) + " PLAYS IT"
+        tip = "NOTE " + meters.note_name(pads.note_of(i)) + " PLAYS IT"
         st.text(img, ((W - st.text_size(tip)[0]) // 2, H - 40), tip, t.c[2])
 
     def pad_scroll(self, step):

@@ -1920,55 +1920,55 @@ class MidiProcess:
 
     def set_enabled(self, on):
         self.enabled = on
-        self.conn.send(("enabled", on))
+        self.send_command(("enabled", on))
 
     def open_pairing(self):
         self.pairing_until = time.monotonic() + PAIRING_SECONDS
-        self.conn.send(("pair",))
+        self.send_command(("pair",))
 
     def set_clock(self, mode, bpm):
-        self.conn.send(("clock", mode, bpm))
+        self.send_command(("clock", mode, bpm))
 
     def transport(self, command):
-        self.conn.send(("transport", command))
+        self.send_command(("transport", command))
 
     def set_routes(self, routes):
-        self.conn.send(("routes", routes))
+        self.send_command(("routes", routes))
 
     def set_xo4_in(self, on, track=0):
         """XO-4's MIDI IN: on, the routes' SMP notes play the pads (track 0) or SYNTH 1 / 2 (1, 2)"""
-        self.conn.send(("xo4_in", bool(on), int(track)))
+        self.send_command(("xo4_in", bool(on), int(track)))
 
     def set_names(self, rules):
         """the plug-ins' MIDI device names (plugins.Host.midi_names)"""
-        self.conn.send(("names", [list(r) for r in rules]))
+        self.send_command(("names", [list(r) for r in rules]))
 
     def set_cards(self, cards):
         """the plug-ins' USB device names by sound card (plugins.Host.card_names)"""
-        self.conn.send(("cards", [[int(c), str(n)] for c, n in cards.items()]))
+        self.send_command(("cards", [[int(c), str(n)] for c, n in cards.items()]))
 
     def set_metronome(self, on, target, level, rate):
-        self.conn.send(("metronome", on, target, level, rate))
+        self.send_command(("metronome", on, target, level, rate))
 
     def set_ble_saved(self, keys):
         """the saved keyboards (the app's state), to connect to whenever they're on"""
         self.ble_keys = [list(k[:2]) + [False] for k in keys or []]
-        self.conn.send(("ble_saved", [list(k[:2]) for k in keys or []]))
+        self.send_command(("ble_saved", [list(k[:2]) for k in keys or []]))
 
     def ble_scan(self):
         self.ble_scanning = True              # (till the MIDI process says otherwise: no "none found" first)
-        self.conn.send(("ble", "scan"))
+        self.send_command(("ble", "scan"))
 
     def ble_connect(self, address):
-        self.conn.send(("ble", "connect", address))
+        self.send_command(("ble", "connect", address))
 
     def set_bt_adapter(self, address):
         """the Bluetooth adapter in use (App.bt_follow_dongle): Bluetooth MIDI moves to it"""
-        self.conn.send(("bt_adapter", address))
+        self.send_command(("bt_adapter", address))
 
     def ble_forget(self, address):
         self.ble_keys = [k for k in self.ble_keys if k[0] != address]
-        self.conn.send(("ble", "forget", address))
+        self.send_command(("ble", "forget", address))
 
     def send_to(self, device, messages):
         """MIDI to one device in the routes (a plug-in's send_midi), as a route to it would"""
@@ -1984,4 +1984,4 @@ class MidiProcess:
 
     def mcu_send(self, messages):
         """the control surface's moves (netmidi.Mackie.fader / press) to the DAW"""
-        self.conn.send(("mcu", [list(m) for m in messages]))
+        self.send_command(("mcu", [list(m) for m in messages]))

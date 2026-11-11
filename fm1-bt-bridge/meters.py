@@ -297,7 +297,7 @@ def clip_count(path, level=CLIP_LEVEL):
         with wave.open(str(path)) as w:
             channels, frames = w.getnchannels(), w.getframerate()
             if w.getsampwidth() != 2:
-                return 0
+                return 0, 0.0
             while True:
                 data = w.readframes(frames)
                 if not data:

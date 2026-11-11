@@ -89,7 +89,17 @@ def test_downloads():
     assert status == 200 and data == wav and "attachment" in headers["Content-Disposition"]
     assert call("/files/samples/..%2F..%2Fx.wav")[0] == 404
     assert call("/files/backups/x.json")[0] == 404                      # no FM-1 backups here
+    assert call("/files/")[0] == 404 and call("/files/samples")[0] == 404   # no file named: not found, not a crash
     assert call("/api/project?backup=x.json&source=A")[0] == 404
+
+
+def test_download_names():
+    """a file's name in Content-Disposition: quotes and backslashes can't end the header, and any name (UTF-8,
+    RFC 5987) goes out in a header http.server can send (Latin-1)"""
+    header = web.disposition("attachment", 'a"b' + chr(92) + 'c é.wav')
+    assert header.startswith('attachment; filename="a_b_c _.wav"; ') and header.count('"') == 2
+    assert header.endswith("filename*=UTF-8''a%22b%5Cc%20%C3%A9.wav")
+    header.encode("latin-1")
 
 
 def test_recordings():

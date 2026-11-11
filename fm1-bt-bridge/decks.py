@@ -1189,25 +1189,30 @@ class Decks:
         drive's filesystem UUID with it ("usb:1234-ABCD/House/track.mp3": the same drive, the same cues)"""
         return f"usb:{src['uuid']}/{rel}" if src["uuid"] else rel
 
-    def path_of(self, key):
-        """a track's file from its key, or None (its drive not plugged in)"""
+    def path_of(self, key, sources=None):
+        """a track's file from its key, or None (its drive not plugged in, or a key with no file part: "usb:UUID")"""
         if not key.startswith("usb:"):
             return self.folder / key
-        uuid, rel = key[4:].split("/", 1)
-        for src in self.sources:
+        uuid, _, rel = key[4:].partition("/")
+        if not rel:
+            return None
+        for src in self.sources if sources is None else sources:
             if src["uuid"] == uuid:
                 return src["folder"] / rel
         return None
 
     def entry_of(self, key):
         """(key, entry) for a track in any source plugged in, or None"""
-        path = self.path_of(key)
+        sources = self.sources                   # (one list throughout: watch_drives may swap it meanwhile)
+        path = self.path_of(key, sources)
         if path is None or not path.is_file():
             return None
         if not key.startswith("usb:"):
             entry = djlib.load_cache(self.folder).get(key)
             return (key, entry) if entry else None
-        src = next(s for s in self.sources if s["uuid"] == key[4:].split("/", 1)[0])
+        src = next((s for s in sources if s["uuid"] == key[4:].partition("/")[0]), None)
+        if src is None:
+            return None
         rel = str(path.relative_to(src["folder"]))
         return key, djlib.load_cache(src["folder"], self.cache_of(src)).get(rel) or {"title": path.stem, "artist": ""}
 

@@ -7,8 +7,10 @@ reports its battery. No Pi, no screen, no sound: the processes are stand-ins tha
 Each picture is the 480x320 screen, scaled up with square pixels (2x by default).
 """
 import argparse
+import atexit
 import math
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -16,6 +18,7 @@ import wave
 from pathlib import Path
 
 TMP = Path(tempfile.mkdtemp(prefix="xoxo-shots-"))     # an empty library: the same pictures on any computer
+atexit.register(shutil.rmtree, TMP, ignore_errors=True)          # (gone when the run ends)
 os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
 

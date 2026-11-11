@@ -134,11 +134,12 @@ class Synth:
             if v.stage == "decay":
                 frames = max(1, int(p["decay"] * r))
                 into = v.age - v.decay_at
-                k = min(left, frames - into)
-                ramp = (into + 1 + num.arange(k, dtype=num.float32)) / frames
-                out[done:done + k] = 1.0 + (p["sustain"] - 1.0) * ramp
-                v.age += k
-                done += k
+                k = min(left, max(0, frames - into))   # (none left: the decay shortened on the SOUND page mid-note)
+                if k:
+                    ramp = (into + 1 + num.arange(k, dtype=num.float32)) / frames
+                    out[done:done + k] = 1.0 + (p["sustain"] - 1.0) * ramp
+                    v.age += k
+                    done += k
                 if into + k >= frames:
                     v.stage = "sustain"
                 continue

@@ -61,6 +61,21 @@ def test_envelope():
     assert np.abs(y[-RATE // 50:]).max() == 0 and s.sounding() == []   # released and gone after 0.1 s
 
 
+def test_decay_shortened_mid_note():
+    """the SOUND page shortening the decay while a note is in it: straight on to the sustain, every frame of the
+    block written once, the voice's age still going forward"""
+    s = xo4synth.Synth(RATE, {"index": 0.0, "attack": 0.001, "decay": 0.5, "sustain": 0.5, "release": 0.1,
+                              "level": 1.0})
+    s.note_on(69, 127)
+    render(s, 0.1)                                              # well into the 0.5 s decay
+    v = s.voices[0]
+    age = v.age
+    s.patch["decay"] = 0.01                                     # now shorter than the time already spent in it
+    env = s.envelope(v, 256)
+    assert v.stage == "sustain" and v.age == age + 256
+    assert np.allclose(env, 0.5)
+
+
 def test_modulation_brightens():
     """modulation adds overtones, and the index envelope lets them fall away"""
     def bright(x):

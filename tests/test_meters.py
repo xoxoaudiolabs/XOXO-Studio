@@ -84,6 +84,20 @@ def make_app(block):
 
 
 
+def test_clip_count_other_bit_depths():
+    """a take that isn't 16-bit (an 8-bit WAV): (0, 0.0) like an unreadable one, not a bare 0 its callers can't
+    unpack"""
+    import wave
+    meters.load_numpy()
+    path = TMP / "eight.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(1)
+        w.setframerate(8000)
+        w.writeframes(bytes(800))
+    assert meters.clip_count(path) == (0, 0.0)
+
+
 def test_clipping():
     """A take a source clipped (flat tops) is flagged; a clean one, or one track brushing the ceiling, isn't. A deep
     sub (an 808 at 33-40 Hz) stays on one value for a few samples at each peak without clipping: not flagged; the

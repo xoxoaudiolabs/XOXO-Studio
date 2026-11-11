@@ -58,6 +58,14 @@ def plugin_folders():
     return out
 
 
+def disposition(kind, name):
+    """a Content-Disposition header for a file called name: a plain-ASCII filename (no quotes or backslashes, which
+    would end or break it) for old browsers, and the name as it is, UTF-8 (RFC 5987), for the rest; the header
+    itself stays Latin-1, as http.server sends it"""
+    plain = "".join(c if 32 <= ord(c) < 127 and c not in '"' + chr(92) else "_" for c in name)
+    return f"{kind}; filename=\"{plain}\"; filename*=UTF-8''{urllib.parse.quote(name, safe='')}"
+
+
 def safe_path(folder, name):
     """a file in the library, or None: one of its folders (or "music", the DJ decks' Studio DJ Music, or a folder
     of a plug-in's: plugin_folders), a plain name, the right kind of file"""
@@ -235,8 +243,8 @@ class Handler(BaseHTTPRequestHandler):
             status = library.read_status()
             self.send(200, status if status else {"offline": True})
         elif url.path.startswith("/files/"):
-            _, _, folder, name = url.path.split("/", 3)
-            path = safe_path(folder, urllib.parse.unquote(name))
+            parts = url.path.split("/", 3)       # "/files/<folder>/<name>" ("/files/" or "/files/x": none)
+            path = safe_path(parts[2], urllib.parse.unquote(parts[3])) if len(parts) == 4 else None
             if not path or not path.is_file():
                 return self.fail("no such file", 404)
             self.send_file(path, CONTENT.get(path.suffix.lower(), "application/octet-stream"),
@@ -308,7 +316,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         if part:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-        self.send_header("Content-Disposition", f'{"inline" if inline else "attachment"}; filename="{path.name}"')
+        self.send_header("Content-Disposition", disposition("inline" if inline else "attachment", path.name))
         self.end_headers()
         with open(path, "rb") as f:
             f.seek(start)

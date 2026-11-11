@@ -310,6 +310,7 @@ def test_usb_drive_plugged_in_and_out():
         assert said[-1]["library"][0][:2] == ["usb:1234-ABCD/b.mp3", "b"] and "DJ STICK" in notes[-1]
         assert D.path_of("usb:1234-ABCD/b.mp3") == drive / "b.mp3" and D.path_of("a.mp3") == home / "a.mp3"
         assert D.entry_of("usb:1234-ABCD/b.mp3") == ("usb:1234-ABCD/b.mp3", {"title": "b", "artist": ""})
+        assert D.path_of("usb:1234-ABCD") is None and D.entry_of("usb:1234-ABCD") is None   # (a key with no file)
         (home / ".usb").mkdir()                            # its scan kept on the Studio (the drive: read-only)
         (home / ".usb" / "1234-ABCD.json").write_text('{"b.mp3": {"title": "Bee", "bpm": 174.0}}')
         D.refresh()

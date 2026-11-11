@@ -155,8 +155,9 @@ class DeskPages:
         for i, line in enumerate(c["lines"][:5]):
             st.text(img, (16, HDR_H + 14 + i * 24), str(line).upper()[:52], t.c[4])
         box = (8, H - 92, W - 8, H - 50)
-        held = self.held is not None and self.held[3] == "confirm"
-        progress = min(1.0, (now - self.held[5]) / HOLD) if held else 0.0
+        h = self.held                            # (one look: a touch may clear it meanwhile)
+        held = h is not None and h[3] == "confirm"
+        progress = min(1.0, (now - h[5]) / HOLD) if held else 0.0
         d.rectangle(box, fill=t.grey[0])
         if progress:
             d.rectangle((box[0], box[1], box[0] + int((box[2] - box[0]) * progress), box[3]), fill=t.track[3])
