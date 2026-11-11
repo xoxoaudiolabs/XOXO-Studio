@@ -20,7 +20,9 @@ import numpy as np  # noqa: E402
 
 meters.load_numpy()                         # the box imports it in the background; here, before the tests
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+# PNG_DIR only when run as a script, and never a flag: under pytest sys.argv is pytest's ("-q" made a folder)
+OUT = (Path(sys.argv[1]) if __name__ == "__main__" and len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+       else None)
 
 
 def tone(freqs, amp=0.5, frames=meters.SPECTRUM_N, right=1.0):

@@ -19,7 +19,9 @@ import midiui  # noqa: E402
 import library  # noqa: E402
 from test_library import write_wav  # noqa: E402
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else None
+# PNG_DIR only when run as a script, and never a flag: under pytest sys.argv is pytest's ("-q" made a folder)
+OUT = (Path(sys.argv[1]) if __name__ == "__main__" and len(sys.argv) > 1 and not sys.argv[1].startswith("-")
+       else None)
 shots = []
 
 
