@@ -71,7 +71,8 @@ def test_a_pocket_forgotten_sooner(capsys):
     s = netmidi.Session("XOXO Studio", 0, lambda m: None)
     now = time.monotonic()
     s.peers = {1: {"name": "Mac", "data": ("a", 1), "seen": now - 30},
-               2: {"name": "FM-1 Companion Pocket", "data": ("b", 1), "seen": now - 30}}
+               2: {"name": "FM-1 Companion Pocket", "data": ("b", 1), "seen": now - 30},
+               3: {"name": "XO-Wave on xowave", "data": ("c", 1), "seen": now - 30}}
     s.expire()
     assert s.names() == ["Mac"]
     assert "FM-1 Companion Pocket forgotten: no sync for 30 s" in capsys.readouterr().err
@@ -88,6 +89,14 @@ def test_follow_studio_names():
                      ("XOXO Studio on studio3", "10.0.0.3", 5004)]
     find = netmidi.other_studios(found, host="studio2", following=lambda address: address == "10.0.0.3")
     assert find() == [("XOXO Studio on Studio1", "10.0.0.1", 5004)]
+
+
+def test_xowave_names():
+    """XO-Wave links as a Pocket does ("XO-Wave on <its host>"): a linked box, forgotten after 25 s, never a Studio"""
+    assert netmidi.linked_box("XO-Wave on xowave") and netmidi.is_xowave("XO-Wave on xowave")
+    assert not netmidi.is_xowave("FM-1 Companion Pocket") and not netmidi.is_xowave("XOXO Studio Link on studio2")
+    assert not netmidi.is_studio("XO-Wave on Studio-wave._apple-midi._udp.local")
+    assert netmidi.is_studio("XOXO Studio on studio1._apple-midi._udp.local")
 
 
 

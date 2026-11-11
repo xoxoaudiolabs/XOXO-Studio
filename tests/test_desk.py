@@ -2158,12 +2158,13 @@ def test_latency_steps_and_the_link_buffer():
         assert not bridge.set_link_buffer(44, conf) and not calls          # as shipped: nothing to do
         assert bridge.set_link_buffer(10, conf)
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 10") == 5 and "msec = 44" not in text
+        assert text.count("sess.latency.msec = 10") == 6 and "msec = 44" not in text
         assert calls == [["systemctl", "--user", "restart", "fm1-pocket-in.service"]]
         assert bridge.set_link_buffer(18, conf, studio_ms=14)               # a following Studio's: its own
         text = conf.read_text(encoding="utf-8")
-        assert text.count("sess.latency.msec = 18") == 4 and text.count("sess.latency.msec = 14") == 1
+        assert text.count("sess.latency.msec = 18") == 4 and text.count("sess.latency.msec = 14") == 2
         assert "source.port = 46020\n      sess.latency.msec = 14" in text
+        assert "source.port = 46030\n      sess.latency.msec = 14" in text   # an XO-Wave's: a Studio's packets
         for name, quantum, _ in bridge.LATENCY:                # a following Studio's: a packet (or a block) and one
             packet = 1280 / 4 / 48                                    # of this Studio's blocks, no resets
             assert bridge.STUDIO_BUFFER[name] > max(packet, quantum / 48) + quantum / 48
@@ -2313,6 +2314,45 @@ def test_a_studio_following():
     assert 'destination.port = 46020' in text and 'node.name = "xoxo-studio-link"' in text
     assert "core.name = xoxo-studio-link" in text and 'node.name = "fm1-pocket-return"' in bridge.return_config("x")
 
+
+def test_an_xowave_linked():
+    """XO-Wave (the wavetable synth) links as a Pocket does: its sound (UDP 46030) is a channel, XO-WAVE, only
+    while its network MIDI session is there; its receiver buffered as a Studio's (the same packets); the web
+    page says it's linked, not a Pocket; Linked REC isn't sent to it"""
+    import bridge
+    node = {"id": 9, "type": "PipeWire:Interface:Node",
+            "info": {"props": {"media.class": "Audio/Source", "node.name": "xowave-in"}}}
+    _, sources = bridge.pick_nodes([node])
+    assert [(n["label"], n["internal"]) for n in sources] == [("XO-WAVE", True)]
+    nodes = [{"name": "fm1-pocket", "label": "POCKET"}, {"name": "xoxo-studio-in", "label": "STUDIO"},
+             {"name": "xowave-in", "label": "XO-WAVE"}, {"name": "alsa_input.usb-x", "label": "EP-136"}]
+    label = lambda peers, mode="mix": [n["label"] for n in bridge.pocket_sources(nodes, peers, mode)]   # noqa
+    assert label([]) == ["EP-136"]
+    assert label(["XO-Wave on xowave"]) == ["XO-WAVE", "EP-136"]
+    assert label(["FM-1 Companion Pocket"]) == ["POCKET", "EP-136"]
+    assert label(["FM-1 Companion Pocket", "XO-Wave on xowave", "XOXO Studio Link on studio2"]) == [
+        "POCKET", "STUDIO", "XO-WAVE", "EP-136"]
+    assert label(["FM-1 Companion Pocket", "XO-Wave on xowave"], "midi") == ["XO-WAVE", "EP-136"]   # (Pocket's)
+    conf = (Path(bridge.__file__).parent / "config" / "pipewire-fm1-pocket-in.conf").read_text()
+    assert "source.port = 46030" in conf and 'node.name = "xowave-in"' in conf
+    assert bridge.XOWAVE_PORT == 46030 and bridge.XOWAVE_IN == "xowave-in"
+    text = bridge.pocket_in_conf(conf, 18, studio_ms=bridge.STUDIO_BUFFER["LOWER"])
+    assert f"source.port = 46030\n      sess.latency.msec = {bridge.STUDIO_BUFFER['LOWER']}" in text
+    assert "source.port = 46000\n      sess.latency.msec = 18" in text
+    assert "source.port = 46030\n      sess.latency.msec = 18" in bridge.pocket_in_conf(conf, 18)
+
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.midi = type("M", (), {"net": ["XO-Wave on xowave"], "net_hosts": {"XO-Wave on xowave": "169.254.7.7"},
+                              "clock": None, "peer": None, "enabled": True, "error": None})()
+    assert app.xowave_link() == "cable" and app.pocket_link() is None and app.pocket_linked()
+    assert app.link_rec_peer() is None
+    app.midi.net = ["XO-Wave on xowave", "FM-1 Companion Pocket"]
+    app.midi.net_hosts = {"XO-Wave on xowave": "10.0.0.7", "FM-1 Companion Pocket": "169.254.66.49"}
+    assert app.xowave_link() == "network" and app.pocket_link() == "cable"
+    assert app.link_rec_peer() == "FM-1 Companion Pocket"
+    st = app.web_status()
+    assert st["xowave"] == "network" and st["pocket"] == "cable"
+
     class Midi:
         net, follows, follow_address = [], None, None
 
@@ -2335,6 +2375,87 @@ def test_a_studio_following():
     assert app.follow_text() == "ON" and app.follow_address() == "10.0.0.1"
     app.state["link_rec"] = True
     assert app.link_rec_peer() == "XOXO Studio"
+
+def test_the_mix_back_to_an_xowave():
+    """a linked XO-Wave gets the Studio's mix less XO-WAVE (a mix-minus) on 46016, Mix to XO-Wave on (at first),
+    in the 46012 return's format, its own sender beside a Pocket's and a following Studio's; off, or unlinked: none"""
+    import bridge
+    import web
+    assert bridge.XOWAVE_RETURN_PORT == 46016 and bridge.XOWAVE_RETURN_SINK == "xowave-return"
+    assert bridge.DEFAULTS["xowave_return"] is True
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    assert app.xowave_return_address() is None                        # no XO-Wave
+    app.midi = type("M", (), {"net": ["XO-Wave on xowave", "FM-1 Companion Pocket", "XOXO Studio Link on studio2"],
+                              "net_hosts": {"XO-Wave on xowave": "169.254.7.7",
+                                            "FM-1 Companion Pocket": "169.254.10.20",
+                                            "XOXO Studio Link on studio2": "169.254.40.59"},
+                              "clock": None, "peer": None, "enabled": True, "error": None})()
+    assert app.xowave_return_address() == "169.254.7.7"               # its own, not the Pocket's or the Studio's
+    assert app.return_address() == "169.254.10.20" and app.studio_return_address() == "169.254.40.59"
+    assert len({id(app.link_return), id(app.studio_return), id(app.xowave_return)}) == 3   # three senders at once
+    assert len({app.link_return.path, app.studio_return.path, app.xowave_return.path}) == 3
+    assert app.xowave_mixer.prefix not in (app.studio_mixer.prefix, app.pc_mixer.prefix, app.mixer.prefix)
+    channels = [("u-felucca", {"name": "alsa_input.usb-Felucca", "label": "FELUCCA"}),
+                ("u-xowave", {"name": "xowave-in", "label": "XO-WAVE"}),
+                ("u-studio", {"name": "xoxo-studio-in", "label": "STUDIO"}),
+                ("u-xo4", {"name": "fm1-xo4", "label": "XO-4"})]
+    app.app_here = {"decks"}
+    assert [k for k, _, _ in app.xowave_feeds(channels)] == ["u-felucca", "u-studio", "u-xo4", "decks"]
+    assert [k for k, _, _ in app.studio_feeds(channels)] == ["u-felucca", "u-xowave", "u-xo4", "decks"]
+    conf = bridge.return_config("169.254.7.7", bridge.XOWAVE_RETURN_PORT, bridge.XOWAVE_RETURN_SINK,
+                                "XO-Wave (mix back)", "xowave-return")
+    for want in ('destination.ip = "169.254.7.7"', "destination.port = 46016", 'audio.format = "S16BE"',
+                 "audio.rate = 48000", "audio.channels = 2", "net.mtu = 1280", 'node.name = "xowave-return"',
+                 "core.name = xowave-return"):
+        assert want in conf
+    st = app.web_status()
+    assert st["xowave_return"] == 46016 and st["xowave_return_on"] is True
+    midi, app.midi = app.midi, None                                   # (MORE > AUDIO with no MIDI process)
+    app.settings_menu = "audio"
+    rows = {r[0]: r[2] for r in app.settings_rows()}
+    assert rows["xowave_return"] == "on"
+    app.setting = [r[0] for r in app.settings_rows()].index("xowave_return")
+    app.change_setting()
+    assert {r[0]: r[2] for r in app.settings_rows()}["xowave_return"] == "off"
+    app.midi = midi
+    assert app.state["xowave_return"] is False and app.xowave_return_address() is None
+    st = app.web_status()
+    assert st["xowave_return"] is None and st["xowave_return_on"] is False
+    assert app.return_address() == "169.254.10.20"                   # (the Pocket's own setting: untouched)
+    assert web.check_command({"cmd": "set", "key": "xowave_return", "value": True})
+    app.web_command({"cmd": "set", "key": "xowave_return", "value": True})
+    assert app.state["xowave_return"] is True and app.xowave_return_address() == "169.254.7.7"
+    app.midi.net, app.midi.net_hosts = ["FM-1 Companion Pocket"], {"FM-1 Companion Pocket": "169.254.10.20"}
+    assert app.xowave_return_address() is None and app.web_status()["xowave_return"] is None   # unlinked: none
+
+    started = []
+
+    class Proc:
+        def __init__(self, args, **kw):
+            started.append(args)
+            self.alive = True
+
+        def poll(self):
+            return None if self.alive else 0
+
+        def terminate(self):
+            self.alive = False
+
+        def wait(self, timeout=None):
+            return 0
+
+    popen, bridge.subprocess.Popen = bridge.subprocess.Popen, Proc
+    try:
+        app.xowave_return.ensure("169.254.7.7")
+        assert app.xowave_return.running() and len(started) == 1
+        assert "destination.port = 46016" in app.xowave_return.path.read_text()
+        proc = app.xowave_return.proc
+        app.xowave_return.ensure(None)                                  # unlinked, or off: torn down
+        assert not proc.alive and not app.xowave_return.running()
+    finally:
+        bridge.subprocess.Popen = popen
+
 
 def test_mix_back_to_the_pocket():
     """a linked Pocket gets the Studio's master back over the link (RTP to RETURN_PORT, its own format, 1-2 ms

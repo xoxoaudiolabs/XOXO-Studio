@@ -202,8 +202,8 @@ class Session:
 
     def expire(self):
         """a computer that went away without saying (sleep, Wi-Fi off): forgotten after 90 s without a sync
-        (a session syncs at least every 10-60 s). A Pocket or a Studio following this one (its link syncs every
-        10 s): after 25 s, so an unplugged one leaves the Studio's mixer (POCKET, STUDIO) soon"""
+        (a session syncs at least every 10-60 s). A Pocket, a Studio following this one or an XO-Wave (its link
+        syncs every 10 s): after 25 s, so an unplugged one leaves the Studio's mixer (POCKET, STUDIO, XO-WAVE) soon"""
         now = time.monotonic()
         with self.lock:
             gone = [(k, p) for k, p in self.peers.items()
@@ -237,13 +237,19 @@ MDNS = ("224.0.0.251", 5353)
 SERVICE = "_apple-midi._udp.local"
 LINK_NAME = "FM-1 Companion Pocket"
 FOLLOW_NAME = "XOXO Studio Link"   # a Studio following another: its session's name there ("... on <its host>")
+XOWAVE_NAME = "XO-Wave"            # XO-Wave, the wavetable synth (a Pi 3 of its own): "XO-Wave on <its host>"
 ASK_AGAIN = 1.2                 # s: find_studios asks a network again that hasn't answered
 
 
 def linked_box(name):
     """a network MIDI peer that's a box linked to this Studio, which leads it: a Pocket ("FM-1 Companion Pocket"),
-    or a Studio following this one (FOLLOW_NAME)"""
-    return "Pocket" in str(name) or FOLLOW_NAME in str(name)
+    a Studio following this one (FOLLOW_NAME) or an XO-Wave (XOWAVE_NAME)"""
+    return "Pocket" in str(name) or FOLLOW_NAME in str(name) or is_xowave(name)
+
+
+def is_xowave(name):
+    """an XO-Wave's network MIDI session ("XO-Wave on <its host>"): its sound comes in as XO-WAVE (UDP 46030)"""
+    return XOWAVE_NAME in str(name)
 
 
 def follow_name(host=None):
@@ -325,9 +331,9 @@ def mdns_records(packet):
 def is_studio(instance):
     """a network MIDI session of a Studio's: the Companion Studio's music session ("FM-1 Companion on <its host>",
     config/fm1-midi.service), XOXO Studio's ("XOXO Studio on ..."), or any whose name says Studio; not a control
-    surface's ("... MCU ...") nor a Pocket's"""
+    surface's ("... MCU ..."), a Pocket's nor an XO-Wave's (on a host called "Studio...")"""
     name = instance.split("._apple-midi")[0]
-    return ("MCU" not in name and "Pocket" not in name and FOLLOW_NAME not in name
+    return ("MCU" not in name and "Pocket" not in name and FOLLOW_NAME not in name and not is_xowave(name)
             and (name.startswith("FM-1 Companion") or "Studio" in name))
 
 

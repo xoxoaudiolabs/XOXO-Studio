@@ -135,7 +135,7 @@ def test_flows():
         "metronome", "tempo", "clock", "arp_on", "chord_on", "click"]
     snap(app, "settings-play")
     keys(app, "left", "down", "press")                     # Audio ›
-    assert [r[0] for r in app.settings_rows()] == ["speaker", "audio", "rate", "latency", "link_audio", "link_return", "link_rec", "follow_studio"]
+    assert [r[0] for r in app.settings_rows()] == ["speaker", "audio", "rate", "latency", "link_audio", "link_return", "xowave_return", "link_rec", "follow_studio"]
     keys(app, "left", "down", "press")                     # MIDI ›
     assert [r[0] for r in app.settings_rows()] == ["midi", "pairing", "btkeys", "usbkeys", "routes", "presets"]
     keys(app, "left", "up", "up")                          # back on Playing, the top
@@ -516,17 +516,17 @@ def test_mixer():
     app = make_app()
     app.others = sources[:1]
     app.screen, app.settings_menu, app.setting = "settings", "audio", 0
-    assert [r[0] for r in app.settings_rows()] == ["speaker", "audio", "rate", "latency", "link_audio", "link_return", "link_rec", "follow_studio"]      # one source: no mixer
+    assert [r[0] for r in app.settings_rows()] == ["speaker", "audio", "rate", "latency", "link_audio", "link_return", "xowave_return", "link_rec", "follow_studio"]      # one source: no mixer
     app.others = sources[:2]
     rows = app.settings_rows()
-    assert [r[:2] for r in rows[8:]] == [("mix_u-smk37va", "SMK-37+VA"), ("mix_u-ep136", "EP-136 level"),
+    assert [r[:2] for r in rows[9:]] == [("mix_u-smk37va", "SMK-37+VA"), ("mix_u-ep136", "EP-136 level"),
                                          ("rec_parts", "Record parts")]
     app.others = sources                                             # two of the same device: each its own
-    assert [r[:2] for r in app.settings_rows()[8:11]] == [("mix_u-smk37va", "SMK-37+VA"),
+    assert [r[:2] for r in app.settings_rows()[9:12]] == [("mix_u-smk37va", "SMK-37+VA"),
                                                          ("mix_u-ep136", "EP-136 level"), ("mix_u-ep1362", "EP-136 #2")]
-    app.setting = 10                                                 # the second EP-136: down 4 steps of 5%
+    app.setting = 11                                                 # the second EP-136: down 4 steps of 5%
     keys(app, "press", "down", "down", "down", "down")
-    assert app.mix_level("u-ep1362") == 80 and app.settings_rows()[10][2] == "± 80%"
+    assert app.mix_level("u-ep1362") == 80 and app.settings_rows()[11][2] == "± 80%"
     snap(app, "settings-mixer")
     keys(app, "left")
     assert app.editing is None and app.mix_level("u-smk37va") == 100 and app.mix_level("u-ep136") == 100

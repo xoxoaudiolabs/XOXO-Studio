@@ -115,7 +115,7 @@ def check_command(c):
               "volume": number and int(value) == value and 0 <= value <= 100,
               "master": number and int(value) == value and 0 <= value <= 100,
               "latency": value in ("SAFE", "LOW", "LOWER", "LOWEST"),
-              "link_return": isinstance(value, bool), "link_audio": value in ("mix", "fm1s", "midi"),
+              "link_return": isinstance(value, bool), "xowave_return": isinstance(value, bool), "link_audio": value in ("mix", "fm1s", "midi"),
               "link_rec": isinstance(value, bool), "follow_studio": isinstance(value, bool),
               "usb_out": isinstance(value, str) and 0 < len(value) <= 200}.get(key)
         if key == "desk_theme":                # the Studio's screen theme (weblink checks the name)
@@ -498,6 +498,7 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
   <div class="line" id="s-srcline" hidden><span class="k">Sources</span><span class="v" id="s-src-in">–</span></div>
   <div class="line"><span class="k">Speaker</span><div class="row" style="justify-content:flex-end"><span class="v" id="s-spk">–</span><button id="s-spkbtn" onclick="speaker()" hidden>Connect</button></div></div>
   <div class="line" id="s-pocketline" hidden><span class="k">Pocket</span><span class="v" id="s-pocket">–</span></div>
+  <div class="line" id="s-xowaveline" hidden><span class="k">XO-Wave</span><span class="v" id="s-xowave">–</span></div>
   <div class="line" style="display:block"><div class="row" style="justify-content:space-between"><span class="k">Volume</span><b id="s-volv">–</b></div>
     <input type="range" id="s-vol" min="0" max="100" step="2" aria-label="Volume"></div>
   <div class="line" id="s-masterline" style="display:block" hidden><div class="row" style="justify-content:space-between"><span class="k">Master out (DAC)</span><b id="s-masterv">–</b></div>
@@ -606,8 +607,9 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
   <div class="line"><span><span class="k">Follow Studio</span> <span class="dim small" id="set-follows"></span></span><label class="sw"><input type="checkbox" id="set-follow"><span></span></label></div>
   <div class="line"><span class="k">Pocket sends</span><div class="seg" id="set-laudio"><button data-v="mix">Mix</button><button data-v="fm1s">FM-1s</button><button data-v="midi">MIDI</button></div></div>
   <div class="line"><span class="k">Mix to Pocket</span><label class="sw"><input type="checkbox" id="set-return"><span></span></label></div>
+  <div class="line"><span class="k">Mix to XO-Wave</span><label class="sw"><input type="checkbox" id="set-wreturn"><span></span></label></div>
   <div class="line"><span class="k">Linked REC</span><label class="sw"><input type="checkbox" id="set-lrec"><span></span></label></div>
-  <p class="dim small" style="margin:6px 0 0">Follow Studio: this Studio follows another on the network (its clock, its Latency; its mix comes here). The rest are for a Pocket or a Studio linked to this one.</p>
+  <p class="dim small" style="margin:6px 0 0">Follow Studio: this Studio follows another on the network (its clock, its Latency; its mix comes here). The rest are for a Pocket, a Studio or an XO-Wave linked to this one.</p>
 </section>
 <section id="s-link" hidden><h2>Studio link</h2>
   <div class="line"><span class="k">Link</span><label class="sw"><input type="checkbox" id="s-lon"><span></span></label></div>
@@ -758,6 +760,8 @@ function renderStatus() {
   $("s-srcline").hidden = !st.sources; $("s-src-in").textContent = (st.sources || []).join(", ") || "none";
   $("s-pocketline").hidden = !st.pocket;
   if (st.pocket) $("s-pocket").textContent = "linked over " + (st.pocket === "cable" ? "the cable" : "the network") + " · POCKET in the mixer";
+  $("s-xowaveline").hidden = !st.xowave;
+  if (st.xowave) $("s-xowave").textContent = "linked over " + (st.xowave === "cable" ? "the cable" : "the network") + " · XO-WAVE in the mixer";
   const bat = !st.offline && st.battery;
   $("s-batline").hidden = !bat;
   if (bat) $("s-bat").textContent = `${bat.percent}%` + (bat.plugged ? " · charging" : "");
@@ -806,6 +810,7 @@ function renderSettings(st) {                       // the SETTINGS tab's own (t
   $("set-follows").textContent = st.follow_studio ? (st.follows ? "following " + st.follows : "looking…") : "";
   seg("set-laudio", st.link_audio || "mix", (v) => set("link_audio", v));
   $("set-return").checked = st.link_return != null; $("set-return").onchange = (e) => set("link_return", e.target.checked);
+  $("set-wreturn").checked = st.xowave_return_on !== false; $("set-wreturn").onchange = (e) => set("xowave_return", e.target.checked);
   $("set-lrec").checked = st.link_rec !== false; $("set-lrec").onchange = (e) => set("link_rec", e.target.checked);
 }
 const speaker = () => cmd({cmd:"speaker", value: st && (st.speaker || st.connecting) ? "disconnect" : "connect"}, false);
