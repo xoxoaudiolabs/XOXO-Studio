@@ -906,7 +906,7 @@ const devName = (k) => k.startsWith("U:") ? k.slice(2) : null;
 function setFm1s(two, net = netOn, pads = padsOn, matrix = null) {
   twoFm1 = two; netOn = net; padsOn = pads;
   const shown = (k) => (two || k !== "FM-1 B") && (net || k !== "NET") && (pads || k !== "SMP") && k !== "XO4";   // (XO-4: in st.matrix)
-  const label = (k) => devName(k) || (two && k === "FM-1" ? "FM-1 A" : ALL_SOURCES[k] || k);
+  const label = (k) => devName(k) || (two && k === "FM-1" ? "FM-1 A" : k === "XO4" && !plugOn("xo4") ? "Sequencer" : ALL_SOURCES[k] || k);
   const srcs = matrix ? matrix.sources : Object.keys(ALL_SOURCES).filter(shown);
   SOURCES = Object.fromEntries(srcs.map((k) => [k, label(k)]));
   DESTS = matrix ? matrix.dests : ALL_DESTS.filter(shown);

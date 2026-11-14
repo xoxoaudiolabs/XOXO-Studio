@@ -272,6 +272,69 @@ def test_live_keys_on_a_synth():
     assert np.abs(engine.render(512)[0]).max() > 0                  # the release still heard
 
 
+def test_sequencer_without_the_synths():
+    """XO-4's synths switched off: the sequencer alone (the Studio's core) still plays DRUMS to the pads and the
+    MIDI track out, on the grid, changes the pattern on the bar and records live; the synth tracks are kept, not
+    played; no synths or FX made"""
+    engine = xo4.Engine(RATE, synths=False)
+    assert engine.synths == [] and engine.fx is None
+    song = song_with(xo4.DRUMS, {0: {"notes": [2], "vel": 100, "len": 1}})
+    song["patterns"]["A"][xo4.MIDI]["steps"][4] = {"notes": [60], "vel": 90, "len": 1}
+    song["patterns"]["A"][xo4.SYNTH1]["steps"][0] = {"notes": [64], "vel": 90, "len": 1}
+    engine.set_song(xo4.clean_song(song))
+    engine.seq.grid = (PER, 10.0, True)
+    notes, t = [], 10.0
+    while t < 10.0 + 16 * U:
+        notes += engine.step(512, t)
+        t += 512 / RATE
+    tracks = {n[1] for n in notes}
+    assert tracks == {xo4.DRUMS, xo4.MIDI}                           # no synth notes handed out
+    assert xo4.drum_hits(notes, engine.song["levels"])[0][1:3] == ("on", 2)
+    assert [m[1][:2] for m in xo4.midi_notes(notes, 0, 1.0)] == [[0x90, 60], [0x80, 60]]
+    assert engine.seq.step is not None                               # the playhead moves
+    engine.seq.pick(engine.song, "B")
+    while t < 10.0 + 33 * U:
+        engine.step(512, t)
+        t += 512 / RATE
+    assert engine.song["pattern"] == "B"                             # on the bar
+    assert engine.song["patterns"]["A"][xo4.SYNTH1]["steps"][0]["notes"] == [64]   # kept
+    engine.seq.rec = True
+    assert engine.played(5, 100, t)
+
+
+def test_sequencer_process_alone():
+    """the sequencer's loop (run_sequencer, XO-4's synths off) in a thread: the song and the grid in, the drums'
+    hits out to the pads, the MIDI track's notes to the MIDI process, the step to the app; on time"""
+    import multiprocessing
+    import threading
+    import time
+    app, child = multiprocessing.Pipe()
+    grid_in, grid_out = multiprocessing.Pipe(duplex=False)
+    pads_in, pads_out = multiprocessing.Pipe(duplex=False)
+    notes_in, notes_out = multiprocessing.Pipe(duplex=False)
+    threading.Thread(target=xo4.run_sequencer, args=(child, grid_in, pads_out, notes_out, RATE),
+                     daemon=True).start()
+    song = song_with(xo4.DRUMS, {i: {"notes": [1], "vel": 100, "len": 1} for i in range(16)})
+    song["patterns"]["A"][xo4.MIDI]["steps"][0] = {"notes": [48], "vel": 100, "len": 1}
+    song["patterns"]["A"][xo4.MIDI]["len"] = 4                       # (a note every quarter)
+    app.send(("song", song))
+    start = time.monotonic()
+    grid_out.send(("grid", PER, start, True))
+    hits, early = [], []
+    while time.monotonic() < start + 1.2 and len(hits) < 4:
+        if pads_in.poll(0.05):
+            got = pads_in.recv()[1]
+            early += [h[0] - time.monotonic() for h in got if h[1] == "on"]
+            hits += [h for h in got if h[1] == "on"]
+    assert len(hits) >= 4 and all(h[2] == 1 for h in hits)
+    steps = [(h[0] - start) / U for h in hits]
+    assert all(abs(x - round(x)) < 0.01 for x in steps), steps        # on the grid's 16ths
+    assert [round(b - a) for a, b in zip(steps, steps[1:])] == [1] * (len(steps) - 1)   # none missed
+    assert min(early) > 0                                             # each sent before it's to be heard
+    assert notes_in.poll(1.0) and notes_in.recv()[0] == "xo4"
+    assert app.poll(1.0) and app.recv()[0] in ("step", "pattern")
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:

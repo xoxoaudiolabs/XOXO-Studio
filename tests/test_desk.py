@@ -2864,3 +2864,66 @@ def test_decks_plugin_off():
     app.midi = Midi()
     app.plugin_host.set_on("decks", True)
     assert dj[-1] is True and "DECKS" in tab_keys(ui)
+
+
+def test_xo4_plugin_off_keeps_the_sequencer():
+    """XO-4's synths switched off: the tab is SEQ, the sequencer's: patterns, PLAY, REC, DRUMS (the pads) and MIDI
+    only (SYN 1 / SYN 2, SOUND, the synths' FX gone, a pick of them ignored); MIDI IN plays the pads; the MIDI
+    routes' source is SEQ; the pads' channel in the mixer is PADS; the web page can't change a synth's sound. The
+    song (its synth tracks too) is kept. Switching it asks for a hold and starts the Studio app again"""
+    import bridge
+    import xo4
+
+    class XO4:
+        step = pattern = queued = None
+
+        def __init__(self):
+            self.sent = []
+
+        def send(self, *msg):
+            self.sent.append(msg)
+
+    class Pads:
+        sounding, step = [], None
+
+        def send(self, *msg):
+            pass
+    app, ui = desk_with(off=("xo4",))
+    assert not app.plugin_on("xo4")
+    app.xo4, app.pads = XO4(), Pads()
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    song = app.song()
+    song["patterns"]["A"][xo4.SYNTH1]["steps"][0] = {"notes": [64], "vel": 90, "len": 1}
+    app.set_song(song)
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"]
+    assert ui.tab_label("XO4") == "SEQ"
+    ui.open_tab("XO4")
+    ui.render(0.0, force=True)
+    keys = {w[3] for w in ui.widgets}
+    assert {("xo4-track", 0), ("xo4-track", 3), "xo4-play", "xo4-rec", ("xo4-pat", "B"), "xo4-grid"} <= keys
+    assert ("xo4-track", 1) not in keys and ("xo4-track", 2) not in keys
+    ui.xo4_pick_track(1)
+    assert ui.xo4_track == 0
+    ui.xo4_pick_track(3)                                              # the MIDI track: notes, no SOUND or FX
+    ui.render(0.0, force=True)
+    keys = {w[3] for w in ui.widgets}
+    assert "xo4-sound" not in keys and "xo4-synth-fx" not in keys and any(
+        isinstance(k, tuple) and k[0] == "xo4-key" for k in keys)
+    ui.xo4_track, ui.xo4_sound = 1, True                              # (left on a synth: back on DRUMS)
+    ui.render(0.0, force=True)
+    assert ui.xo4_track == 0 and not ui.xo4_sound
+    app.set_xo4_keys(1)
+    assert getattr(app, "xo4_keys", 0) == 0                           # MIDI IN: the pads
+    patch = dict(app.song()["patches"][0])
+    app.xo4_sound(1, "BELL")
+    assert app.song()["patches"][0] == patch
+    assert app.web_command({"cmd": "xo4", "action": "sound", "track": 1, "value": "BELL"}).endswith("off (MORE > PLUG-INS)")
+    assert app.song()["patterns"]["A"][xo4.SYNTH1]["steps"][0]["notes"] == [64]   # kept
+    ui.open_tab("MIDI")
+    ui.render(0.0, force=True)
+    objects = [{"id": 7, "type": "PipeWire:Interface:Node", "info": {"props": {
+        "media.class": "Audio/Source", "node.name": "fm1-xo4", "node.description": "XO-4"}}}]
+    assert [s["label"] for s in bridge.pick_nodes(objects, app.plugin_host)[1]] == ["PADS"]
+    app.plugin_host.set_on("xo4", True)                               # (restart_app: a no-op here)
+    assert [s["label"] for s in bridge.pick_nodes(objects, app.plugin_host)[1]] == ["XO-4"]
+    assert ui.tab_label("XO4") == "XO-4"

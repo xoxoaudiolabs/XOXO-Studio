@@ -16,6 +16,12 @@ Live REC: with REC on and playing, pads played (a tap, a note into the pads) go 
 the level they were hit; QUANT off keeps the nudge they were played with. The pattern playing changes on the next bar (16 steps) after
 another is picked, for every track at once. SWING delays every second 16th, as the pads' sequencer does.
 
+The sequencer is the Studio's core and always runs; XO-4's synths are a built-in plug-in (plugins.BUILTINS
+"xo4"). With them switched off, the process is the sequencer alone (Engine(synths=False), run(synths=False)): the
+patterns, the clock's grid, DRUMS to the pads and the MIDI track out through the routes, keeping time itself on
+the monotonic clock instead of the audio player's pace. No synths, no FX, no pw-cat, no numpy then; the song's
+synth tracks are kept, not played.
+
 The process (XO4Process) renders BLOCK frames at a time into a virtual speaker whose other side is the source
 "fm1-xo4" (XO-4 in the mixer, the meters, recordings). The pads play into the same one (they're XO-4's drums: one
 channel), and their process makes it. The app sends it the song and the patches;
@@ -355,14 +361,16 @@ class Sequencer:
 class Engine:
     """renders XO-4's synths and hands out the drums' and the MIDI track's notes; all on the process's thread"""
 
-    def __init__(self, rate=48000):
+    def __init__(self, rate=48000, synths=True):
         self.rate = rate
         self.song = empty_song()
         self.seq = Sequencer()
-        self.synths = [xo4synth.Synth(rate, p) for p in self.song["patches"]]
+        self.synths = [xo4synth.Synth(rate, p) for p in self.song["patches"]] if synths else []
         self.master = 1.0
-        import padfx
-        self.fx = padfx.PunchFX(rate)           # XO-4's own punch-in FX, on the synths (the pads have theirs)
+        self.fx = None
+        if synths:
+            import padfx
+            self.fx = padfx.PunchFX(rate)       # XO-4's own punch-in FX, on the synths (the pads have theirs)
 
     def set_song(self, song):
         """a new song (from the app): what plays and where it is carry on"""
@@ -372,6 +380,13 @@ class Engine:
             self.song["pattern"] = playing
         for synth, patch in zip(self.synths, self.song["patches"]):
             synth.set_patch(patch)
+
+    def step(self, n, t0):
+        """the sequencer alone (no synths): the next n frames' time stepped through -> the drums' and MIDI's notes
+        LOOKAHEAD ahead (the synth tracks' notes are let go)"""
+        t1 = t0 + n / self.rate
+        self.seq.due(self.song, self.seq.now, t0, t1)   # (the playhead, a pattern changing on the bar)
+        return self.seq.due(self.song, self.seq.ahead, t0 + LOOKAHEAD, t1 + LOOKAHEAD)
 
     def render(self, n, t0=None):
         """the next n frames -> (float32 (n, 2), [the drums' and MIDI's notes LOOKAHEAD ahead]). t0: when the
@@ -494,10 +509,12 @@ def midi_notes(notes, channel, level):
 
 # ---------------------------------------------------------------- the process
 
-def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
+def run(app_conn, midi_conn, pads_conn, notes_conn, rate, synths=True):
     """the XO-4 process: render into the virtual speaker SINK (its other side the SOURCE the box hears), take the
     app's and the MIDI process's messages between blocks, send the pads and the MIDI process their notes, tell
     the app the step playing"""
+    if not synths:
+        return run_sequencer(app_conn, midi_conn, pads_conn, notes_conn, rate)
     import fcntl
     # a player left running: gone (only XO-4's: the loopback is the pads' process's, and theirs plays into it)
     subprocess.run(["pkill", "-f", "^pw-cat .*node.name = fm1-xo4-out "], stdout=subprocess.DEVNULL,
@@ -586,18 +603,72 @@ def run(app_conn, midi_conn, pads_conn, notes_conn, rate):
         cat.terminate()
 
 
+def run_sequencer(app_conn, midi_conn, pads_conn, notes_conn, rate):
+    """the sequencer alone (XO-4's synths switched off): the same messages as run, the drums' hits to the pads and
+    the MIDI track's notes to the MIDI process, the step to the app; it keeps time on the monotonic clock, a
+    BLOCK's worth of time a turn, as far ahead as run's blocks are heard"""
+    engine, step_shown, pattern_shown = Engine(rate, synths=False), None, None
+    ahead = 1024 / rate + 0.010
+    base, frames = None, 0
+    try:
+        while True:
+            for conn in (app_conn, midi_conn):
+                while conn is not None and conn.poll():
+                    try:
+                        msg = conn.recv()
+                    except (EOFError, OSError):
+                        os._exit(0)
+                    if msg[0] == "song":
+                        engine.set_song(msg[1])
+                    elif msg[0] == "pick":
+                        engine.seq.pick(engine.song, msg[1])
+                    elif msg[0] == "grid":
+                        engine.seq.grid = tuple(msg[1:4])
+                    elif msg[0] == "rec":
+                        engine.seq.rec = bool(msg[1])
+                    elif msg[0] == "played":
+                        if engine.played(int(msg[1]), int(msg[2]), float(msg[3])):
+                            app_conn.send(("song", engine.song))
+                    # ("master", "fx", "live", "live_off", "audition": the synths', not here)
+            heard = time.monotonic() + ahead
+            if base is None or abs(base + frames / rate - heard) > 0.015:
+                base, frames = heard, 0
+            notes = engine.step(BLOCK, base + frames / rate)
+            if notes:
+                hits = drum_hits(notes, engine.song["levels"])
+                if hits and pads_conn is not None:
+                    pads_conn.send(("hits", hits))
+                out = midi_notes(notes, engine.song["midi_channel"], engine.song["levels"][MIDI])
+                if out and notes_conn is not None:
+                    notes_conn.send(("xo4", out))
+            frames += BLOCK
+            shown = (engine.seq.step, engine.song["pattern"], engine.seq.queued)
+            if shown != step_shown:
+                step_shown = shown
+                app_conn.send(("step",) + shown)
+            if engine.song["pattern"] != pattern_shown:
+                pattern_shown = engine.song["pattern"]
+                app_conn.send(("pattern", pattern_shown))
+            wait = base + frames / rate - ahead - time.monotonic()   # (as a player would take the block)
+            if wait > 0:
+                time.sleep(wait)
+    except (BrokenPipeError, OSError):
+        pass
+
+
 class XO4Process:
     """XO-4 in a process of its own; the app's side. midi_conn: the end the MIDI process sends the grid to;
     notes_in: the end the MIDI process reads the MIDI track's notes from; pads_conn: the pads' xo4_conn (the
     drums' hits)"""
 
-    def __init__(self, rate=48000, pads_conn=None):
+    def __init__(self, rate=48000, pads_conn=None, synths=True):
         import multiprocessing
         ctx = multiprocessing.get_context("fork")
         self.conn, child = ctx.Pipe()
         self.grid_in, self.midi_conn = ctx.Pipe(duplex=False)        # the MIDI process writes midi_conn
         self.notes_in, notes_w = ctx.Pipe(duplex=False)              # XO-4 writes, the MIDI process reads
-        self.proc = ctx.Process(target=run, args=(child, self.grid_in, pads_conn, notes_w, rate), daemon=True,
+        self.synths = synths                        # XO-4's synths (a built-in plug-in): off, the sequencer alone
+        self.proc = ctx.Process(target=run, args=(child, self.grid_in, pads_conn, notes_w, rate, synths), daemon=True,
                                 name="fm1-xo4")
         self.step = self.pattern = self.queued = None
         self.on_step = None

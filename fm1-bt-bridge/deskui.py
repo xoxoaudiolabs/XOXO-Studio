@@ -769,7 +769,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
                     on=bool(getattr(a.midi, "mcu", None)), key="daw")
         sources, dests = a.matrix_lists()
         routes = a.routes()
-        short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET", "XO4": "XO-4"}
+        short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET",
+                 "XO4": "XO-4" if a.plugin_on("xo4") else "SEQ"}       # (the sequencer's MIDI track)
         dshort = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
         colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1, "XO4": 3}
         name = lambda e: e[len(blemidi.DEVICE):].upper() if e.startswith(blemidi.DEVICE) else e   # noqa: E731

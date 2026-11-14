@@ -1,4 +1,6 @@
-"""The Studio's XO-4 tab: XO-4's patterns by touch (xo4.py plays them). Mixed into deskui.DeskUI; full screen, as
+"""The Studio's XO-4 tab: XO-4's patterns by touch (xo4.py plays them). With XO-4's synths switched off (a
+built-in plug-in, MORE > PLUG-INS) it's the SEQ tab, the sequencer's: the same screen with DRUMS and MIDI only (no
+SYN 1 / SYN 2, their SOUND page or FX). Mixed into deskui.DeskUI; full screen, as
 the decks are: the step grid and the keys need the height the tab bar takes.
 
   header      < HOME, the patterns A-H (tap: edit it and play it from the next bar; the one playing underlined, one
@@ -87,6 +89,10 @@ class DeskXO4:
         import xo4
         a, t = self.app, self.theme
         song = self.xo4_song()
+        if self.xo4_track not in self.xo4_tracks():   # (XO-4's synths switched off: DRUMS)
+            self.xo4_track, self.xo4_sound = xo4.DRUMS, False
+        if self.fx_open and self.fx_dest == "xo4" and not a.plugin_on("xo4"):
+            self.fx_open = False
         if self.fx_open and self.fx_dest == "xo4":
             return self.draw_fx(img, d, now)    # XO-4's synths' FX
         if self.xo4_track == xo4.DRUMS and self.xo4_pad_page():
@@ -111,9 +117,10 @@ class DeskXO4:
                     key="xo4-play")
         d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
         y = HDR_H + 4                           # the tracks, the length, clear, GRID
-        for k, label in enumerate(TRACK_LABELS):
-            self.button(img, d, (4 + k * 56, y, 56 + k * 56, y + 32), label, lambda k=k: self.xo4_pick_track(k),
-                        color=t.track[k], on=k == self.xo4_track, key=("xo4-track", k))
+        for slot, k in enumerate(self.xo4_tracks()):
+            self.button(img, d, (4 + slot * 56, y, 56 + slot * 56, y + 32), TRACK_LABELS[k],
+                        lambda k=k: self.xo4_pick_track(k), color=t.track[k], on=k == self.xo4_track,
+                        key=("xo4-track", k))
         self.button(img, d, (W - 56, y, W - 4, y + 32), "GRID", self.xo4_toggle_grid, on=self.xo4_grid,
                     key="xo4-grid")
         if self.xo4_grid:
@@ -377,7 +384,13 @@ class DeskXO4:
         self.app.xo4_pick_pattern(p)
         self.xo4_rev += 1
 
+    def xo4_tracks(self):
+        """the tracks there: all four with XO-4's synths on; the sequencer's DRUMS and MIDI with them off (SEQ)"""
+        return (0, 1, 2, 3) if self.app.plugin_on("xo4") else (0, 3)
+
     def xo4_pick_track(self, k):
+        if k not in self.xo4_tracks():
+            return
         self.xo4_track, self.xo4_step, self.xo4_page, self.xo4_sound = k, None, 0, False
         if hasattr(self.app, "set_xo4_keys"):   # MIDI IN plays the track picked (the MIDI track: as it was)
             self.app.set_xo4_keys(k)

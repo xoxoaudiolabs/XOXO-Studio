@@ -310,6 +310,8 @@ class WebLink:
             self.set_xo4_midi_in(value)
             return f"Web: XO-4 MIDI IN {'on' if value else 'off'}"
         if action == "sound" and c.get("track") in (1, 2) and value in xo4.SOUNDS:
+            if not self.plugin_on("xo4"):
+                return "Web: XO-4's synths are off (MORE > PLUG-INS)"
             self.xo4_sound(c["track"], value)
             return f"Web: SYN {c['track']} {value}"
         if action == "play":

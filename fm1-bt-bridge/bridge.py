@@ -397,8 +397,10 @@ def pick_nodes(objects, host=None):
             node["card"] = int(path.group(1)) if path else None
             node["ports"] = ports.get(o.get("id"), [])
             sources.append(node)
-        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4: its synths and the pads (its drums)
-            sources.append(dict(node, label="XO-4", internal=True, ports=ports.get(o.get("id"), [])))
+        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4: its synths and the pads (its drums);
+            synths = host is None or plugins.builtin_on(getattr(host.app, "state", None), "xo4")   # the pads alone
+            sources.append(dict(node, label="XO-4" if synths else "PADS", internal=True,   # with its synths off
+                                ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == FOLLOW_IN:        # a Studio following this one (port 46020)
@@ -1790,6 +1792,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def set_xo4_keys(self, track):
         """the track picked on XO-4's screen: MIDI IN's notes play it (0 DRUMS: the pads; 1, 2: SYNTH 1, 2; the
         MIDI track leaves it as it was). Not saved: XO-4 opens on DRUMS"""
+        if track in (1, 2) and not self.plugin_on("xo4"):   # (XO-4's synths switched off: the pads)
+            track = 0
         if track in (0, 1, 2) and track != getattr(self, "xo4_keys", 0):
             self.xo4_keys = track
             self.send_xo4_in()
@@ -1801,6 +1805,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def xo4_sound(self, track, name):
         """a synth track's (1, 2) starting sound (xo4.SOUNDS), as the SOUND page's buttons"""
         import xo4
+        if not self.plugin_on("xo4"):
+            return
         song = self.song()
         song["patches"][track - xo4.SYNTH1].update(xo4.SOUNDS[name])
         self.set_song(song)
@@ -2812,7 +2818,9 @@ def main():
                 xo4synth.VOICES = 8
             pad_process = pads.PadProcess(state["audio_rate"])
             pad_process.start()
-            xo4_process = xo4.XO4Process(state["audio_rate"], pads_conn=pad_process.xo4_conn)
+            # the sequencer always (the core's); XO-4's synths with it while that built-in plug-in is on
+            xo4_process = xo4.XO4Process(state["audio_rate"], pads_conn=pad_process.xo4_conn,
+                                         synths=plugins.builtin_on(state, "xo4"))
             xo4_process.start()
             deskboot.show(display, boot, 1)
         midi = blemidi.MidiProcess(state["midi_enabled"],
