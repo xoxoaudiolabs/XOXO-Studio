@@ -1673,6 +1673,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.desk.builtins_changed()
         if self.midi and hasattr(self.midi, "set_names"):
             self.midi.set_names(self.plugin_host.midi_names())
+        if self.midi and hasattr(self.midi, "set_dj"):
+            self.midi.set_dj(self.plugin_on("decks"))
         self.cards_sent = None                # (sent again on the next scan)
         self.scan_now = True
         self.post("status", True)
@@ -2166,7 +2168,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             parts = [("rec_parts", "Record parts", onoff(self.state["rec_parts"]))] if mix else []
             jack = ([("output", "Output", self.state["output"]), ("cue", "Click to phones", onoff(self.state["cue"]))]
                     if self.jack else [])           # the Studio's 3.5 mm jack
-            decks = [("decks_out", "DJ decks out", self.state.get("decks_out", "studio"))] if self.desk else []
+            decks = ([("decks_out", "DJ decks out", self.state.get("decks_out", "studio"))]
+                     if self.desk and self.plugin_on("decks") else [])
             latency = latency_step(self.state.get("latency"))
             usb_out = [("usb_out", "USB out", self.usb_out_text())] if self.usb_outs and not self.dac else []
             return ([("speaker", "Speaker", speaker), ("audio", "BT audio", audio)] + jack

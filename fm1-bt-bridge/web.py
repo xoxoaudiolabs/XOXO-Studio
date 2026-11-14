@@ -343,6 +343,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def upload(self, folder, name):
         path = safe_path(folder, name) if folder != "recordings" else None
+        if folder == "music" and builtin_off("decks"):   # (the DJ decks switched off: their music waits)
+            path = None
         if not path:
             try:                              # read what was sent first: an unread upload resets the connection,
                 self.body(MAX_UPLOAD)          # and the browser shows that instead of the reason

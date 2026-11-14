@@ -253,6 +253,18 @@ def test_editor_off():
     take.unlink()
 
 
+def test_decks_off():
+    """the DJ decks switched off: no music added to their folder (it's kept); on, it's taken"""
+    data = b"ID3" + bytes(64)
+    library.write_status({"live": True, "plugins": {"builtin": {"decks": False}}})
+    assert call("/api/upload?folder=music&name=t.mp3", raw=data)[0] == 400
+    library.write_status({"live": True, "plugins": {"builtin": {"decks": True}}})
+    status, reply = jcall("/api/upload?folder=music&name=t.mp3", raw=data)
+    assert status == 200 and reply["ok"], reply
+    assert jcall("/api/delete", {"folder": "music", "name": "t.mp3"})[1]["ok"]
+    library.STATUS.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     server = setup()
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]

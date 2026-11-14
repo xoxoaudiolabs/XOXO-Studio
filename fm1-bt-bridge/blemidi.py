@@ -731,6 +731,8 @@ class UsbControllers:
         self.lock = threading.Lock()
         self.rules = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
         self.cards = {}                     # the plug-ins' {sound card: name}: a USB device they name by its card
+        self.dj = True                      # the DJ decks on (a built-in plug-in): DJ controllers are theirs. Off:
+                                            # a Hercules or a learnt controller is a MIDI device in the routes
 
     def wanted(self, names):
         """mido port names -> {client name: port name} of the controllers among them (a client's first port). The
@@ -748,8 +750,8 @@ class UsbControllers:
             low = name.lower()
             if any(s in low for s in self.SKIP) or ADDRESS.search(name):
                 continue
-            if any(d in low for d in DJ_CONTROLLERS) or dj_learned(name):   # a DJ controller: the decks'
-                continue                               # (decks.py), not a keyboard
+            if self.dj and (any(d in low for d in DJ_CONTROLLERS) or dj_learned(name)):   # a DJ controller:
+                continue                               # the decks' (decks.py), not a keyboard
             if iocard.is_card(name):
                 if iocard.din_port(name):
                     out[iocard.DIN] = name
@@ -1720,6 +1722,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.set_routes(command[1])
             elif command[0] == "xo4_in":           # ("xo4_in", on[, track]): XO-4's MIDI IN, the track it plays
                 bridge.set_xo4_keys(command[1], command[2] if len(command) > 2 else bridge.xo4_keys)
+            elif command[0] == "dj":               # ("dj", on): the DJ decks on: DJ controllers kept off the routes
+                bridge.controllers.dj = bool(command[1])
             elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
                 bridge.controllers.rules = [[str(p), str(n)] for p, n in command[1]]
             elif command[0] == "cards":            # ("cards", [[card, name]]): USB devices the plug-ins name by card
@@ -1938,6 +1942,10 @@ class MidiProcess:
     def set_xo4_in(self, on, track=0):
         """XO-4's MIDI IN: on, the routes' SMP notes play the pads (track 0) or SYNTH 1 / 2 (1, 2)"""
         self.send_command(("xo4_in", bool(on), int(track)))
+
+    def set_dj(self, on):
+        """the DJ decks (a built-in plug-in) on: DJ controllers are theirs; off: MIDI devices in the routes"""
+        self.send_command(("dj", bool(on)))
 
     def set_names(self, rules):
         """the plug-ins' MIDI device names (plugins.Host.midi_names)"""

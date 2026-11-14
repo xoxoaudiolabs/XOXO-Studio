@@ -406,6 +406,17 @@ def test_usb_midi_devices():
                                          "SMK-37+VA": "SMK-37+VA:SMK-37+VA MIDI 1 20:0"}
 
 
+
+def test_dj_controllers_free_with_the_decks_off():
+    """a Hercules is the DJ decks' (off the routes) while they're on; switched off (MORE > PLUG-INS), it's a MIDI
+    device in the routes like any other"""
+    controllers = blemidi.UsbControllers(lambda message, name=None: None)
+    herc = "DJControl Inpulse 200 MK2:DJControl Inpulse 200 MK2 MIDI 1 24:0"
+    assert controllers.dj and "DJControl Inpulse 200 MK2" not in controllers.wanted(PORTS + [herc])
+    controllers.dj = False
+    assert controllers.wanted(PORTS + [herc])["DJControl Inpulse 200 MK2"] == herc
+
+
 def test_usb_keys_play_the_pads():
     bridge = make_bridge()
     bridge.from_controllers(b"\x90\x3c\x40")

@@ -110,7 +110,7 @@ class WebLink:
 
     def web_decks(self):
         """the DJ decks while they run: each deck's track, tempo, key, playing, FX; None: not running"""
-        proc = getattr(self, "desk", None) and self.desk.decks_proc
+        proc = getattr(self, "desk", None) and self.plugin_on("decks") and self.desk.decks_proc
         if not proc or not proc.running():
             return None
         status = getattr(proc, "status", None) or {}

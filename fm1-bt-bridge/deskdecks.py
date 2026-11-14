@@ -42,7 +42,10 @@ class DeskDecks:
         self.decks_learn_top = 0                # a map's list: its first row shown
 
     def open_decks(self):
-        """the DECKS tab: the decks started (once) and their screen shown"""
+        """the DECKS tab: the decks started (once) and their screen shown (not while they're switched off: HOME)"""
+        if not self.app.plugin_on("decks"):
+            self.open_tab("HOME")
+            return
         import decks
         if self.decks_proc is None:
             self.decks_proc = decks.DeckProcess(on_change=self.decks_changed,   # (SYNC follows XO-4's clock)

@@ -2807,3 +2807,60 @@ def test_plugins_page_lists_the_builtins():
     assert app.plugin_on("xo4") and not restarted and app.screen == "confirm"   # asked first: nothing yet
     app.confirm["action"]()
     assert not app.plugin_on("xo4") and restarted == [True]
+
+
+def test_decks_plugin_off():
+    """the DJ decks switched off: no DECKS tab, the decks stopped (their channel gone), no DJ decks out row, nothing
+    for the web page; they can't be opened; the MIDI process told (a Hercules is a MIDI device then). Their
+    output setting is kept"""
+    stopped, dj = [], []
+
+    class Decks:
+        library, overviews, note, status = [], {0: [], 1: []}, None, {"decks": [{"title": "A"}, {}]}
+        library_n = note_n = 0
+
+        def start(self):
+            pass
+
+        def running(self):
+            return not stopped
+
+        def stop(self):
+            stopped.append(True)
+
+        def send(self, *cmd):
+            pass
+
+    class Midi:
+        def set_names(self, rules):
+            pass
+
+        def set_dj(self, on):
+            dj.append(on)
+    app, ui = desk_with()
+    app.state["decks_out"] = "hercules"
+    ui.decks_proc = Decks()
+    ui.open_tab("DECKS")
+    assert ui.tab == "DECKS" and app.web_decks()
+    app.screen, app.settings_menu = "settings", "audio"
+    assert "decks_out" in [r[0] for r in app.settings_rows()]
+    app.screen = "status"
+    app.midi = Midi()
+    app.plugin_host.set_on("decks", False)
+    app.midi = None
+    assert stopped and ui.decks_proc is None and ui.tab == "HOME" and dj[-1] is False
+    assert "DECKS" not in tab_keys(ui) and app.web_decks() is None
+    ui.open_tab("DECKS")
+    assert ui.tab == "HOME"
+    ui.open_decks()
+    assert ui.tab == "HOME" and ui.decks_proc is None                 # (not started)
+    app.screen, app.settings_menu = "settings", "audio"
+    assert "decks_out" not in [r[0] for r in app.settings_rows()]
+    app.screen = "status"
+    ui.open_tab("MIX")
+    ui.render(0.0, force=True)
+    assert not any(w[3] == ("slide", "decks") for w in ui.widgets)
+    assert app.state["decks_out"] == "hercules"                      # kept
+    app.midi = Midi()
+    app.plugin_host.set_on("decks", True)
+    assert dj[-1] is True and "DECKS" in tab_keys(ui)
