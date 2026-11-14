@@ -4,8 +4,8 @@
 (`fm1-bt-bridge/plugins.py`, API 1), MORE › PLUG-INS (`deskplugins.py`), and the web app's status and commands for
 plug-ins. Tried on a Studio (a Pi 3 B+) with XOXO Audio Labs' Synths and Tester Tools plug-ins (their repository,
 XOXO-Studio-Plugins, says what each was tried with); the rest tested on a PC. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own
-repository (XOXO-Studio-Plugins): it isn't part of this beta, and this repository's docs make no claims for it. The device registry (section 1) and moving the built-ins
-(section 3) are designs, not built. Plug-ins are open to anyone from the start, so the API
+repository (XOXO-Studio-Plugins): it isn't part of this beta, and this repository's docs make no claims for it. The device registry (section 1) is a design, not built; of
+section 3, the editor, the decks and XO-4's synths are built-in plug-ins that can be switched off (tried on a PC). Plug-ins are open to anyone from the start, so the API
 below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and
 MIDI, and its library.
 
@@ -126,6 +126,32 @@ Studio says so when one is switched on from outside the repository, and only run
 A plug-in that raises an error is switched off with a message on the screen, instead of stopping the Studio.
 
 ## 3. The built-ins move onto it
+
+**Built so far (2026-11-13, tried on a PC only):** the sample editor, the DJ decks and XO-4's synths are
+**built-in plug-ins** (`plugins.BUILTINS`): their code stays in the Studio's (installed as before), but each is
+listed in MORE › PLUG-INS and the web app's status beside anyone's plug-ins, switched on or off the same way
+(`state["plugins"][id]["on"]`, on unless switched off), with no trust question. The core asks
+`plugins.builtin_on(state, id)` (the app: `App.plugin_on`) where each one hooks in:
+
+- **Sample editor** (`editor`): the EDITOR tab, the touch editor, a pad's TRIM, "Edit as sample", the Pocket's
+  Sample editor row, the web app's Editor tab (`/api/edit-info` and `/api/save-sample` answer 403 while it's off).
+  `sampler.py` stays in the core: sampling a pad uses it.
+- **DJ decks** (`decks`): the DECKS tab and `decks.py`'s process (stopped when switched off), DECKS in the mixer,
+  Settings › Audio › DJ decks out, the web app's DJ decks and DJ music (no uploads to their folder while off). The
+  MIDI process is told (`MidiProcess.set_dj`): with the decks off a Hercules or a learnt controller is a MIDI
+  device in the routes.
+- **XO-4** (`xo4`): its two FM synths, their SOUND page and FX, live play on them. **The sequencer stays in the
+  core** (Pat, 2026-11-13: always a sequencer for MIDI): XO-4's process always runs; with XO-4 off it's
+  `xo4.run_sequencer`, the patterns, the clock's grid, DRUMS to the pads and the MIDI track out through the routes,
+  with no synths, FX or audio player. The tab is then SEQ (DRUMS and MIDI only), the routes' source SEQ, the pads'
+  mixer channel PADS. XO-4's process starts before the MIDI process, so switching XO-4 asks for a hold and starts
+  the Studio app again (`App.restart_app`: `systemctl --user restart fm1-bridge`, the app only).
+
+Off never deletes anything: XO-4's song (its synth tracks too), MIDI IN, the routes from XO4, the decks' output
+and learnt maps, the DJ music, the file last edited are all kept for when it's on again.
+
+Still to do, the design below: moving their code into `plugins/<id>/` folders behind a wider API, the Pocket link
+and the computer link.
 
 The core keeps the HOME, MIXER, RECORD, MIDI, EDITOR and MORE screens, the device registry, the mixer, the
 recorder and the plug-in host. These become first-party plug-ins, each its own step with its tests:
