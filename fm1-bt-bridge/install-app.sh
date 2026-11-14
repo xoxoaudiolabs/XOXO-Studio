@@ -39,6 +39,9 @@ install -D -m 644 "$DIR/sampleui.py"                            ~/.local/share/f
 install -D -m 755 "$DIR/library.py"                             ~/.local/share/fm1-bridge/library.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
 install -D -m 755 "$DIR/update.py"                              ~/.local/share/fm1-bridge/update.py
+install -D -m 755 "$DIR/xoxo.py"                                ~/.local/share/fm1-bridge/xoxo.py
+mkdir -p ~/.local/bin                     # `xoxo` over SSH (docs/SSH.md); Pi OS's ~/.profile puts ~/.local/bin on PATH
+ln -sf ~/.local/share/fm1-bridge/xoxo.py ~/.local/bin/xoxo
 mkdir -p ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins   # (plug-ins: plugins.py)
 # The sampler, the sample editor and the DJ decks are plug-ins from XOXO-Studio-Plugins (cloned into ~/xoxo-plugins;
 # copies an earlier install put in ~/xoxo-plugins/<id> are kept). Their files used to be the app's own: those old

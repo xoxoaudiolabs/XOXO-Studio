@@ -1,14 +1,53 @@
 # Running a XOXO Studio over SSH (no screen)
 
-**A proposal. Nothing here is built yet.** Pat picks the commands he wants, then they get made and tested on a
-Studio. Everything below about what the Studio does today comes from reading the code at 19cd78b, not from
-trying it on a Studio over SSH.
-
 For a Studio with no screen to look at: inside a case, on a show stand, or with the screen unplugged.
 
 ```bash
 ssh xoxo@xoxostudio.local
+xoxo status
 ```
+
+## Built so far: the "Covered" rows
+
+`xoxo` (`fm1-bt-bridge/xoxo.py`; `install-app.sh` puts it in `~/.local/bin/xoxo`) has the rows of the table
+below that the existing code already covers. `xoxo help` lists them all:
+
+- status, restart, logs;
+- volume, master, tempo, clock, metronome, latency, play/stop, rec;
+- midi (devices, routes on, one route on/off, presets);
+- recordings and pull;
+- update (`--check`, the newest release with a typed yes, `--back`);
+- link, screen theme, usb-out, plugin, kit, xo4.
+
+Settings go through `web.check_command` and `library.queue_command`, so the app takes them exactly as it takes the
+web page's.
+
+**Not built** (they need new code; waiting for Pat):
+
+- shutdown and reboot;
+- backup and restore;
+- the USB-C computer in the status;
+- screen off/on;
+- update `--tag`.
+
+**Tested:**
+
+- `tests/test_xoxo.py`, on Windows with Python 3.14. A status file is written by the test; `systemctl`,
+  `journalctl` and the updater are stood in for.
+- Each command queues what the page would. Bad values queue nothing. Nothing is queued while the app isn't
+  answering.
+- restart refuses while recording. update asks for "yes", and a closed input isn't a yes.
+- The rest of the suite still passes.
+
+**Not tested:**
+
+- `xoxo` on a Studio over SSH: the app taking its commands, `systemctl --user` and `journalctl --user` from an SSH
+  login, and a real update or `--back`;
+- `~/.local/bin` being on PATH for an SSH login (Pi OS's `~/.profile` adds it if it exists at login);
+- the `/run/user/<uid>` fallback for a bare `ssh host xoxo ...`.
+
+The rest of this page is the original proposal. Everything in it about what the Studio does today comes from
+reading the code at 19cd78b, not from trying it on a Studio over SSH.
 
 ## What already works without the screen
 
@@ -165,6 +204,6 @@ All of it. The proposal is from reading the code. Nothing above has been run ove
 
 ## Next
 
-Pat picks the rows he wants. Then the `xoxo` script gets built, plus the few app changes those rows need (shutdown,
-reboot, screen off, the computer in the status), with tests, and is tried on a Studio once the Studio session hands
-it over.
+The "Covered" rows are built (above). The rest are next if Pat wants them: the few app changes they need (shutdown,
+reboot, screen off, the computer in the status), with tests. All of `xoxo` gets tried on a Studio once the Studio
+session hands it over.
