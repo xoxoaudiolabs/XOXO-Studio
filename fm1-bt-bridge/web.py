@@ -58,6 +58,12 @@ def plugin_folders():
     return out
 
 
+def builtin_off(pid):
+    """one of the Studio's own optional parts ("editor", "decks", "xo4": plugins.BUILTINS) switched off, by the box's
+    status (on while the box isn't answering: nothing is taken away for that)"""
+    return (((library.read_status() or {}).get("plugins") or {}).get("builtin") or {}).get(pid) is False
+
+
 def disposition(kind, name):
     """a Content-Disposition header for a file called name: a plain-ASCII filename (no quotes or backslashes, which
     would end or break it) for old browsers, and the name as it is, UTF-8 (RFC 5987), for the rest; the header
@@ -250,6 +256,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_file(path, CONTENT.get(path.suffix.lower(), "application/octet-stream"),
                            inline=query.get("inline") == "1")
         elif url.path == "/api/edit-info":            # what the sample editor opens a take or sample with
+            if builtin_off("editor"):
+                return self.fail("the sample editor is off (MORE > PLUG-INS)", 403)
             folder = query.get("folder", "")
             path = safe_path(folder, query.get("file", "")) if folder in EDITABLE else None
             if not path or not path.is_file():
@@ -281,6 +289,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {"ok": True, "message": f"{len(copied)} new file(s) from the SD card"})
             return self.fail("unknown command")
         if url.path == "/api/save-sample":
+            if builtin_off("editor"):
+                return self.fail("the sample editor is off (MORE > PLUG-INS)", 403)
             return self.save_sample(request)
         if url.path == "/api/command":
             try:
@@ -521,21 +531,21 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
 <!-- ======================= STUDIO ======================= -->
 <div class="tab" id="tab-studio">
 <div class="grid">
-<section><h2>XO-4</h2>
+<section><h2 id="x-title">XO-4</h2>
   <div class="line"><span class="k">Pattern</span><span class="v" id="x-state">–</span></div>
   <div class="patgrid" id="x-pats"></div>
   <div class="line"><span class="k">Transport</span><button class="primary" id="x-play" onclick="cmd({cmd:'xo4',action:'play'})">▶ Play</button></div>
-  <div class="line"><span><span class="k">MIDI in</span><br><span class="dim small">notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth</span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
-  <div class="line"><span class="k">SYN 1 sound</span><select id="x-s1" onchange="xo4Sound(1, this.value)"></select></div>
-  <div class="line"><span class="k">SYN 2 sound</span><select id="x-s2" onchange="xo4Sound(2, this.value)"></select></div>
+  <div class="line"><span><span class="k">MIDI in</span><br><span class="dim small"><span id="x-midiin-note">notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth</span></span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
+  <div class="line xo4only"><span class="k">SYN 1 sound</span><select id="x-s1" onchange="xo4Sound(1, this.value)"></select></div>
+  <div class="line xo4only"><span class="k">SYN 2 sound</span><select id="x-s2" onchange="xo4Sound(2, this.value)"></select></div>
   <p class="dim small" style="margin:6px 0 0">While it plays, a pattern starts on the next bar. Steps are made on the Studio's screen.</p>
 </section>
 <section><h2>Kit</h2>
   <div class="line"><span class="k">Loaded</span><span class="v" id="k-cur">–</span></div>
   <div id="k-list"></div>
 </section>
-<section><h2>DJ decks</h2><div id="d-decks"></div></section>
-<section><h2>DJ music</h2><p class="meta" style="margin:-6px 0 6px">The Studio DJ Music folder. A track added here shows on the DECKS screen; press SCAN there for its tempo and key.</p>
+<section class="decksonly"><h2>DJ decks</h2><div id="d-decks"></div></section>
+<section class="decksonly"><h2>DJ music</h2><p class="meta" style="margin:-6px 0 6px">The Studio DJ Music folder. A track added here shows on the DECKS screen; press SCAN there for its tempo and key.</p>
 <div id="music"></div>
 <div class="row" style="margin-top:8px"><label class="file"><input type="file" accept=".mp3,.flac,.wav,.aif,.aiff,.ogg,.m4a" multiple onchange="upload('music',this)"><button onclick="this.previousElementSibling.click()">Add music…</button></label></div></section>
 </div>
@@ -670,7 +680,7 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
 <button data-tab="studio" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Studio</button>
 <button data-tab="midi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14"/><path d="M8 5v8M12 5v8M16 5v8"/></svg>MIDI</button>
 <button data-tab="library"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v16H4zM14 4l6 2-4 14-6-2z"/></svg>Library</button>
-<button data-tab="editor"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>Editor</button>
+<button data-tab="editor" class="editoronly"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></svg>Editor</button>
 <button data-tab="recordings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>Rec</button>
 <button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>Settings</button>
 </nav>
@@ -690,10 +700,12 @@ const xoxo = () => !!st && st.box === "xoxo-studio";
 // on XOXO Studio the FM-1 library is the FM-1 Companion plug-in's (XOXO-Studio-Plugins): its status, or null when it's off
 const fm1 = () => (xoxo() && ((st.plugins || {}).status || {})["fm1-companion"]) || null;
 const plug = (name, args = {}) => post("/api/command", {cmd:"plugin", id:"fm1-companion", name, args}).then((j) => { setTimeout(update, 600); return j; });
+// the Studio's own optional parts (the built-in plug-ins: "xo4", "decks", "editor"): on unless the Studio says off
+const plugOn = (id) => !(st && !st.offline && ((st.plugins || {}).builtin || {})[id] === false);
 let shownBox = null;
 function applyBox() {
   const x = xoxo(), studio = !!(st && !st.offline && (st.xo4 || st.kits || st.decks)), p = fm1(), nolib = x && !p;
-  const key = `${x}${studio}${!!p}${p ? (p.fm1s || []).join("") + p.library_fm1 : ""}`;
+  const key = `${x}${studio}${!!p}${p ? (p.fm1s || []).join("") + p.library_fm1 : ""}${plugOn("xo4")}${plugOn("decks")}${plugOn("editor")}`;
   if (key === shownBox) return;
   shownBox = key;
   $("title").innerHTML = x ? "XOXO<i>//</i>Studio" : "FM-1<i>//</i>Companion";
@@ -712,8 +724,13 @@ function applyBox() {
     : "Records the FM-1 on the box (a WAV at the FM-1's own rate). Takes are in the Recordings tab.";
   $("s-kbnote").textContent = x ? "Arp and Chord switch every keyboard route to your MIDI gear; pattern, rate and chord type: MIDI tab, on a route."
     : "Pattern, rate and chord type: MIDI tab, Bluetooth → FM-1.";
+  for (const id of ["xo4", "decks", "editor"]) document.querySelectorAll("." + id + "only").forEach((e) => e.hidden = !plugOn(id));
+  $("x-title").textContent = plugOn("xo4") ? "XO-4" : "Sequencer";
+  $("x-midiin-note").textContent = plugOn("xo4") ? "notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth"
+    : "notes from the MIDI routes play the pads";
   if (tab === "studio" && !studio) show("status");
-  if (tab === "library") refresh();
+  if (tab === "editor" && !plugOn("editor")) show("status");
+  if (tab === "library" || tab === "recordings") refresh();
 }
 
 // ---------------------------------------------------------------- basics
@@ -1014,7 +1031,7 @@ function renderLibrary() {
     <button class="danger" onclick="del('songs',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No songs yet: Back up song saves the one on the FM-1.</p>`;
   $("samples").innerHTML = lib.samples.length ? lib.samples.map((s) => `<div class="item"><label class="row">${xoxo() && !fm1() ? "" : `<input type="checkbox" class="pick" value="${esc(s.name)}" style="width:22px;height:22px">`}<span class="name">${esc(s.name)}</span></label>
-    <div class="row"><span class="meta">${(s.bytes / 1024).toFixed(0)} KB</span><button onclick="sedOpen('samples', ${q(s.name)})">Edit…</button><button class="danger" onclick="del('samples',${q(s.name)})">Delete</button></div></div>`).join("")
+    <div class="row"><span class="meta">${(s.bytes / 1024).toFixed(0)} KB</span>${plugOn("editor") ? `<button onclick="sedOpen('samples', ${q(s.name)})">Edit…</button>` : ""}<button class="danger" onclick="del('samples',${q(s.name)})">Delete</button></div></div>`).join("")
     : `<p class="empty">No WAV files yet.</p>`;
   $("firmware").innerHTML = lib.firmware.length ? lib.firmware.map((f) => `<div class="item"><div><div class="name">${esc(f.name)}</div><div class="meta">${when(f.date)}</div></div>
     <div class="row"><button onclick="ask({cmd:'flash', file:${q(f.name)}})">Install…</button><button class="danger" onclick="del('firmware',${q(f.name)})">Delete</button></div></div>`).join("")
@@ -1023,11 +1040,11 @@ function renderLibrary() {
     <div class="meta">${mins(r.seconds)} · ${(r.bytes / 1048576).toFixed(1)} MB${r.clips >= 5 ? ` · <span class="warn" title="The FM-1 clipped before the box got the sound: set its USB to master and turn it down, or lower its track levels">clipped ${r.clips}×</span>` : ""}</div></div>
     <a href="/files/recordings/${encodeURIComponent(r.name)}" download><button>Download</button></a></div>
     <audio controls preload="none" src="/files/recordings/${encodeURIComponent(r.name)}?inline=1"></audio>
-    <div class="row" style="margin-top:6px"><button onclick="sedOpen('recordings', ${q(r.name)})">Edit as sample…</button>
+    <div class="row" style="margin-top:6px">${plugOn("editor") ? `<button onclick="sedOpen('recordings', ${q(r.name)})">Edit as sample…</button>` : ""}
     <button class="danger" onclick="del('recordings',${q(r.name)})">Delete</button></div>
     ${(r.parts || []).length ? `<details style="margin-top:8px"><summary class="meta">Parts: each source on its own (${r.parts.length})</summary>${r.parts.map((p) => `
       <div class="row" style="justify-content:space-between;margin-top:6px"><span class="name">${esc(p.label)}${p.clips >= 5 ? ` <span class="warn">clipped ${p.clips}×</span>` : ""}</span>
-      <div class="row"><button onclick="sedOpen('recordings', ${q(p.name)})">Edit…</button><a href="/files/recordings/${encodeURIComponent(p.name)}" download><button>Download</button></a></div></div>
+      <div class="row">${plugOn("editor") ? `<button onclick="sedOpen('recordings', ${q(p.name)})">Edit…</button>` : ""}<a href="/files/recordings/${encodeURIComponent(p.name)}" download><button>Download</button></a></div></div>
       <audio controls preload="none" src="/files/recordings/${encodeURIComponent(p.name)}?inline=1"></audio>`).join("")}</details>` : ""}</div>`).join("")
     : `<p class="empty">No recordings yet: press Record above, or on the box press on any meter screen.</p>`;
   const pick = $("sed-pick"), was = pick.value;

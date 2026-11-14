@@ -1199,7 +1199,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.usb_set = None                   # (its node id, level) last set: MASTER
         self.usb_loop = Loopback(state["audio_rate"])   # the master copied to it
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
-        self.plugin_host = plugins.Host(self)  # the plug-ins (plugins.py): started in main()
+        self.plugin_host = plugins.Host(self, builtins=plugins.BUILTINS)   # the plug-ins (plugins.py) and the
+                                              # Studio's own optional parts (XO-4, the decks, the editor): main()
         self.cards_sent = None                # the plug-ins' {sound card: name} the MIDI process has
         self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
         self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
@@ -1652,8 +1653,24 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.save_settings()
         self.scan_now = True
 
+    def plugin_on(self, pid):
+        """one of the Studio's own optional parts (plugins.BUILTINS: "xo4", "decks", "editor") switched on?"""
+        return plugins.builtin_on(self.state, pid)
+
+    def restart_app(self):
+        """the Studio app started again (XO-4 switched on or off: its process is forked at the start): the
+        settings saved, then the app's own service restarted, a moment later (never the Pi)"""
+        self.save_settings()
+
+        def later():
+            time.sleep(1.5)
+            run(["systemctl", "--user", "restart", "fm1-bridge.service"], timeout=30)
+        threading.Thread(target=later, daemon=True).start()
+
     def plugins_changed(self):
         """a plug-in switched on or off: its device names to the MIDI process, the sources scanned again"""
+        if self.desk and hasattr(self.desk, "builtins_changed"):
+            self.desk.builtins_changed()
         if self.midi and hasattr(self.midi, "set_names"):
             self.midi.set_names(self.plugin_host.midi_names())
         self.cards_sent = None                # (sent again on the next scan)
@@ -2168,7 +2185,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                     ("usbkeys", "USB keys", str(len(keys)) if keys else "none"),
                     ("routes", "MIDI routes", "›"), ("presets", "Route presets", "›")]
         return [("g_play", "Playing", "›"), ("g_audio", "Audio", "›"), ("g_midi", "MIDI", "›"),
-                ("recording", "Recordings", "›"), ("editor", "Sample editor", "›"), ("sd", "Import SD card", ""),
+                ("recording", "Recordings", "›")] + ([("editor", "Sample editor", "›")] if self.plugin_on("editor")
+                                                      else []) + [("sd", "Import SD card", ""),
                 ("wifi", "Wi-Fi", wifi), ("btdevices", "BT devices", "›")]
 
     def change_setting(self):
@@ -2811,6 +2829,8 @@ def main():
     state["touch_cal"] = list(state["touch_cal"])   # its own list: calibrating changes it in place
     app = App(display, state)
     app.midi, app.box = midi, box
+    if box["build"] != "desk":                # (the Pocket: only its sample editor is its own optional part)
+        app.plugin_host.builtins = ("editor",)
     app.plugin_host.start()                   # the plug-ins switched on (plugins.py)
     app.plugins_changed()
     if midi:

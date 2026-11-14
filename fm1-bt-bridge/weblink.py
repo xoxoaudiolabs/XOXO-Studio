@@ -78,7 +78,8 @@ class WebLink:
             "version": web_version(),         # the Studio's release (deskboot.VERSION): SETTINGS > About
             "theme": web_theme(self.state),   # the screen's theme and the ones there are: SETTINGS > Screen
             "xo4": self.web_xo4(), "kits": self.web_kits(), "decks": self.web_decks(),
-            "plugins": {"list": self.plugin_host.listing(), "status": self.plugin_host.web_status()},
+            "plugins": {"list": self.plugin_host.listing(), "status": self.plugin_host.web_status(),
+                        "builtin": {pid: self.plugin_on(pid) for pid in self.plugin_host.builtins}},
         }
 
     def web_mixer(self):
@@ -279,6 +280,13 @@ class WebLink:
             return self.web_update()
         if cmd == "plugin":                   # a plug-in switched on or off, or one of its own commands
             if "on" in c:
+                m = self.plugin_host.found.get(c["id"], (None, {}))[1]
+                if m.get("restart"):          # (XO-4: the Studio app starts again: held on its screen first)
+                    on = bool(c["on"])
+                    self.ask(f"{m['name']} {'on' if on else 'off'}?", ["The Studio app starts again.",
+                                                                      "Songs and settings stay."],
+                             lambda: self.say(self.plugin_host.set_on(c["id"], on), 3), back="status")
+                    return f"Web: {m['name']}: hold on the Studio's screen"
                 return "Web: " + self.plugin_host.set_on(c["id"], bool(c["on"]))
             text = self.plugin_host.web_command(c["id"], c["name"], c.get("args") or {})
             return text if isinstance(text, str) else None

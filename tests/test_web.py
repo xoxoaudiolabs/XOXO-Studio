@@ -233,6 +233,26 @@ def test_run_and_delete():
     assert jcall("/api/run", {"cmd": "backup"})[0] == 400                # no FM-1 jobs here
 
 
+def test_editor_off():
+    """the sample editor switched off on the Studio (its status: plugins.builtin.editor false): the editor's calls
+    refused; on, or the Studio not answering, they work"""
+    take = library.folder("recordings") / "rec-20261113-101600.wav"
+    write_wav(take, 1.0)
+    library.write_status({"live": True, "plugins": {"builtin": {"editor": False, "decks": True, "xo4": True}}})
+    assert jcall("/api/edit-info?folder=recordings&file=" + take.name)[0] == 403
+    edit = {"folder": "recordings", "file": take.name, "start": 0.1, "end": 0.5, "note": "C3", "name": "x"}
+    status, reply = jcall("/api/save-sample", edit)
+    assert status == 403 and "off" in reply["message"]
+    assert not (library.folder("samples") / "x_C3.wav").exists()
+    page = call("/")[1]
+    assert b'class="editoronly"' in page and b'plugOn("editor")' in page   # (the page hides its parts)
+    library.write_status({"live": True, "plugins": {"builtin": {"editor": True}}})
+    assert jcall("/api/edit-info?folder=recordings&file=" + take.name)[0] == 200
+    library.STATUS.unlink(missing_ok=True)
+    assert jcall("/api/edit-info?folder=recordings&file=" + take.name)[0] == 200
+    take.unlink()
+
+
 if __name__ == "__main__":
     server = setup()
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]

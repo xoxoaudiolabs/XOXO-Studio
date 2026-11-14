@@ -70,15 +70,20 @@ class LibraryScreens:
         """what to do with a recording: play it on the speaker, make a sample of it, open one of its parts (each
         source on its own, with Record parts on), or delete it"""
         parts = library.recording_parts(name)
-        actions = ([("Play", "", "play"), ("Edit as sample ›", "", "edit")]
+        actions = ([("Play", "", "play")] + self.edit_action()
                    + ([("Parts ›", str(len(parts)), "parts")] if parts else []) + [("Delete", "", "delete")])
         self.open_pick(short_date(name), actions, lambda action: self.recording_action(name, action), "")
 
     def pick_part(self, name):
         """a part: play it or make a sample of it (it goes with its take when that's deleted)"""
         label = library.part_label(library.PART.match(name).group(2))
-        self.open_pick(label, [("Play", "", "play"), ("Edit as sample ›", "", "edit")],
+        self.open_pick(label, [("Play", "", "play")] + self.edit_action(),
                        lambda action: self.recording_action(name, action), "", back="pick")
+
+    def edit_action(self):
+        """"Edit as sample": the sample editor's (a built-in plug-in), while it's on"""
+        on = self.plugin_on("editor") if hasattr(self, "plugin_on") else True
+        return [("Edit as sample ›", "", "edit")] if on else []
 
     def recording_action(self, name, action):
         path = library.folder("recordings") / name

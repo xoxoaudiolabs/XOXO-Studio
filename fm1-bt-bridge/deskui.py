@@ -36,6 +36,7 @@ MUTE_COLOUR, SOLO_COLOUR = st.rgb(255, 59, 31), st.rgb(255, 198, 24)   # the mix
 CHARGING = st.rgb(80, 220, 120)                 # the battery's bolt while it charges, in any theme
 TABS = ("HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE")   # (Pat's order, 2026-11-07)
 TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
+PLUGIN_TABS = {"EDITOR": "editor", "DECKS": "decks"}   # tabs of built-in plug-ins (plugins.BUILTINS): gone while off
 FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "PLUGINS": "MORE", "PLUGIN": "MORE", "ABOUT": "MORE",
@@ -473,17 +474,46 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             return f"{a.state['bpm']} BPM"
         return text.replace("follow", "FOLLOW")
 
+    def tabs(self):
+        """the tabs there now: TABS without the built-in plug-ins switched off (EDITOR, DECKS). XO4 is always
+        there: the sequencer's, called SEQ while XO-4 (its synths) is off"""
+        a = self.app
+        return tuple(name for name in TABS if PLUGIN_TABS.get(name) is None or a.plugin_on(PLUGIN_TABS[name]))
+
+    def tab_label(self, name):
+        if name == "XO4" and not self.app.plugin_on("xo4"):
+            return "SEQ"
+        return TAB_LABEL.get(name, name)
+
+    def builtins_changed(self):
+        """a built-in plug-in switched on or off: its tab gone (HOME instead, if it was open), the decks stopped"""
+        a = self.app
+        if not a.plugin_on("decks") and self.decks_proc:
+            self.decks_proc.stop()
+            self.decks_proc = None
+        if self.tab in PLUGIN_TABS and self.tab not in self.tabs():
+            if a.screen == "editor":
+                a.editor_close()
+            a.screen = "status"
+            self.tab = "HOME"
+        if not a.plugin_on("xo4"):
+            self.xo4_sound = False
+            if self.xo4_track in (1, 2):
+                self.xo4_track = 0
+        self.shown = None
+
     def draw_tabs(self, img):
         t, d = self.theme, ImageDraw.Draw(img)
         top = H - TAB_H
         d.rectangle((0, top, W, H), fill=t.bg)                # (whatever a screen drew past its bottom)
         d.line((0, top, W, top), fill=t.c[0])
-        w = W // len(TABS)
+        tabs = self.tabs()
+        w = W // len(tabs)
         lit = PARENT.get(self.tab, self.tab)
-        for i, name in enumerate(TABS):              # the active tab filled in the highlight, the rest its labels
+        for i, name in enumerate(tabs):              # the active tab filled in the highlight, the rest its labels
             box = (i * w, top + 1, (i + 1) * w - 1, H - 1)
             on = name == lit and not self.classic
-            label = TAB_LABEL.get(name, name)
+            label = self.tab_label(name)
             tw, th = st.text_size(label)
             if on:
                 d.rectangle((box[0] + 2, box[1] + 3, box[2] - 2, box[3] - 3), fill=t.hi)
@@ -518,6 +548,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
 
     def open_tab(self, name):
         a = self.app
+        if name in PLUGIN_TABS and not a.plugin_on(PLUGIN_TABS[name]):   # (switched off: HOME)
+            name = "HOME"
         if name in ("XO4", "DECKS"):
             self.bt_warn(name)
         if a.screen == "meter" and name not in METER_TABS:

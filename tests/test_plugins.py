@@ -189,8 +189,38 @@ def test_sound_source_of_its_own():
     assert bridge.pick_nodes(objects, host)[1] == []
 
 
+def test_builtins_on_until_switched_off():
+    """the Studio's own optional parts (XO-4, the decks, the editor): listed with the rest, on at first, switched off
+    and on again (kept); XO-4's switch starts the Studio app again; a folder can't take a built-in's id"""
+    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
+    make(base, "fm1", GOOD)
+    make(base, "decks", GOOD)                                       # (a plug-in folder with a built-in's id)
+    app = App()
+    restarts = []
+    app.restart_app = lambda: restarts.append(True)
+    host = plugins.Host(app, [base], builtins=plugins.BUILTINS)
+    host.start()
+    listed = {p["id"]: p for p in host.listing()}
+    assert set(listed) == {"editor", "decks", "xo4", "fm1"}
+    assert all(listed[b]["on"] and listed[b]["builtin"] for b in plugins.BUILTINS) and not listed["fm1"]["on"]
+    assert listed["decks"]["name"] == "DJ decks"                      # the Studio's, not the folder's
+    assert all(plugins.builtin_on(app.state, b) for b in plugins.BUILTINS)
+    assert plugins.builtin_on({}, "xo4") and plugins.builtin_on({"plugins": {"xo4": {"settings": {}}}}, "xo4")
+    assert host.set_on("editor", False) == "Sample editor off" and not plugins.builtin_on(app.state, "editor")
+    assert "editor" not in host.loaded and not restarts
+    again = plugins.Host(app, [base], builtins=plugins.BUILTINS)    # kept off at the next start
+    again.start()
+    assert "editor" not in again.loaded and "decks" in again.loaded
+    assert again.set_on("editor", True) == "Sample editor on" and plugins.builtin_on(app.state, "editor")
+    assert again.set_on("xo4", False).startswith("XO-4 off") and restarts == [True]
+    assert not plugins.builtin_on(app.state, "xo4") and "xo4" not in again.loaded
+    assert again.set_on("xo4", True).startswith("XO-4 on") and restarts == [True, True]
+    assert again.set_on("xo4", True) == "XO-4 on" and len(restarts) == 2    # (already on: no restart)
+    assert plugins.Host(App(), [base]).builtins == ()                # (none unless the Studio says so)
+
+
 if __name__ == "__main__":
-    tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
+    tests =[(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:
         fn()
         print("ok", name)

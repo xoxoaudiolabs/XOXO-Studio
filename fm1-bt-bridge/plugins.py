@@ -63,6 +63,33 @@ from pathlib import Path
 
 API = 1                                        # the host API this Studio gives plug-ins
 LETTERS = "ABCDEFGH"
+
+# The Studio's own optional parts, listed and switched like any plug-in (MORE > PLUG-INS, the web page) but part
+# of its code: on unless someone switched them off (state["plugins"][id]["on"]), no trust question, nothing to
+# load. The core asks builtin_on(state, id) where each hooks in. "restart": switching it starts the Studio app
+# again (its process is forked before the MIDI process at the start).
+BUILTINS = {
+    "editor": {"name": "Sample editor", "description": "The EDITOR tab: trim, fade, normalize a take or a sample "
+               "into a new sample; the web page's Editor."},
+    "decks": {"name": "DJ decks", "description": "Two decks for the Studio DJ Music folder, with the Hercules "
+              "Inpulse and learnt DJ controllers: the DECKS tab and DECKS in the mixer."},
+    "xo4": {"name": "XO-4", "restart": True,
+            "description": "XO-4's two FM synths on the Studio's sequencer, their sound pages and FX, and live "
+                         "play from a keyboard. Off: the sequencer (SEQ) plays the pads and MIDI."},
+}
+
+
+def builtin_on(state, pid):
+    """a built-in plug-in switched on? (on unless switched off)"""
+    entry = ((state or {}).get("plugins") or {}).get(pid)
+    return not isinstance(entry, dict) or entry.get("on", True) is not False
+
+
+def builtin_manifest(pid):
+    b = BUILTINS[pid]
+    return {"id": pid, "name": b["name"], "version": "built in", "api": API, "author": "XOXO Audio Labs",
+            "license": "GPL-3.0", "entry": None, "description": b["description"], "library": {}, "builtin": True,
+            "restart": bool(b.get("restart"))}
 CARDS = Path("/proc/asound/cards")
 OWN_FOLDERS = ("samples", "recordings", "music")   # the Studio's library folders: not a plug-in's
 
@@ -210,8 +237,8 @@ class Studio:
 class Host:
     """the plug-ins found and those switched on; app: the Studio's App (its state, say, save_settings)"""
 
-    def __init__(self, app, dirs=None):
-        self.app, self.dirs = app, dirs
+    def __init__(self, app, dirs=None, builtins=()):
+        self.app, self.dirs, self.builtins = app, dirs, tuple(builtins)   # builtins: ids from BUILTINS
         self.found, self.loaded, self.errors = {}, {}, {}
 
     # ---- the Studio's side
@@ -225,17 +252,28 @@ class Host:
     def entry(self, pid):
         """state["plugins"][pid]: {"on": bool, "settings": {...}}"""
         plugins = self.app.state.setdefault("plugins", {})
-        return plugins.setdefault(pid, {"on": False, "settings": {}})
+        entry = plugins.setdefault(pid, {"on": pid in self.builtins, "settings": {}})
+        entry.setdefault("on", pid in self.builtins)
+        entry.setdefault("settings", {})
+        return entry
 
     def start(self):
         """find the plug-ins, and run those switched on"""
-        self.found = find(self.dirs)
+        self.found = {pid: (None, builtin_manifest(pid)) for pid in self.builtins}
+        for pid, found in find(self.dirs).items():
+            self.found.setdefault(pid, found)    # (a folder can't take a built-in's id)
         for pid in self.found:
             if self.entry(pid)["on"]:
                 self.load(pid)
 
+    def builtin(self, pid):
+        return pid in self.builtins and pid in self.found
+
     def load(self, pid):
         folder, m = self.found[pid]
+        if m.get("builtin"):                   # the Studio's own: nothing to load, the core asks builtin_on
+            self.loaded[pid] = Studio(self, pid, self.entry(pid)["settings"])
+            return True
         if m["api"] != API:
             self.errors[pid] = f"needs a Studio with plug-in API {m['api']}"
             return False
@@ -256,6 +294,16 @@ class Host:
         """switch a plug-in on or off (kept); -> a message for the screen"""
         if pid not in self.found:
             return "No such plug-in"
+        m = self.found[pid][1]
+        if m.get("restart") and bool(on) != (pid in self.loaded):   # (its process starts with the Studio app)
+            self.entry(pid)["on"] = bool(on)
+            self.save()
+            (self.loaded.__setitem__(pid, Studio(self, pid, self.entry(pid)["settings"])) if on
+             else self.loaded.pop(pid, None))
+            self.app.plugins_changed()
+            if hasattr(self.app, "restart_app"):
+                self.app.restart_app()
+            return f"{m['name']} {'on' if on else 'off'}: the Studio starts again"
         self.entry(pid)["on"] = bool(on)
         self.save()
         name = self.found[pid][1]["name"]

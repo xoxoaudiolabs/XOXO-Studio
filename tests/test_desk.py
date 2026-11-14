@@ -2721,3 +2721,89 @@ def test_pairing_removes_and_scans_only_when_needed(monkeypatch):
     state["info"] = "\tName: AG-04\n\tPaired: yes"                                     # stale: removed, seen again
     bridge.bt_pair("11:FF:27:5A:21:89")
     assert calls.index(["remove", "11:FF:27:5A:21:89"]) < calls.index(["scan"])
+
+
+def desk_with(off=(), tmp=None):
+    """a Studio's screens with some of its built-in plug-ins (plugins.BUILTINS) switched off"""
+    import tempfile
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.restart_app = lambda: None
+    app.plugin_host.dirs = [Path(tmp or tempfile.mkdtemp(prefix="xoxo-noplugins-"))]
+    app.plugin_host.start()
+    ui = deskui.DeskUI(app, app.display)
+    app.desk = ui
+    ui.theme_check = 1e12
+    for pid in off:
+        app.plugin_host.set_on(pid, False)
+    return app, ui
+
+
+def tab_keys(ui):
+    ui.render(0.0, force=True)
+    return [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"]
+
+
+def test_editor_plugin_off():
+    """the sample editor switched off (MORE > PLUG-INS): no EDITOR tab (the bar re-laid with the rest), the tab
+    can't be opened, no TRIM on a pad's page, no "Edit as sample" for a take; back on, all of it again. Its file
+    last edited is kept"""
+    app, ui = desk_with()
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"]
+    app.state["editor_last"] = ["kick_C2.wav", "samples"]
+    app.screen = "status"
+    ui.open_tab("EDITOR")
+    assert ui.tab == "EDITOR" and app.screen == "editor"
+    app.plugin_host.set_on("editor", False)                           # off while it's open: HOME
+    assert ui.tab == "HOME" and app.screen == "status" and app.ed is None
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "DECKS", "MORE"]
+    tabs = [w for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"]
+    assert tabs[-1][0][2] >= 480 - 480 // 7 - 2                     # (seven across the whole width)
+    ui.open_tab("EDITOR")
+    assert ui.tab == "HOME" and app.screen != "editor"
+    assert app.state["editor_last"] == ["kick_C2.wav", "samples"]    # kept
+    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui.tab, ui.pad_edit = "XO4", 0
+    ui.render(0.0, force=True)
+    acts = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "pad-act"]
+    assert acts == ["PLAY", "SAMPLE", "CLEAR"]
+    assert app.edit_action() == []
+    app.plugin_host.set_on("editor", True)
+    ui.render(0.0, force=True)
+    acts = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "pad-act"]
+    assert acts == ["PLAY", "SAMPLE", "TRIM", "CLEAR"] and app.edit_action()
+    ui.tab, ui.pad_edit = "HOME", None
+    assert "EDITOR" in tab_keys(ui)
+
+
+def test_plugins_page_lists_the_builtins():
+    """MORE > PLUG-INS: the Studio's own parts first, PART OF THE STUDIO, a tap switches one off (no trust
+    question); XO-4 asks for a hold first (the app starts again)"""
+    app, ui = desk_with()
+    restarted = []
+    app.restart_app = lambda: restarted.append(True)
+    ui.open_tab("PLUGINS")
+    ui.render(0.0, force=True)
+    keys = [w[3] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "plugin-on"]
+    assert [k[1] for k in keys] == ["editor", "decks", "xo4"]
+
+    def press(key):
+        box = next(w[0] for w in ui.widgets if w[3] == key)
+        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
+        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
+        ui.render(0.0, force=True)
+    press(("plugin-on", "decks"))
+    assert not app.plugin_on("decks") and app.screen == "status"     # off at once, nothing asked
+    assert "DECKS" not in tab_keys(ui)
+    ui.open_tab("PLUGINS")
+    ui.render(0.0, force=True)
+    press(("plugin-on", "decks"))
+    assert app.plugin_on("decks")
+    ui.open_tab("PLUGINS")
+    ui.render(0.0, force=True)
+    press(("plugin-on", "xo4"))
+    assert app.plugin_on("xo4") and not restarted and app.screen == "confirm"   # asked first: nothing yet
+    app.confirm["action"]()
+    assert not app.plugin_on("xo4") and restarted == [True]

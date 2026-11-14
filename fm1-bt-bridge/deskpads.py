@@ -183,8 +183,10 @@ class DeskPads:
         self.button(img, d, (W - 56, HDR_H + 2 * ROW_H + 2, W - 8, HDR_H + 4 * ROW_H - 6), "v",
                     lambda: self.pad_scroll(2), key="pad-down")
         y = H - 92
-        actions = [("PLAY", lambda: self.hit(i, True)), ("SAMPLE", lambda: self.pick_source(i)),
-                   ("TRIM", lambda: self.trim(i)), ("CLEAR", lambda: self.clear_pad(i))]
+        actions = [("PLAY", lambda: self.hit(i, True)), ("SAMPLE", lambda: self.pick_source(i))]
+        if self.app.plugin_on("editor"):                     # (TRIM: the sample editor's, a built-in plug-in)
+            actions.append(("TRIM", lambda: self.trim(i)))
+        actions.append(("CLEAR", lambda: self.clear_pad(i)))
         bw = (W - 16) // len(actions)
         for k, (label, action) in enumerate(actions):
             self.button(img, d, (8 + k * bw, y, 8 + (k + 1) * bw - 6, y + 40), label, action,
