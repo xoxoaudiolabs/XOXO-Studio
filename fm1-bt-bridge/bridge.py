@@ -1666,7 +1666,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
 
         def later():
             time.sleep(1.5)
-            run(["systemctl", "--user", "restart", "fm1-bridge.service"], timeout=30)
+            run(["systemctl", "--user", "--no-block", "restart", "fm1-bridge.service"], timeout=30)   # (queued:
+                                              # this process is the one stopped, it can't wait for the job)
         threading.Thread(target=later, daemon=True).start()
 
     def plugins_changed(self):
