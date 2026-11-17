@@ -12,8 +12,8 @@ import time
 
 import blemidi
 
-SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "XO4": "XO-4", "Box": "Box clock"}
-SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "XO4": "XO-4", "Box": "Clock"}
+SOURCE_NAMES = {"BT": "Bluetooth", "USB": "USB keys", "NET": "Network", "SEQ": "Sequencer", "Box": "Box clock"}
+SHORT_NAMES = {"BT": "BT", "USB": "USB", "NET": "NET", "SEQ": "SEQ", "Box": "Clock"}
 SHORT_DESTS = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
 KEYBOARDS = ("BT", "USB")                               # where a keyboard plays from (and each USB device: U:...)
 VELOCITY = ["normal", "soft", "hard"] + [f"fixed {v}" for v in (40, 64, 80, 100, 127)]
@@ -72,8 +72,8 @@ class MidiScreens:
             hide.add("NET")
         if not getattr(self.midi, "pads", False):          # the sampler: the Studio's
             hide.add("SMP")
-        if not getattr(self.midi, "xo4", False):           # XO-4's MIDI track: the Studio's
-            hide.add("XO4")
+        if not getattr(self.midi, "sequencer", False):           # XO-4's MIDI track: the Studio's
+            hide.add("SEQ")
         sources, dests = blemidi.matrix(self.usb_devices(),       # (the Studio: each USB device, by name; one that
                                         getattr(self.midi, "receive_only", None) or (),   # only receives: a column,
                                         getattr(self.midi, "send_only", None) or ())      # one that only sends: a row)

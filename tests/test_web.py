@@ -14,8 +14,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.append(str(ROOT / "plugins" / "decks"))        # (the DJ decks plug-in's djlib: their music folder)
 TMP = Path(tempfile.mkdtemp(prefix="fm1-web-"))
-os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
+os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"),
+                  XOXO_PLUGINS=str(ROOT / "plugins"))      # (the decks plug-in, as in ~/xoxo-plugins)
 
 import library  # noqa: E402
 import web  # noqa: E402
@@ -164,28 +166,25 @@ def test_status_and_commands():
 
 
 def test_studio_commands():
-    """the Studio tab's commands: XO-4 (pattern, play, MIDI IN, a synth's sound), a kit, the decks' level"""
+    """the Studio tab's commands: the sequencer (pattern, play), a kit (the sampler's), the decks' level"""
     for good in ({"cmd": "xo4", "action": "pattern", "value": "C"}, {"cmd": "xo4", "action": "play"},
-                 {"cmd": "xo4", "action": "midi_in", "value": True},
-                 {"cmd": "xo4", "action": "sound", "track": 2, "value": "BASS"},
                  {"cmd": "kit", "name": "808-KIT"}, {"cmd": "set", "key": "mix_decks", "value": 120}):
         library.write_status({"live": True})
         reply = jcall("/api/command", good)
         assert reply[1]["ok"], (good, reply)
-    for bad in ({"cmd": "xo4", "action": "pattern", "value": "Z"}, {"cmd": "xo4", "action": "midi_in", "value": 1},
-                {"cmd": "xo4", "action": "sound", "track": 3, "value": "BASS"},
-                {"cmd": "xo4", "action": "sound", "track": True, "value": "BASS"},
-                {"cmd": "xo4", "action": "sound", "track": 1, "value": "TUBA"}, {"cmd": "xo4", "action": "erase"},
+    for bad in ({"cmd": "xo4", "action": "pattern", "value": "Z"}, {"cmd": "xo4", "action": "midi_in", "value": True},
+                {"cmd": "xo4", "action": "sound", "track": 2, "value": "BASS"}, {"cmd": "xo4", "action": "erase"},
                 {"cmd": "kit", "name": ""}, {"cmd": "set", "key": "mix_a", "value": 100}):
         library.write_status({"live": True})
         assert jcall("/api/command", bad)[0] == 400, bad
     queued = library.take_commands()
-    assert [c["cmd"] for c in queued] == ["xo4"] * 4 + ["kit", "set"]
+    assert [c["cmd"] for c in queued] == ["xo4"] * 2 + ["kit", "set"]
 
 
 def test_dj_music():
     """the DJ decks' music folder: listed, a track added (streamed to disk), deleted; only audio, only plain names"""
     import djlib
+    library.write_status({"live": True, "plugins": {"builtin": {"decks": True}}})   # (the decks plug-in on)
     status, body, _ = call("/api/upload?folder=music&name=Night%20Drive.mp3", raw=b"ID3" + b"\0" * 4096)
     assert status == 200, body
     assert (djlib.MUSIC / "Night Drive.mp3").stat().st_size == 4099

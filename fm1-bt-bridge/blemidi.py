@@ -12,9 +12,12 @@ the matrix's BT.
 The packet coding (encode / strip_timestamps) is plain Python; the BlueZ side needs python3-dbus
 and python3-gi, the USB side python3-mido and python3-rtmidi.
 """
+import json
+import os
 import re
 import threading
 import time
+from pathlib import Path
 
 import device                           # a computer on the USB-C port (usb_host)
 import iocard                           # the I/O card's DIN jacks
@@ -133,21 +136,39 @@ class MidiStream:
 
 # ---------------------------------------------------------------- USB MIDI
 
-DJ_CONTROLLERS = ("djcontrol",)                # Hercules DJControl: the Studio's DJ decks read it themselves
-_dj_learned = (None, set())
+LIBRARY = Path(os.environ.get("FM1_LIBRARY", Path.home() / "fm1-library"))
+_maps_read = {}                                # a maps file -> (its time, the controllers in it)
 
 
-def dj_learned(name):
-    """a MIDI port the DJ decks have a learnt map for (decks.py's LEARN): theirs, kept off the routes"""
-    global _dj_learned
-    import djlib
+def port_base(name):
+    """a MIDI port's name without ALSA's client:port numbers on its end (they can change from boot to boot)"""
+    return re.sub(r"\s+\d+:\d+$", "", name)
+
+
+def mapped(name, maps):
+    """a MIDI port with a map in a plug-in's maps file (plugin.json "controller_maps", in ~/fm1-library: the DJ
+    decks' learnt controllers): {port name: ...}, read again only when it changes"""
+    path = LIBRARY / maps
     try:
-        stamp = (djlib.MUSIC / djlib.CONTROLLERS).stat().st_mtime
+        stamp = path.stat().st_mtime
     except OSError:
-        stamp = None
-    if stamp != _dj_learned[0]:                # (read again only when the maps change)
-        _dj_learned = (stamp, set(djlib.learned()))
-    return djlib.port_base(name) in _dj_learned[1]
+        return False
+    if _maps_read.get(maps, (None,))[0] != stamp:
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            data = {}
+        _maps_read[maps] = (stamp, set(data) if isinstance(data, dict) else set())
+    return port_base(name) in _maps_read[maps][1]
+
+
+def taken(name, rules):
+    """a MIDI port a plug-in reads itself (rules: [[patterns, maps file]], plugins.taken_controllers): off the
+    routes"""
+    for patterns, maps in rules or []:
+        if any(re.search(pattern, name, re.I) for pattern in patterns) or (maps and mapped(name, maps)):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- BlueZ: GATT server, advertisement, agent
@@ -731,8 +752,9 @@ class UsbControllers:
         self.lock = threading.Lock()
         self.rules = []                     # the plug-ins' [[pattern, name]]: a device they name (plugins.py)
         self.cards = {}                     # the plug-ins' {sound card: name}: a USB device they name by its card
-        self.dj = True                      # the DJ decks on (a built-in plug-in): DJ controllers are theirs. Off:
-                                            # a Hercules or a learnt controller is a MIDI device in the routes
+        self.taken = []                     # the plug-ins' controllers, [[patterns, maps file]]: theirs, off the
+                                            # routes (the DJ decks': a Hercules, a learnt one); without the
+                                            # plug-in, a MIDI device in the routes
 
     def wanted(self, names):
         """mido port names -> {client name: port name} of the controllers among them (a client's first port). The
@@ -750,8 +772,8 @@ class UsbControllers:
             low = name.lower()
             if any(s in low for s in self.SKIP) or ADDRESS.search(name):
                 continue
-            if self.dj and (any(d in low for d in DJ_CONTROLLERS) or dj_learned(name)):   # a DJ controller:
-                continue                               # the decks' (decks.py), not a keyboard
+            if self.taken and taken(name, self.taken):   # a controller a plug-in reads (the DJ decks'): theirs,
+                continue                               # not a keyboard
             if iocard.is_card(name):
                 if iocard.din_port(name):
                     out[iocard.DIN] = name
@@ -849,11 +871,11 @@ class UsbControllers:
 
 # ---------------------------------------------------------------- the MIDI matrix
 
-SOURCES, DESTINATIONS = ("BT", "USB", "NET", "XO4", "Box"), ("BT", "USB", "NET", "SMP")
+SOURCES, DESTINATIONS = ("BT", "USB", "NET", "SEQ", "Box"), ("BT", "USB", "NET", "SMP")
 POCKET_FM1 = re.compile(r"Pocket FM-1 ([A-C])$")   # a linked Pocket's FM-1 on a network MIDI session of its own
                                                      # ("FM-1 Companion Pocket FM-1 A"): a device, as a USB one
 COMPUTER = "COMPUTER"       # a computer on a Pi 4 Studio's USB-C: one more USB MIDI device, by this name
-# XO4: XO-4's MIDI track (xo4.py), on the Studio
+# SEQ: the sequencer's MIDI track (sequencer.py), on the Studio
 # SMP: the Studio's 4x4 sampler (pads.py): notes 36-51 play its 16 pads
 # NET: network MIDI (netmidi.py: a DAW on a computer, such as Kraken), on the desk box
 ROUTES = tuple(f"{s}>{d}" for s in SOURCES for d in DESTINATIONS if s != d)    # "Box": its clock, Start/Stop
@@ -871,7 +893,7 @@ ARP_RATES = {"1/4": 24, "1/8": 12, "1/8T": 8, "1/16": 6}  # clock ticks (24 a qu
 # the keyboards (Bluetooth, USB) and a DAW play the pads, and the box's clock goes out on Bluetooth and the network
 # (the Studio leads: a Pocket linked by Ethernet follows it); the rest is a choice
 OFF_AT_FIRST = ("USB>BT", "BT>USB", "Box>USB", "USB>NET", "BT>NET", "NET>BT", "NET>USB", "Box>SMP",
-                "XO4>BT", "XO4>NET", "XO4>SMP")      # XO-4's MIDI track plays the USB gear
+                "SEQ>BT", "SEQ>NET", "SEQ>SMP")      # XO-4's MIDI track plays the USB gear
 
 
 # The Studio gives each USB MIDI device its own row and column ("U:" + its name: "U:EP-136"), where the Pocket
@@ -1169,13 +1191,11 @@ class MidiBridge:
     """Joins USB MIDI, the BLE MIDI service, network MIDI and the pads through the routes. Status for the screen:
     peer, enabled, pairing_until, activity()."""
 
-    def __init__(self, enabled=True, net=False, pads=None, xo4=None, xo4_notes=None):
+    def __init__(self, enabled=True, net=False, pads=None, sequencer=None, sq_notes=None):
         self.enabled = enabled
-        self.xo4, self.xo4_notes = xo4, xo4_notes   # XO-4 (the Studio): the grid to it, its MIDI track's notes from it
+        self.sequencer, self.sq_notes = sequencer, sq_notes   # XO-4 (the Studio): the grid to it, its MIDI track's notes from it
         self.pads, self.pads_lock = pads, threading.Lock()    # the sampler's pipe (the Studio), notes for its pads
-        self.xo4_in = False                 # XO-4's MIDI IN (its DRUMS row): off, the routes' notes don't play its pads
-        self.xo4_keys = 0                   # ... the track they play: 0 the pads (DRUMS), 1 / 2 XO-4's SYNTH 1 / 2
-        self.xo4_lock = threading.Lock()    # (the grid and the live notes share XO-4's pipe)
+        self.sq_lock = threading.Lock()    # (the grid and the live notes share XO-4's pipe)
         self.net = self.mcu = None            # network MIDI (the desk box): music, and a Mackie Control surface
         self.follow = None                    # Follow Studio: this Studio's link to the one it follows (Invitation)
         if net:
@@ -1266,13 +1286,6 @@ class MidiBridge:
                 if ahead:
                     self.follow.send(ahead)
         elif dest == "SMP":
-            if not self.xo4_in:               # MIDI IN off: only real-time (clock, start, stop) reaches the pads
-                messages = [m for m in messages if m and m[0] >= 0xF8]
-            elif self.xo4_keys in (1, 2):     # a synth picked on XO-4: its notes (and the sustain pedal) to it
-                live = [list(m) for m in messages if live_message(m)]
-                if live:
-                    self.to_xo4(("live", self.xo4_keys, live))
-                messages = [m for m in messages if m and m[0] >= 0xF8]
             if self.pads is not None and messages:
                 with self.pads_lock:
                     try:
@@ -1283,20 +1296,13 @@ class MidiBridge:
             for m in messages:
                 self.to_ble(m)
 
-    def to_xo4(self, msg):
-        if self.xo4 is not None:
-            with self.xo4_lock:
+    def to_sq(self, msg):
+        if self.sequencer is not None:
+            with self.sq_lock:
                 try:
-                    self.xo4.send(msg)
+                    self.sequencer.send(msg)
                 except (BrokenPipeError, OSError):
-                    self.xo4 = None
-
-    def set_xo4_keys(self, on, track):
-        """MIDI IN on or off, and the track it plays; a synth let go of (MIDI IN off, another track): its live
-        notes end"""
-        if self.xo4_keys in (1, 2) and (not on or track != self.xo4_keys):
-            self.to_xo4(("live_off",))
-        self.xo4_in, self.xo4_keys = bool(on), track if track in (0, 1, 2) else 0
+                    self.sequencer = None
 
     def arp_tick(self):
         """a clock tick for the arpeggiators"""
@@ -1321,10 +1327,10 @@ class MidiBridge:
 
         threading.Thread(target=body, daemon=True).start()
         threading.Thread(target=self.clock_loop, daemon=True).start()
-        if self.pads is not None or self.xo4 is not None:
+        if self.pads is not None or self.sequencer is not None:
             threading.Thread(target=self.grid_loop, daemon=True).start()
-        if self.xo4_notes is not None:
-            threading.Thread(target=self.xo4_loop, daemon=True).start()
+        if self.sq_notes is not None:
+            threading.Thread(target=self.sq_loop, daemon=True).start()
         for session in (self.net, self.mcu):
             if session:
                 session.start()
@@ -1388,31 +1394,31 @@ class MidiBridge:
                             self.pads.send(("grid",) + tuple(grid))
                         except (BrokenPipeError, OSError):
                             self.pads = None
-                self.to_xo4(("grid",) + tuple(grid))
-                if self.pads is None and self.xo4 is None:
+                self.to_sq(("grid",) + tuple(grid))
+                if self.pads is None and self.sequencer is None:
                     return
                 sent, sent_at = grid, now
             time.sleep(0.02)
 
-    def xo4_loop(self):
-        """XO-4's MIDI track: ("xo4", [(time, MIDI bytes)]) arrives LOOKAHEAD early; each goes out through the
+    def sq_loop(self):
+        """XO-4's MIDI track: ("seq", [(time, MIDI bytes)]) arrives LOOKAHEAD early; each goes out through the
         routes (source XO4) when its time comes"""
         import heapq
         waiting = []
         while True:
             wait = max(0.0, waiting[0][0] - time.monotonic()) if waiting else 1.0
             try:
-                ready = self.xo4_notes.poll(wait)
-                msg = self.xo4_notes.recv() if ready else None
+                ready = self.sq_notes.poll(wait)
+                msg = self.sq_notes.recv() if ready else None
             except (EOFError, OSError):
                 return
-            if msg and msg[0] == "xo4":
+            if msg and msg[0] == "seq":
                 for n, (t, message) in enumerate(msg[1]):
                     heapq.heappush(waiting, (float(t), n, bytes(message)))
             now = time.monotonic()
             while waiting and waiting[0][0] <= now:
                 _, _, message = heapq.heappop(waiting)
-                self.route_from("XO4", message)
+                self.route_from("SEQ", message)
 
     def transport(self, command):
         """Start or Stop out to everything"""
@@ -1566,7 +1572,7 @@ class MidiBridge:
 
     def source_label(self, source):
         """a track's name: a USB keyboard's own name, Bluetooth MIDI, Network MIDI"""
-        return {"BT": "Bluetooth MIDI", "NET": "Network MIDI", "XO4": "XO-4",
+        return {"BT": "Bluetooth MIDI", "NET": "Network MIDI", "SEQ": "Sequencer",
                 "USB": "USB keys"}.get(source) or self.source_names.get(source) or source
 
     # USB devices -> their routes; called on rtmidi's thread
@@ -1694,12 +1700,12 @@ class MidiBridge:
 
 # ---------------------------------------------------------------- in a process of its own
 
-def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
+def run_child(conn, enabled, net=False, pads=None, sequencer=None, sq_notes=None):
     """The MIDI process: MidiBridge, sending its status up the pipe when it changes and taking
     ("enabled", bool) and ("pair",) commands. Exits when the app's end of the pipe closes."""
     import os
     import metronome
-    bridge = MidiBridge(enabled, net, pads, xo4, xo4_notes)
+    bridge = MidiBridge(enabled, net, pads, sequencer, sq_notes)
     bridge.start()
     metro = metronome.Metronome(lambda: bridge.clock_status(time.monotonic()), on_start=make_realtime)
     wanted = [False, None, "mid", 48000]    # the metronome: on, the speaker, the click's level, the rate
@@ -1720,10 +1726,8 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
                 bridge.transport(command[1])
             elif command[0] == "routes":           # ("routes", {route key: settings})
                 bridge.set_routes(command[1])
-            elif command[0] == "xo4_in":           # ("xo4_in", on[, track]): XO-4's MIDI IN, the track it plays
-                bridge.set_xo4_keys(command[1], command[2] if len(command) > 2 else bridge.xo4_keys)
-            elif command[0] == "dj":               # ("dj", on): the DJ decks on: DJ controllers kept off the routes
-                bridge.controllers.dj = bool(command[1])
+            elif command[0] == "taken":            # ("taken", [[patterns, maps file]]): controllers the plug-ins read
+                bridge.controllers.taken = [[[str(x) for x in pats], maps and str(maps)] for pats, maps in command[1]]
             elif command[0] == "names":            # ("names", [[pattern, name]]): devices the plug-ins name
                 bridge.controllers.rules = [[str(p), str(n)] for p, n in command[1]]
             elif command[0] == "cards":            # ("cards", [[card, name]]): USB devices the plug-ins name by card
@@ -1776,7 +1780,7 @@ def run_child(conn, enabled, net=False, pads=None, xo4=None, xo4_notes=None):
         status["notes"], status["chans"] = bridge.notes_status(now)
         status.update(bridge.net_status())
         status["pads"] = bridge.pads is not None
-        status["xo4"] = bridge.xo4 is not None
+        status["sequencer"] = bridge.sequencer is not None
         status["split"] = bridge.split
         status["mmc"] = list(bridge.mmc)
         status.update(ble_keys=bridge.keyboard_list() if bridge.ble_loaded else None, ble_found=bridge.ble_found,
@@ -1840,14 +1844,14 @@ class MidiProcess:
     one thread at a time, and drawing a screen frame takes ~75 ms on a Zero W: in the app's process
     that held notes back, unevenly. In its own process the kernel switches to it as a note arrives."""
 
-    def __init__(self, enabled=True, net=False, pads=None, xo4=None, xo4_notes=None):
+    def __init__(self, enabled=True, net=False, pads=None, sequencer=None, sq_notes=None):
         import multiprocessing
         ctx = multiprocessing.get_context("fork")
         self.conn, child = ctx.Pipe()
-        self.proc = ctx.Process(target=run_child, args=(child, enabled, net, pads, xo4, xo4_notes), daemon=True,
+        self.proc = ctx.Process(target=run_child, args=(child, enabled, net, pads, sequencer, sq_notes), daemon=True,
                                 name="fm1-midi")
         self.pads = pads is not None          # the Studio's sampler takes notes (the routes' SMP)
-        self.xo4 = xo4 is not None            # XO-4's MIDI track plays through the routes (their XO4)
+        self.sequencer = sequencer is not None            # XO-4's MIDI track plays through the routes (their XO4)
         self.net, self.mcu = [], None        # network MIDI: computers connected; the control surface's state
         self.net_hosts = {}                  # their addresses, by name
         self.follows = self.follow_address = self.follow_error = None   # Follow Studio: the one it follows
@@ -1939,13 +1943,10 @@ class MidiProcess:
     def set_routes(self, routes):
         self.send_command(("routes", routes))
 
-    def set_xo4_in(self, on, track=0):
-        """XO-4's MIDI IN: on, the routes' SMP notes play the pads (track 0) or SYNTH 1 / 2 (1, 2)"""
-        self.send_command(("xo4_in", bool(on), int(track)))
-
-    def set_dj(self, on):
-        """the DJ decks (a built-in plug-in) on: DJ controllers are theirs; off: MIDI devices in the routes"""
-        self.send_command(("dj", bool(on)))
+    def set_taken(self, rules):
+        """the MIDI controllers the plug-ins switched on read themselves (plugins.taken_controllers): off the
+        routes; once a plug-in is off, MIDI devices in them"""
+        self.send_command(("taken", [[list(p), m] for p, m in rules]))
 
     def set_names(self, rules):
         """the plug-ins' MIDI device names (plugins.Host.midi_names)"""

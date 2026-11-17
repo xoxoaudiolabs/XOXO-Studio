@@ -8,7 +8,8 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
 
 import blemidi  # noqa: E402
 
@@ -51,7 +52,6 @@ class FakePads:
 
 def make_bridge():
     bridge = blemidi.MidiBridge(pads=FakePads())
-    bridge.xo4_in = True                       # XO-4's MIDI IN on: the routes' SMP column reaches the pads
     bridge.controllers = FakeControllers()
     bridge.to_ble_sent = []
     bridge.to_ble = bridge.to_ble_sent.append
@@ -113,7 +113,6 @@ def test_several_bluetooth_devices():
     """Phones connect to the box and the box connects to keyboards, several at once: each sender keeps its own
     running status, and what goes out to BT reaches every one of them."""
     bridge = blemidi.MidiBridge(pads=FakePads())
-    bridge.xo4_in = True
     notified, written = [], []
     connected = [("/hci0/dev_AA", "iPad", "AA:00:00:00:00:01"), ("/hci0/dev_BB", "microKEY", "BB:00:00:00:00:02")]
     bridge.bluez = {"idle_add": lambda f: f(), "connected_peers": lambda: connected,
@@ -410,11 +409,15 @@ def test_usb_midi_devices():
 def test_dj_controllers_free_with_the_decks_off():
     """a Hercules is the DJ decks' (off the routes) while they're on; switched off (MORE > PLUG-INS), it's a MIDI
     device in the routes like any other"""
+    import plugins
     controllers = blemidi.UsbControllers(lambda message, name=None: None)
     herc = "DJControl Inpulse 200 MK2:DJControl Inpulse 200 MK2 MIDI 1 24:0"
-    assert controllers.dj and "DJControl Inpulse 200 MK2" not in controllers.wanted(PORTS + [herc])
-    controllers.dj = False
-    assert controllers.wanted(PORTS + [herc])["DJControl Inpulse 200 MK2"] == herc
+    on = {"plugins": {"decks": {"on": True}}}
+    controllers.taken = plugins.taken_controllers(on, dirs=[ROOT / "plugins"])   # (the decks plug-in's manifest)
+    assert controllers.taken[0][0] == ["djcontrol"]
+    assert "DJControl Inpulse 200 MK2" not in controllers.wanted(PORTS + [herc])
+    controllers.taken = plugins.taken_controllers({}, dirs=[ROOT / "plugins"])  # (off until switched on)
+    assert controllers.taken == [] and controllers.wanted(PORTS + [herc])["DJControl Inpulse 200 MK2"] == herc
 
 
 def test_usb_keys_play_the_pads():
@@ -438,47 +441,12 @@ def test_usb_keys_play_the_pads():
     assert {k for k, r in blemidi.default_routes().items() if not r["on"]} == set(blemidi.OFF_AT_FIRST)
 
 
-def test_xo4_midi_in_off():
-    """XO-4's MIDI IN off (as it starts): a synth's notes on the routes don't play the pads; real-time still does"""
-    assert blemidi.MidiBridge(pads=FakePads()).xo4_in is False
+def test_smp_notes_all_go_to_the_pads():
+    """the routes' SMP column: every note and the real-time go to the pads' process (the sampler plug-in's: its MIDI
+    IN decides what plays)"""
     bridge = make_bridge()
-    bridge.xo4_in = False
-    bridge.from_controllers(b"\x90\x3c\x40")
-    bridge.deliver("USB>SMP", [b"\xf8", b"\x80\x3c\x00"])
-    assert bridge.pads.sent == [b"\xf8"]
-    bridge.xo4_in = True
-    bridge.from_controllers(b"\x90\x3c\x40")
-    assert bridge.pads.sent == [b"\xf8", b"\x90\x3c\x40"]
-
-
-def test_xo4_keys_play_a_synth():
-    """MIDI IN on with a synth picked on XO-4: a keyboard's notes and pedal go to XO-4 for that synth, not the
-    pads (real-time still reaches them); back on DRUMS (or MIDI IN off) the synth's live notes are let go"""
-    class FakeXO4:
-        def __init__(self):
-            self.sent = []
-
-        def send(self, msg):
-            self.sent.append(msg)
-    bridge = make_bridge()
-    bridge.xo4 = FakeXO4()
-    bridge.set_xo4_keys(True, 2)
-    bridge.from_controllers(bytes([0x90, 0x3c, 0x40]))
-    bridge.deliver("USB>SMP", [bytes([0xf8]), bytes([0xb0, 0x40, 0x7f]), bytes([0xb0, 0x07, 0x64]),
-                               bytes([0x80, 0x3c, 0x00])])
-    assert bridge.pads.sent == [bytes([0xf8])]
-    assert bridge.xo4.sent == [("live", 2, [[0x90, 0x3c, 0x40]]),
-                               ("live", 2, [[0xb0, 0x40, 0x7f], [0x80, 0x3c, 0x00]])]   # CC 7: not the synth's
-    bridge.deliver("USB>SMP", [bytes([0xe0, 0x00, 0x60]), bytes([0xb0, 0x01, 0x40])])     # the pitch, mod wheels
-    assert bridge.xo4.sent[-1] == ("live", 2, [[0xe0, 0x00, 0x60], [0xb0, 0x01, 0x40]])
-    assert bridge.pads.sent == [bytes([0xf8])]
-    bridge.set_xo4_keys(True, 0)
-    assert bridge.xo4.sent[-1] == ("live_off",)
-    bridge.from_controllers(bytes([0x90, 0x24, 0x40]))
-    assert bridge.pads.sent == [bytes([0xf8]), bytes([0x90, 0x24, 0x40])]
-    bridge.set_xo4_keys(True, 1)
-    bridge.set_xo4_keys(False, 1)
-    assert bridge.xo4.sent[-1] == ("live_off",) and bridge.xo4_in is False
+    bridge.deliver("USB>SMP", [bytes([0xf8]), bytes([0x90, 0x3c, 0x40])])
+    assert bridge.pads.sent == [bytes([0xf8]), bytes([0x90, 0x3c, 0x40])]
 
 
 def test_a_computer_on_usb_c():

@@ -1,6 +1,6 @@
 """The Studio's DECKS screen: two DJ decks (decks.py, run as a program of its own: DeckProcess) by touch, and what
-the Hercules DJControl Inpulse 200 MK2 plays on them shown. Mixed into deskui.DeskUI; opened from the DECKS tab
-(full screen: the music list needs the height the tab bar takes).
+the Hercules DJControl Inpulse 200 MK2 plays on them shown. The DJ decks plug-in's tab (plugin.py: add_tab), drawn
+with the Studio's widgets (deskplugins.Tab); full screen: the music list needs the height the tab bar takes.
 
 Each deck: its track (title, artist), its BPM as it plays, its key (and Camelot), the time left, the tempo, SYNC /
 LOOP; its overview (the whole track, where it's at, a loop, its hot cues: a line in the cue's colour with its pad's
@@ -13,6 +13,7 @@ in: shown; the button at the top goes between them): title, BPM, Camelot key, th
 import json
 
 import xoxostyle as st
+from deskplugins import Tab
 
 W, H, HDR_H = 480, 320, 34
 DECK_W = 240
@@ -31,9 +32,12 @@ def fit(text, width):
     return text if len(text) <= room else text[:room - 1] + "~"
 
 
-class DeskDecks:
-    def decks_init(self):
-        self.decks_proc = None                  # decks.DeckProcess, once the DECKS tab has been opened
+class DecksTab(Tab):
+    what = "the decks"                          # (a tab that plays: the Pi Bluetooth warning names it)
+
+    def __init__(self, ui, studio):
+        super().__init__(ui, studio)
+        self.proc = None                        # decks.DeckProcess, once the DECKS tab has been opened
         self.decks_top = 0                      # the list's first row shown
         self.decks_full = None                  # the deck whose overview fills the screen
         self.decks_down = None                  # (deck, x where the finger came down, dragging)
@@ -41,34 +45,35 @@ class DeskDecks:
         self.decks_learn = False                # LEARN: the controllers' list (then the decks' own learn pages)
         self.decks_learn_top = 0                # a map's list: its first row shown
 
-    def open_decks(self):
-        """the DECKS tab: the decks started (once) and their screen shown (not while they're switched off: HOME)"""
-        if not self.app.plugin_on("decks"):
-            self.open_tab("HOME")
-            return
+    def running(self):
+        return bool(self.proc and self.proc.running())
+
+    def opened(self):
+        """the DECKS tab: the decks started (once) and their screen shown"""
         import decks
-        if self.decks_proc is None:
-            self.decks_proc = decks.DeckProcess(on_change=self.decks_changed,   # (SYNC follows XO-4's clock)
-                                                clock=lambda: (getattr(self.app.midi, "clock", None) or {}).get("grid"))
-        self.decks_proc.start()
-        self.decks_proc.send("output", self.app.state.get("decks_out", "studio"))
-        self.tab = "DECKS"
+        if self.proc is None:
+            self.proc = decks.DeckProcess(on_change=self.studio.redraw,     # (SYNC follows the Studio's clock)
+                                          clock=self.studio.clock)
+        self.proc.start()
+        self.proc.send("output", self.studio.settings.get("out", "studio"))
         self.decks_full = None                  # (the deck screen, not a waveform left full screen last time)
         self.decks_learn = False
-        self.shown = None
+        return True
 
-    def decks_changed(self):
-        if self.tab == "DECKS":                 # (another screen: nothing to redraw)
-            self.app.post("decks")
+    def stop(self):
+        """switched off: the decks' program stopped"""
+        if self.proc:
+            self.proc.stop()
+            self.proc = None
 
     def decks_off(self):
-        if self.decks_proc:
-            self.decks_proc.stop()
+        if self.proc:
+            self.proc.stop()
         self.decks_full = None
-        self.open_tab("HOME")
+        self.home()
 
-    def decks_view(self):
-        p = self.decks_proc
+    def view(self, now):
+        p = self.proc
         if not p:
             return ()
         s = p.status or {}
@@ -80,8 +85,8 @@ class DeskDecks:
                 self.decks_top, p.running(), len(p.overviews[0]), len(p.overviews[1]), p.note, self.decks_full,
                 json.dumps(s.get("learn")), json.dumps(s.get("ports")), self.decks_learn, self.decks_learn_top)
 
-    def draw_decks(self, img, d, now):
-        t, p = self.theme, self.decks_proc
+    def draw(self, img, d, now):
+        t, p = self.theme, self.proc
         s = (p and p.status) or {}
         if self.decks_full is not None and p and p.running():
             self.draw_deck_full(img, d, self.decks_full, (s.get("decks") or [{}, {}])[self.decks_full],
@@ -90,7 +95,7 @@ class DeskDecks:
         if p and p.running() and (self.decks_learn or s.get("learn")):
             self.draw_learn(img, d, s, p)
             return
-        self.button(img, d, (4, 4, 84, HDR_H - 4), "< HOME", lambda: self.open_tab("HOME"), key="decks-home")
+        self.button(img, d, (4, 4, 84, HDR_H - 4), "< HOME", self.home, key="decks-home")
         source = s.get("source") or "STUDIO"
         label = f"USB: {source}" if s.get("usb") else "STUDIO MUSIC"
         self.button(img, d, (90, 4, 224, HDR_H - 4), fit(label, 112) + (" >" if (s.get("sources") or 1) > 1 else ""),
@@ -98,7 +103,7 @@ class DeskDecks:
         self.button(img, d, (230, 4, 294, HDR_H - 4), "LEARN", self.learn_open, key="decks-learn")
         if p and p.note and p.note_n != self.decks_noted:   # a USB drive in or out, no Hercules
             self.decks_noted = p.note_n
-            self.app.say(p.note, 3)
+            self.studio.say(p.note, 3)
         scanning = s.get("scanning")
         self.button(img, d, (300, 4, 386, HDR_H - 4), f"SCAN {scanning}" if scanning else "SCAN",
                     lambda: p and p.send("scan"), on=bool(scanning), key="decks-scan")
@@ -118,7 +123,7 @@ class DeskDecks:
         self.draw_deck_list(img, d, s, p)
 
     def draw_deck(self, img, d, i, deck, overview):
-        t, p = self.theme, self.decks_proc
+        t, p = self.theme, self.proc
         x0 = i * DECK_W
         colour = t.track[i]
         if i:
@@ -136,7 +141,7 @@ class DeskDecks:
         st.text(img, (x0 + 170, HDR_H + 38), f"{pitch:+.1f}%", t.c[3])
         left = (deck.get("len") or 0) - (deck.get("pos") or 0)
         st.text(img, (x0 + 170, HDR_H + 54), f"-{clock(left)}", t.hi)
-        badges = [n for n, on in (("SYNC XO-4" if deck.get("to_clock") else "SYNC", deck.get("synced")),
+        badges = [n for n, on in (("SYNC SEQ" if deck.get("to_clock") else "SYNC", deck.get("synced")),
                                   ("LOOP", deck.get("loop"))) if on]
         st.text(img, (x0 + 6, HDR_H + 72), " ".join(badges), colour)
         # the overview: the whole track, where it's at, its cues and loop; drag along it to go there, tap it for
@@ -167,7 +172,7 @@ class DeskDecks:
     def draw_overview(self, img, d, i, deck, overview, box, tags):
         """deck i's overview in box (x, y, width, height): the whole track, the part played in its colour, where it's
         at, its loop and hot cues; tags: each cue's pad number is tapped to go there, held to delete the cue"""
-        t, p = self.theme, self.decks_proc
+        t, p = self.theme, self.proc
         colour = t.track[i]
         ox, oy, ow, oh = box
         d.rectangle((ox, oy, ox + ow, oy + oh), fill=t.grey[0])
@@ -207,7 +212,7 @@ class DeskDecks:
         _i, x0, dragging = self.decks_down
         if phase == "move" and (dragging or abs(x - x0) >= SCRUB):
             self.decks_down = (i, x0, True)
-            self.decks_proc.send("seek", i, max(0.0, min(1.0, (x - ox) / ow)))
+            self.proc.send("seek", i, max(0.0, min(1.0, (x - ox) / ow)))
         elif phase == "up":
             self.decks_down = None
             if not dragging:
@@ -373,6 +378,6 @@ class DeskDecks:
         self.decks_learn_top = max(0, self.decks_learn_top + step)
 
     def decks_page(self, step):
-        p = self.decks_proc
+        p = self.proc
         if p and p.status:
             p.send("select", max(0, min(len(p.library) - 1, (p.status.get("cursor") or 0) + step)))

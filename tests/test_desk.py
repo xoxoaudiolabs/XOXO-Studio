@@ -8,14 +8,31 @@ import time
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "fm1-bt-bridge"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
+sys.path.append(str(ROOT / "plugins" / "decks"))    # the DJ decks plug-in's modules (decks, deskdecks)
+sys.path.append(str(ROOT / "plugins" / "sampler"))  # the sampler plug-in's (pads, padkit, deskpads)
 
 from PIL import Image, ImageDraw  # noqa: E402
 
 import desk  # noqa: E402
 import device  # noqa: E402
+import sequencer  # noqa: E402
 
 PI3 = "Raspberry Pi 3 Model B Plus Rev 1.3"
+
+
+def studio_app(state=None):
+    """bridge.App with the plug-ins in the Studio's repository (plugins/: the editor, the decks, XO-4's synths)
+    found as in ~/xoxo-plugins, switched on, and started, as main() does"""
+    import bridge
+    import copy
+    app = bridge.App(RgbCapture(), state or copy.deepcopy(bridge.DEFAULTS))   # (its own plug-ins' settings)
+    app.save_settings = lambda: None
+    app.plugin_host.dirs = [ROOT / "plugins"]
+    app.state["plugins"] = {pid: {"on": True, "settings": {}} for pid in ("sampler", "editor", "decks")}   # (on)
+    app.plugin_host.start()
+    return app
 ZERO = "Raspberry Pi Zero W Rev 1.1"
 TFT = ("/dev/fb1", 480, 320)
 
@@ -277,10 +294,11 @@ def test_decks_screen():
 
         def send(self, *cmd):
             sent.append(cmd)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
-    ui.decks_proc, ui.tab = Decks(), "DECKS"
+    tab = ui.plugin_tab("DECKS")                           # the DJ decks plug-in's tab (plugins/decks)
+    tab.proc, ui.tab = Decks(), "DECKS"
     ui.render(0.0, force=True)
     keys = {w[3]: w for w in ui.widgets}
     assert ("tab", "HOME") not in keys                     # full screen: no tab bar
@@ -308,23 +326,23 @@ def test_decks_screen():
     ui.touch("up", (box[0] + box[2]) // 2, box[1] + 6, 0.1)
     assert sent[:5] == [("play", 0), ("select", 1), ("load", 1), ("cue", 1, True), ("cue", 1, False)]
     assert sent[5][:2] == ("seek", 0) and 0.45 < sent[5][2] < 0.55 and len(sent) == 6
-    assert ui.decks_full is None
+    assert tab.decks_full is None
     ui.touch("down", box[0] + 40, box[1] + 6, 0.0)          # tapped (a resistive screen's wobble): full screen
     ui.touch("move", box[0] + 42, box[1] + 7, 0.05)
     ui.touch("up", box[0] + 42, box[1] + 7, 0.1)
-    assert ui.decks_full == 0 and len(sent) == 6
+    assert tab.decks_full == 0 and len(sent) == 6
     ui.render(1.0, force=True)
     keys = {w[3]: w for w in ui.widgets}
     assert list(keys) == ["decks-full"]                     # nothing else on it: any tap goes back
     tap("decks-full")
-    assert ui.decks_full is None
-    ui.decks_full = 0                                       # left full screen: the decks open on their screen
-    ui.open_decks()
-    assert ui.decks_full is None and ui.tab == "DECKS"
+    assert tab.decks_full is None
+    tab.decks_full = 0                                      # left full screen: the decks open on their screen
+    ui.open_tab("DECKS")
+    assert tab.decks_full is None and ui.tab == "DECKS"
     said, say_was = [], ui.app.say
     ui.app.say = lambda text, seconds=3: said.append(text)
     for n in (1, 1, 2):                                     # a note popped up once, the same note again too
-        ui.decks_proc.note, ui.decks_proc.note_n = "USB drive Zine: 37 tracks", n
+        tab.proc.note, tab.proc.note_n = "USB drive Zine: 37 tracks", n
         ui.render(1.5 + n, force=True)
     ui.app.say = say_was
     assert said == ["USB drive Zine: 37 tracks"] * 2
@@ -360,10 +378,11 @@ def test_decks_learn_screens():
 
         def send(self, *cmd):
             sent.append(cmd)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
-    ui.decks_proc, ui.tab = Decks(), "DECKS"
+    tab = ui.plugin_tab("DECKS")
+    tab.proc, ui.tab = Decks(), "DECKS"
     now = [0.0]
 
     def tap(key, hold=0.1):
@@ -375,7 +394,7 @@ def test_decks_learn_screens():
         ui.touch("up", box[0] + 2, box[1] + 2, now[0] + hold)
         now[0] += 1 + hold
     tap("decks-learn")
-    assert ui.decks_learn
+    assert tab.decks_learn
     tap(("learn-port", "K.O. Sidekick:K.O. Sidekick MIDI 1"))       # no map: learning starts
     tap(("learn-port", "DJControl Inpulse 200 MK2:DJControl Inpulse 200 MK2 MIDI 1"))   # built in: its list
     assert sent == [("learn", "K.O. Sidekick:K.O. Sidekick MIDI 1", True),
@@ -396,7 +415,7 @@ def test_decks_learn_screens():
     assert len(rows) == 9
     tap(("learn-row", 3))                                           # the 4th control: A's PLAY
     tap("learn-down")
-    assert ui.decks_learn_top == 9
+    assert tab.decks_learn_top == 9
     tap("learn-all")
     tap("learn-forget", hold=deskui.HOLD + 0.1)
     tap("learn-back")
@@ -423,8 +442,7 @@ def test_decks_in_the_mixer():
 
         def send(self, *cmd):
             sent.append(cmd)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
+    app = studio_app()
     app.jack = {"id": 9, "name": "alsa_output.bcm2835", "label": "PHONES"}
     ui = deskui.DeskUI(app, app.display)
     app.desk = ui
@@ -433,8 +451,8 @@ def test_decks_in_the_mixer():
     ui.open_tab("MIX")
     ui.render(0.0, force=True)
     assert not any(w[3] == ("slide", "decks") for w in ui.widgets)   # not running: no channel
-    ui.decks_proc = Decks()
-    ui.open_decks()
+    ui.plugin_tab("DECKS").proc = Decks()
+    ui.open_tab("DECKS")
     assert sent[-1] == ("output", "studio")
     ui.open_tab("MIX")
     ui.render(1.0, force=True)
@@ -443,11 +461,11 @@ def test_decks_in_the_mixer():
     keys[("cue", "decks")][2]()
     assert "decks" in app.state["cues"]
     app.screen, app.settings_menu = "settings", "audio"
-    row = next(i for i, r in enumerate(app.settings_rows()) if r[0] == "decks_out")
+    row = next(i for i, r in enumerate(app.settings_rows()) if r[1] == "DJ decks out")   # (the plug-in's row)
     assert app.settings_rows()[row][2] == "studio"
     app.setting = row
     app.change_setting()
-    assert app.state["decks_out"] == "hercules" and sent[-1] == ("output", "hercules")
+    assert app.state["plugins"]["decks"]["settings"]["out"] == "hercules" and sent[-1] == ("output", "hercules")
     app.screen = "status"
     app.sink, app.others = {"id": 2, "name": "bluez_output.jbl", "label": "JBL"}, [{"id": 1, "name": "usb-in"}]
     assert app.capture_target() == "monitor:bluez_output.jbl"       # one source: what the speaker plays
@@ -618,12 +636,11 @@ def test_tab_bar():
     meters open from MIXER and the DAW from MIDI, each with a back button, their tab lit under them"""
     import bridge
     import deskui
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
+    app = studio_app()
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
     ui.render(0.0, force=True)
-    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"] and deskui.TAB_LABEL["XO4"] == "XO-4"
+    assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"] ==         ["HOME", "MIX", "MIDI", "REC", "SEQ", "PADS", "EDITOR", "DECKS", "MORE"] and ui.tab_label("SEQ") == "SEQ"
     assert "PADS" not in deskui.TABS and "PADS" not in deskui.TAB_LABEL               # the pads: in XO-4's DRUMS
 
     def press(key):
@@ -648,7 +665,7 @@ def test_tab_bar():
     press("rec-takes")
     assert app.screen == "pick" or app.message == "No recordings yet"   # the takes (a Studio page), or none
     assert "RECORDINGS" not in [m[0] for m in deskui.MORE]
-    for tab in ("REC", "EDITOR", "XO4"):                            # RECORD, EDITOR and XO-4: full screen, as DECKS
+    for tab in ("REC", "EDITOR", "SEQ"):                            # RECORD, EDITOR and XO-4: full screen, as DECKS
         app.screen = "status"
         ui.open_tab(tab)
         ui.render(0.0, force=True)
@@ -657,7 +674,7 @@ def test_tab_bar():
     ui.open_tab("HOME")
     ui.render(0.0, force=True)
     opened = []
-    ui.open_decks = lambda: opened.append(True) or setattr(ui, "tab", "DECKS")   # (no decks program here)
+    ui.plugin_tab("DECKS").opened = lambda: opened.append(True)     # (no decks program here)
     press(("tab", "DECKS"))                                          # the DJ decks: a tab, no longer in MORE
     assert opened and ui.tab == "DECKS" and "DJ DECKS" not in [m[0] for m in deskui.MORE]
     app.pads = None
@@ -669,7 +686,7 @@ def test_tab_bar():
         assert box[0] < 10 and box[2] <= 70, (tab, box)
         press("home")
         assert ui.tab == "HOME", tab
-    for tab, key in (("EDITOR", "ed-back"), ("XO4", "xo4-home")):    # the full screens' own < HOME
+    for tab, key in (("EDITOR", "ed-back"), ("SEQ", "seq-home")):    # the full screens' own < HOME
         app.screen = "status"
         ui.open_tab(tab)
         ui.render(0.0, force=True)
@@ -695,15 +712,14 @@ def test_four_usb_devices():
                node(12, "SMK-37+VA", "alsa_input.usb-SMK"), node(13, "Scarlett 2i2", "alsa_input.usb-Focusrite"),
                {"type": "PipeWire:Interface:Node", "id": 14, "info": {"props": {
                    "media.class": "Audio/Source", "node.name": "fm1-xo4"}}}]
-    sink, others = bridge.pick_nodes(objects)
+    app = studio_app()                                               # (the sampler on: its PADS)
+    sink, others = bridge.pick_nodes(objects, app.plugin_host)
     assert sink is None and len(others) == 5
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
     app.others = others
     keys = [k for k, _ in app.mix_channels()]
     assert len(set(keys)) == 5
     names = [app.channel_name(k) for k in keys]
-    assert names[:2] == ["EP-136", "EP-136 #2"] and "SCARLETT 2" in names[3] and names[4] == "XO-4"
+    assert names[:2] == ["EP-136", "EP-136 #2"] and "SCARLETT 2" in names[3] and names[4] == "PADS"
     assert len(meters.PARTS_MAP) // 2 >= len(keys)                    # Record parts: room for every source
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
@@ -783,7 +799,7 @@ def test_each_usb_midi_device_its_own_route():
     import deskui
     assert blemidi.route_default("U:EP-136>SMP")["on"] and not blemidi.route_default("Box>U:EP-136")["on"]
     assert not blemidi.route_default("U:Clipper>U:EP-136")["on"]               # device to device: off at first
-    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "XO4", "Box")
+    assert blemidi.matrix(["Clipper", "EP-136"])[0] == ("BT", "U:Clipper", "U:EP-136", "NET", "SEQ", "Box")
     assert blemidi.matrix()[0] == blemidi.SOURCES                               # the Pocket: USB, as one
     cleaned = blemidi.clean_routes({"U:EP-136>SMP": {"on": False}})
     assert cleaned["U:EP-136>SMP"]["on"] is False and "BT>SMP" in cleaned
@@ -801,7 +817,7 @@ def test_each_usb_midi_device_its_own_route():
         def send(self, msg):
             self.sent.extend(msg[1])
     b = blemidi.MidiBridge(net=True, pads=Pads())                              # the MIDI process, the Studio's
-    b.xo4_in = True                                                            # (XO-4's MIDI IN on)
+    b.sq_in = True                                                            # (XO-4's MIDI IN on)
     to_dev = []
     b.controllers.send_to = lambda name, m: to_dev.append((name, list(m)))
     b.controllers.names = lambda: ["Clipper", "EP-136"]
@@ -1122,197 +1138,6 @@ def test_daw_surface():
     assert app.midi.sent[-1] == bytes([0xB0, 0x10, 2])                          # BASS panned right
 
 
-def test_xo4_tab():
-    """XO-4's tab, full screen: patterns, tracks, steps with chords from the note keys, a step's VEL and LEN, the
-    drums' pads, octave, key and scale, a track cleared; what's tapped sounds while stopped; the song is kept"""
-    import bridge
-    import deskui
-    import xoxostyle
-    import xo4
-
-    class XO4:
-        step = pattern = queued = None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-
-    class Pads:
-        sounding, step = [], None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.xo4, app.pads = XO4(), Pads()
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key, hold=False):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if hold:
-            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)       # held past 0.6 s: its long press
-        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
-        ui.render(0.0, force=True)
-
-    def song():
-        return app.song()
-
-    press(("tab", "XO4"))
-    assert ui.tab == "XO4" and not any(isinstance(w[3], tuple) and w[3][0] == "tab" for w in ui.widgets)   # full
-    assert {("xo4-pat", p) for p in xo4.PATTERNS} <= {w[3] for w in ui.widgets}
-    press(("xo4-pat", "B"))                                         # stopped: B plays and is edited at once
-    assert song()["pattern"] == "B" and ("pick", "B") in app.xo4.sent
-    press(("xo4-track", 1))                                         # SYN 1
-    press(("xo4-step", 0))                                          # an empty step: the last notes, selected
-    step = song()["patterns"]["B"][1]["steps"][0]
-    assert step["notes"] == [60] and ui.xo4_step == 0 and ("audition", 1, [60], 100) in app.xo4.sent
-    press(("xo4-key", 64))                                          # E4 and G4 added: a chord
-    press(("xo4-key", 67))
-    assert song()["patterns"]["B"][1]["steps"][0]["notes"] == [60, 64, 67]
-    press(("xo4-vel", "+"))
-    press(("xo4-len", "+"))
-    step = song()["patterns"]["B"][1]["steps"][0]
-    assert step["vel"] == 108 and step["len"] == 1.5
-    press(("xo4-step", 4))                                          # a new step gets the chord
-    assert song()["patterns"]["B"][1]["steps"][4]["notes"] == [60, 64, 67] and ui.xo4_step == 4
-    press(("xo4-step", 4))                                          # tapped again: emptied
-    assert song()["patterns"]["B"][1]["steps"][4] is None and ui.xo4_step is None
-    press(("xo4-step", 0), hold=True)                               # held: emptied
-    assert song()["patterns"]["B"][1]["steps"][0] is None
-    press("xo4-len+")
-    assert song()["patterns"]["B"][1]["len"] == 17
-    press(("xo4-page", 1))                                          # 17 steps: a second page
-    assert ui.xo4_page == 1 and ("xo4-step", 16) in {w[3] for w in ui.widgets}
-    press("xo4-root")
-    press("xo4-scale")
-    assert song()["root"] == 1 and song()["scale"] == "MINOR"
-    press("xo4-oct-")
-    assert ui.xo4_oct[1] == 3
-    keys = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "xo4-key"]
-    assert len(keys) == 14
-    assert keys == xo4.scale_notes(song(), 4 * 12 + 1, 14)         # C#3 minor, from the octave's root up
-    press(("xo4-track", 0))                                         # DRUMS: a pad played (and picked), steps toggle it
-    press(("xo4-pad", 3))
-    assert ui.xo4_pad == 3 and app.pads.sent[-2:] == [("tap", 3, 110), ("untap", 3)]   # sounds while held
-    press(("xo4-step", 2))
-    press(("xo4-pad", 5))
-    press(("xo4-step", 2))
-    assert song()["patterns"]["B"][0]["steps"][2]["notes"] == [3, 5]
-    press(("xo4-step", 2))
-    assert song()["patterns"]["B"][0]["steps"][2]["notes"] == [3]
-    box = next(w[0] for w in ui.widgets if w[3] == "xo4-clear")     # HOLD CLR: held to confirm, as everywhere
-    ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-    ui.render(deskui.HOLD + 0.1)
-    ui.touch("up", box[0] + 4, box[1] + 4, deskui.HOLD + 0.1)
-    assert song()["patterns"]["B"][0]["steps"][2] is None
-    app.xo4.step, app.xo4.pattern = 18, "B"                         # the playhead lit while playing
-    app.playing = True
-    app.state["clock_mode"] = "box"
-    ui.render(0.0, force=True)
-    assert ui.app.display.image.size == (480, 320)
-    assert xoxostyle.ALL                                           # (drawn in the theme's colours)
-    press("xo4-home")
-    assert ui.tab == "HOME"
-
-
-def test_xo4_grid():
-    """XO-4's GRID: a row a pad (1-8, 9-16) or a note of the scale, 16 steps across; a tap puts the row's pad or note
-    on the step or takes it off (four notes at most), a hold empties the step; a longer track's pages"""
-    import bridge
-    import deskui
-    import xo4
-
-    class XO4:
-        step = pattern = queued = None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-
-    class Pads:
-        sounding, step = [], None
-
-        def send(self, *msg):
-            pass
-
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.xo4, app.pads = XO4(), Pads()
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key, hold=False):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if hold:
-            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)
-        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
-        ui.render(0.0, force=True)
-
-    def steps(track):
-        return app.song()["patterns"][app.song()["pattern"]][track]["steps"]
-
-    def cells():
-        return {w[3][1:] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "xo4-cell"}
-
-    press(("tab", "XO4"))
-    press("xo4-grid")
-    assert ui.xo4_grid and cells() == {(i, p) for i in range(16) for p in range(8)}      # DRUMS: pads 1-8
-    press(("xo4-cell", 0, 0))                                       # the kick on 1, the snare (pad 3) on 1 and 5
-    press(("xo4-cell", 0, 2))
-    press(("xo4-cell", 4, 2))
-    assert steps(0)[0]["notes"] == [0, 2] and steps(0)[4]["notes"] == [2] and ui.xo4_pad == 2
-    press(("xo4-cell", 0, 2))                                       # tapped again: off, the kick kept
-    assert steps(0)[0]["notes"] == [0]
-    press(("xo4-half", 1))
-    assert cells() == {(i, p) for i in range(16) for p in range(8, 16)}
-    press(("xo4-cell", 3, 12))
-    assert steps(0)[3]["notes"] == [12]
-    press(("xo4-cell", 3, 12), hold=True)                           # held: the step emptied
-    assert steps(0)[3] is None
-    press(("xo4-track", 1))                                         # SYN 1: the rows are notes, highest on top
-    rows = sorted({v for _, v in cells()}, reverse=True)
-    assert rows == list(reversed(xo4.scale_notes(app.song(), 5 * 12, 8)))   # C4 major, eight notes up
-    press(("xo4-cell", 2, 60))
-    press(("xo4-cell", 2, 64))
-    assert steps(1)[2]["notes"] == [60, 64] and ui.xo4_step == 2 and ("audition", 1, [64], 100) in app.xo4.sent
-    for n in (67, 71):
-        press(("xo4-cell", 2, n))
-    press(("xo4-cell", 2, 72))                                      # a fifth note: refused
-    assert steps(1)[2]["notes"] == [60, 64, 67, 71]
-    for n in (60, 64, 67, 71):                                      # each off: the last one empties the step
-        press(("xo4-cell", 2, n))
-    assert steps(1)[2] is None
-    press("xo4-oct-")
-    assert min(v for _, v in cells()) == 4 * 12
-    ui.xo4_grid = False                                             # the length in the steps view, then GRID again
-    press("xo4-len+")
-    press("xo4-grid")
-    assert ("xo4-cell", 16, 48) not in {w[3] for w in ui.widgets}
-    press("xo4-grid-page")
-    assert ui.xo4_page == 1 and {i for i, _ in cells()} == {16}     # page 2: step 17 only
-    app.xo4.step, app.xo4.pattern = 16, app.song()["pattern"]       # the playhead, drawn while playing
-    app.playing = True
-    app.state["clock_mode"] = "box"
-    ui.render(0.0, force=True)
-    press("xo4-grid")
-    assert not ui.xo4_grid and ("xo4-step", 16) in {w[3] for w in ui.widgets}
-
-
 def test_about():
     """MORE > ABOUT: the version, and QR codes for the code, the website and this Studio's web app (its address
     now); with no network, no web app code and a note to join Wi-Fi; the boot screen shows the version too"""
@@ -1456,11 +1281,11 @@ def test_internal_sources_say_no_usb():
             props["alsa.card_name"] = nick
         return {"id": i, "type": "PipeWire:Interface:Node", "info": {"props": props}}
     objects = [node(1, "alsa_input.usb-Casio_EP-136-00.analog-stereo", nick="EP-136"), node(3, "fm1-xo4")]
-    sink, sources = bridge.pick_nodes(objects)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()                                               # (the sampler on: its PADS)
+    sink, sources = bridge.pick_nodes(objects, app.plugin_host)
     app.others = sources
     ui = deskui.DeskUI(app, app.display)
-    assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("XO-4", "")]
+    assert [(label, detail) for _, label, detail, _ in ui.sources()] == [("EP-136", "USB"), ("PADS", "")]
 
 
 
@@ -1485,33 +1310,27 @@ def test_pocket_over_the_link():
 def test_web_studio_status_and_commands():
     """the web page's Studio tab: XO-4's state, the kits, the decks' level in the mixer, a linked Pocket; its
     commands change the Studio as the screen does"""
-    import bridge
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
+    app = studio_app()
     sent = []
     app.midi = type("M", (), {"net": ["FM-1 Companion Pocket"], "net_hosts": {"FM-1 Companion Pocket": "169.254.66.49"},
-                              "set_xo4_in": lambda self, on, track=0: sent.append(on), "clock": None,
+                              "clock": None,
                               "peer": None, "enabled": True, "error": None})()
     st = app.web_status()
-    assert st["xo4"]["pattern"] == "A" and st["xo4"]["midi_in"] is False and st["xo4"]["sounds"][0] == "KEYS"
+    assert st["xo4"]["pattern"] == "A" and "midi_in" not in st["xo4"] and "sounds" not in st["xo4"]
     import pads
-    assert st["kits"]["list"] == pads.list_kits() and st["kits"]["current"] == app.kit()["name"]
+    import padkit
+    assert st["kits"]["list"] == pads.list_kits()
+    assert st["kits"]["current"] == padkit.kit(app.plugin_host.loaded["sampler"])["name"]
     assert st["decks"] is None and st["pocket"] == "cable" and st["box"] == "xoxo-studio"
     app.web_command({"cmd": "xo4", "action": "pattern", "value": "C"})
-    app.web_command({"cmd": "xo4", "action": "midi_in", "value": True})
-    app.web_command({"cmd": "xo4", "action": "sound", "track": 2, "value": "BELL"})
     st = app.web_status()
-    assert st["xo4"]["pattern"] == "C" and st["xo4"]["midi_in"] is True and sent == [True]
-    assert st["xo4"]["sounds"] == ["KEYS", "BELL"]
+    assert st["xo4"]["pattern"] == "C" and sent == []
     app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True}]
     app.app_here = {"decks"}
     app.web_command({"cmd": "set", "key": "mix_decks", "value": 150})
     assert [(r["key"], r["level"]) for r in app.web_status()["mixer"]] == [("u-xo4", 100), ("decks", 150)]
-    try:
-        app.web_command({"cmd": "kit", "name": "NO-SUCH"})
-        assert False
-    except ValueError:
-        pass
+    assert app.web_command({"cmd": "kit", "name": "NO-SUCH"}) == "Web: no such kit"
+    assert app.plugin_on("sampler")                                  # (a wrong name doesn't stop the plug-in)
 
 
 def test_studio_as_a_computers_usb_interface():
@@ -1531,7 +1350,7 @@ def test_studio_as_a_computers_usb_interface():
     bridge.device.usb_host = lambda: False        # the gadget's cards with nothing on the USB-C port: no computer
     try:
         assert bridge.computer_node(objects) is None
-        assert [n["label"] for n in bridge.pick_nodes(objects)[1]] == ["XO-4"]
+        assert [n["label"] for n in bridge.pick_nodes(objects, studio_app().plugin_host)[1]] == ["PADS"]
     finally:
         bridge.device.usb_host = was
     bridge.device.usb_host = lambda: True
@@ -1558,9 +1377,9 @@ def computer_plugged_in(bridge, objects):
     assert bridge.computer_node(objects) == {"id": 30, "name": "alsa_output.platform-fe980000.usb.stereo-fallback",
                                              "label": "COMPUTER"}
     assert bridge.jack_node(objects)["id"] == 33                      # the computer isn't taken for the jack
-    _, sources = bridge.pick_nodes(objects)
-    assert [(n["label"], n.get("internal")) for n in sources] == [("COMPUTER", True), ("XO-4", True)]
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()
+    _, sources = bridge.pick_nodes(objects, app.plugin_host)
+    assert [(n["label"], n.get("internal")) for n in sources] == [("COMPUTER", True), ("PADS", True)]
     app.others, app.app_here = sources, {"decks"}
     channels = app.mix_channels()
     assert app.computer_feeds(channels) == []                         # no computer: nothing sent
@@ -1580,15 +1399,15 @@ def test_home_shows_every_source():
 
         def running(self):
             return self.on
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
+    app = studio_app()
     app.state["mix"] = {"u-xo4": 80, "decks": 150}
     app.volume = 70
     app.others = [{"id": 1, "name": "fm1-xo4", "label": "XO-4", "internal": True}] + [
         {"id": 2 + i, "name": f"alsa_input.usb-{i}", "label": n} for i, n in enumerate(("EP-136", "SMK-37"))]
     ui = deskui.DeskUI(app, app.display)
     ui.theme_check = 1e12
-    ui.decks_proc = Decks()
+    decks = Decks()
+    ui.plugin_tab("DECKS").proc = decks
     rows = ui.home_rows()
     assert [(r[0], r[1], r[5]) for r in rows] == [("u-xo4", "XO-4", "80%"), ("u-ep136", "EP-136", "100%"),
                                                   ("u-smk37", "SMK-37", "100%"), ("decks", "DECKS", "150%"),
@@ -1596,7 +1415,7 @@ def test_home_shows_every_source():
     assert rows[3][3] != rows[4][3]                                 # the decks not in the speaker's colour
     ui.render(0.0, force=True)
     assert [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "row"] == [r[0] for r in rows]
-    ui.decks_proc.on = False                                        # the decks off: their row goes
+    decks.on = False                                                # the decks off: their row goes
     assert "decks" not in [r[0] for r in ui.home_rows()]
     app.others += [{"id": 9 + i, "name": f"alsa_input.usb-x{i}", "label": f"DEV{i}"} for i in range(5)]
     ui.render(0.0, force=True)                                      # nine rows: two columns, every one there
@@ -1606,153 +1425,6 @@ def test_home_shows_every_source():
     ui.touch("down", box[0] + 10, box[1] + 4, 0.0)
     ui.touch("up", box[0] + 10, box[1] + 4, 0.0)
     assert ui.tab == "MIX"
-
-
-def test_xo4_sound_page():
-    """XO-4's SOUND page: opened from a synth track, a starting sound picked, settings stepped (held: four), heard
-    while stopped, back to the steps; the patch kept and sent to XO-4"""
-    import bridge
-    import deskui
-    import xo4
-
-    class XO4:
-        step = pattern = queued = None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.xo4 = XO4()
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key, hold=False):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if hold:
-            ui.touch("move", box[0] + 4, box[1] + 4, 0.7)
-        ui.touch("up", box[0] + 4, box[1] + 4, 0.7 if hold else 0.0)
-    ui.open_tab("XO4")
-    press(("xo4-track", 0))
-    ui.render(0.0, force=True)
-    assert "xo4-sound" not in {w[3] for w in ui.widgets}            # DRUMS: no SOUND
-    press(("xo4-track", 2))                                         # SYN 2
-    press("xo4-sound")
-    assert ui.xo4_sound
-    press(("xo4-preset", "BELL"))
-    patch = app.song()["patches"][1]
-    assert patch["ratio"] == 3.5 and app.xo4.sent[-1] == ("audition", 2, [36], 100)   # heard: its last notes
-    press(("xo4-set", "ratio", "+"))
-    press(("xo4-set", "index", "-"), hold=True)
-    patch = app.song()["patches"][1]
-    assert patch["ratio"] == 4.0 and patch["index"] == 2.0
-    assert ("song", app.song()) in app.xo4.sent                    # (XO-4 has it)
-    sent = len(app.xo4.sent)
-    press("xo4-hear")
-    assert app.xo4.sent[sent:] == [("audition", 2, [36], 100)]
-    assert app.song()["patches"][0] == xo4.empty_song()["patches"][0]   # SYN 1's untouched
-    press("xo4-sound-back")
-    ui.render(0.0, force=True)
-    assert not ui.xo4_sound and ("xo4-step", 0) in {w[3] for w in ui.widgets}
-
-
-def test_xo4_drum_hits():
-    """XO-4's DRUMS: the hit just put on shows its LEVEL, ratchet and the step's NUDGE; other pads on the step keep
-    theirs; QUANT and REC reach XO-4"""
-    import bridge
-    import deskui
-
-    class XO4:
-        step = pattern = queued = None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.xo4, app.pads = XO4(), None
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
-
-    def step(i):
-        return app.song()["patterns"]["A"][0]["steps"][i]
-    ui.open_tab("XO4")
-    press(("xo4-pad", 0))
-    press(("xo4-step", 4))                                          # KICK on 5: selected
-    press("xo4-level")                                              # NORM -> HARD
-    press("xo4-ratchet")                                            # X1 -> X2
-    press("xo4-nudge+")
-    assert step(4)["levels"] == [3] and step(4)["ratchets"] == [2] and step(4)["nudge"] == 4
-    press(("xo4-pad", 2))
-    press(("xo4-step", 4))                                          # SNARE on the same step
-    press("xo4-level")
-    press("xo4-level")                                              # NORM -> HARD -> GHOST
-    assert step(4)["notes"] == [0, 2] and step(4)["levels"] == [3, 1] and step(4)["ratchets"] == [2, 1]
-    press(("xo4-step", 4))                                          # SNARE off again: the KICK's hit kept
-    assert step(4)["notes"] == [0] and step(4)["levels"] == [3] and step(4)["ratchets"] == [2]
-    press("xo4-quant")
-    assert app.song()["quant"] is False
-    press("xo4-rec")
-    assert ui.xo4_rec and ("rec", True) in app.xo4.sent
-    ui.render(0.0, force=True)
-
-
-def test_xo4_pads_in_drums():
-    """the pads in XO-4's DRUMS: KIT opens the kits, RPT steps note repeat, FX the punch-in FX, EDIT makes a tap
-    open a pad's page; their back buttons lead to XO-4 again"""
-    import bridge
-    import deskui
-
-    class Pads:
-        sounding, step = [], None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.pads, app.xo4 = Pads(), None
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
-    ui.open_tab("XO4")
-    press("xo4-rpt")
-    assert app.state["repeat"] is not None and app.pads.sent[-1][0] == "repeat"
-    press("xo4-kits")
-    assert ui.kits_open and ui.tab == "XO4"
-    press("kits-back")
-    press("xo4-fx")
-    assert ui.fx_open
-    press("fx-back")
-    press("xo4-edit")
-    press(("xo4-pad", 6))                                           # EDIT: its page, not a hit
-    assert ui.pad_edit == 6 and not any(m[0] == "tap" for m in app.pads.sent)
-    ui.render(0.0, force=True)
-    assert "pad-back" in {w[3] for w in ui.widgets}
-    press("pad-back")
-    ui.render(0.0, force=True)
-    assert ui.tab == "XO4" and ui.pad_edit is None and ("xo4-pad", 6) in {w[3] for w in ui.widgets}
 
 
 def test_speaker_battery():
@@ -1777,94 +1449,6 @@ def test_speaker_battery():
     assert ui.home_rows()[-1][2] == "JBL GO 3  BAT 85%" and app.web_status()["speaker_battery"] == 85
     app.spk_battery = None
     assert ui.home_rows()[-1][2] == "JBL GO 3"
-
-
-def test_xo4_big_pads():
-    """XO-4's DRUMS > PADS: the 16 pads big, 4x4; a pad sounds while held and is picked for the steps; REC
-    reaches XO-4; FX opened from here comes back here; < XO-4 back to the steps"""
-    import bridge
-    import deskui
-
-    class Sink:
-        sounding, step, pattern, queued = [], None, None, None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.pads, app.xo4 = Sink(), Sink()
-    app.state["kit"] = {"name": "K", "pads": [{"sample": "x.wav"}] * 16}
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key, hold=False):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if not hold:
-            ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
-    ui.open_tab("XO4")
-    press("xo4-mpc")
-    assert ui.mpc_open
-    press(("pad", 9), hold=True)                                    # sounding while held, picked for the steps
-    assert app.pads.sent[-1] == ("tap", 9, 110) and ui.xo4_pad == 9
-    ui.touch("up", 0, 0, 0.0)
-    assert app.pads.sent[-1] == ("untap", 9)
-    press("mpc-rec")
-    assert ui.xo4_rec and ("rec", True) in app.xo4.sent
-    press("fx-open")
-    assert ui.fx_open
-    press("fx-back")
-    ui.render(0.0, force=True)
-    assert ui.mpc_open and ("pad", 0) in {w[3] for w in ui.widgets}  # back on the big pads
-    press("mpc-back")
-    ui.render(0.0, force=True)
-    assert not ui.mpc_open and ("xo4-step", 0) in {w[3] for w in ui.widgets}
-
-
-def test_xo4_synth_fx_page():
-    """a synth track's FX: XO-4's own FX page; held FX go to XO-4, not the pads; its LATCH apart from the pads'"""
-    import bridge
-    import deskui
-    import padfx
-
-    class Sink:
-        sounding, step, pattern, queued = [], None, None, None
-
-        def __init__(self):
-            self.sent = []
-
-        def send(self, *msg):
-            self.sent.append(msg)
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
-    app.save_settings = lambda: None
-    app.pads, app.xo4 = Sink(), Sink()
-    ui = deskui.DeskUI(app, app.display)
-    ui.theme_check = 1e12
-
-    def press(key, hold=False):
-        ui.render(0.0, force=True)
-        box = next(w[0] for w in ui.widgets if w[3] == key)
-        ui.touch("down", box[0] + 4, box[1] + 4, 0.0)
-        if not hold:
-            ui.touch("up", box[0] + 4, box[1] + 4, 0.0)
-    ui.open_tab("XO4")
-    press(("xo4-track", 1))
-    press("xo4-synth-fx")
-    assert ui.fx_open and ui.fx_dest == "xo4"
-    press(("fx", padfx.STUT), hold=True)
-    assert app.xo4.sent[-1] == ("fx", padfx.STUT) and not app.pads.sent
-    ui.touch("up", 0, 0, 0.0)
-    assert app.xo4.sent[-1] == ("fx", None)
-    press("fx-latch")
-    press(("fx", padfx.ECHO))
-    assert ui.xo4_fx == [padfx.ECHO, True] and ui.fx_latch is False   # the pads' LATCH untouched
-    press("fx-back")
-    ui.render(0.0, force=True)
-    assert ("xo4-synth-fx" in {w[3] for w in ui.widgets}) and not ui.fx_open
 
 
 def test_mixer_mute_and_solo():
@@ -2553,32 +2137,33 @@ def test_bluetooth_dongle_takes_over(monkeypatch, tmp_path):
     assert ["bluetoothctl", "connect", "20:18:5B:EF:AA:B0"] in calls and said[-1] == "Bluetooth: the USB dongle"
 
 
-def test_bluetooth_warning_on_xo4_and_decks():
-    """XO-4 or DECKS opened with a speaker on the Pi's own Bluetooth: a word to use the DAC (or the jack) or a USB
+def test_bluetooth_warning_on_pads_and_decks():
+    """PADS or DECKS opened with a speaker on the Pi's own Bluetooth: a word to use the DAC (or the jack) or a USB
     dongle, once a run for each; none on a dongle, none without a speaker"""
     import bridge
     import deskui
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()
     said = []
     app.say = lambda text, seconds=3: said.append(text)
     ui = deskui.DeskUI(app, app.display)
-    ui.open_decks = lambda: None
-    ui.open_tab("XO4")
+    ui.plugin_tab("DECKS").opened = lambda: False                     # (no decks program here)
+    ui.open_tab("PADS")
     assert not said                                   # no speaker
     app.sink = {"id": 9, "name": "bluez_output.x", "label": "JBL Go 3"}
     app.dac = {"id": 63}
-    ui.open_tab("XO4")
+    ui.open_tab("SEQ")                                # (the sequencer makes no sound of its own: no word)
+    ui.open_tab("PADS")
     ui.open_tab("HOME")
-    ui.open_tab("XO4")
+    ui.open_tab("PADS")
     ui.open_tab("DECKS")
-    assert said == ["Pi's Bluetooth: dropouts with XO-4.\nUse the DAC out or a USB Bluetooth dongle.",
+    assert said == ["Pi's Bluetooth: dropouts with the pads.\nUse the DAC out or a USB Bluetooth dongle.",
                     "Pi's Bluetooth: dropouts with the decks.\nUse the DAC out or a USB Bluetooth dongle."]
     ui2 = deskui.DeskUI(app, app.display)
     app.bt_usb = True                                 # on a dongle: nothing
-    ui2.open_tab("XO4")
+    ui2.open_tab("PADS")
     assert len(said) == 2
     app.bt_usb, app.dac = False, None
-    ui2.open_tab("XO4")
+    ui2.open_tab("PADS")
     assert said[-1].endswith("Use the headphone jack or a USB Bluetooth dongle.")
     app.message, app.message_until = said[-1], time.monotonic() + 5
     ui2.render(time.monotonic(), force=True)          # two lines drawn, no error
@@ -2589,10 +2174,11 @@ def test_editor_empty_file():
     import numpy as np
     import bridge
     import deskui
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = studio_app()
     ui = deskui.DeskUI(app, app.display)
     ed = {"x": np.zeros(0, dtype=np.float32), "rate": 48000, "seconds": 0.0}
-    assert ui.editor_wave(ed, 0.0, 0.0) == [(0.0, 0.0)] * deskui.W and ed["peak"] == 1.0
+    _, screen = ui.editor_screen()                                  # (the editor plug-in's, plugins/editor)
+    assert screen.editor_wave(ed, 0.0, 0.0) == [(0.0, 0.0)] * deskui.W and ed["peak"] == 1.0
 
 
 def test_bluetooth_devices_forget(monkeypatch):
@@ -2724,14 +2310,16 @@ def test_pairing_removes_and_scans_only_when_needed(monkeypatch):
 
 
 def desk_with(off=(), tmp=None):
-    """a Studio's screens with some of its built-in plug-ins (plugins.BUILTINS) switched off"""
+    """a Studio's screens with the editor, decks and XO-4 plug-ins switched on, then some of them off"""
     import tempfile
     import bridge
+    import copy
     import deskui
-    app = bridge.App(RgbCapture(), dict(bridge.DEFAULTS))
+    app = bridge.App(RgbCapture(), copy.deepcopy(bridge.DEFAULTS))   # (its own plug-ins' settings, not the last test's)
     app.save_settings = lambda: None
     app.restart_app = lambda: None
-    app.plugin_host.dirs = [Path(tmp or tempfile.mkdtemp(prefix="xoxo-noplugins-"))]
+    app.plugin_host.dirs = [ROOT / "plugins"] + ([Path(tmp)] if tmp else [])
+    app.state["plugins"] = {pid: {"on": True, "settings": {}} for pid in ("sampler", "editor", "decks")}   # (on)
     app.plugin_host.start()
     ui = deskui.DeskUI(app, app.display)
     app.desk = ui
@@ -2751,21 +2339,22 @@ def test_editor_plugin_off():
     can't be opened, no TRIM on a pad's page, no "Edit as sample" for a take; back on, all of it again. Its file
     last edited is kept"""
     app, ui = desk_with()
-    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"]
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "SEQ", "PADS", "EDITOR", "DECKS", "MORE"]
     app.state["editor_last"] = ["kick_C2.wav", "samples"]
     app.screen = "status"
     ui.open_tab("EDITOR")
     assert ui.tab == "EDITOR" and app.screen == "editor"
     app.plugin_host.set_on("editor", False)                           # off while it's open: HOME
     assert ui.tab == "HOME" and app.screen == "status" and app.ed is None
-    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "DECKS", "MORE"]
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "SEQ", "PADS", "DECKS", "MORE"]
     tabs = [w for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "tab"]
-    assert tabs[-1][0][2] >= 480 - 480 // 7 - 2                     # (seven across the whole width)
+    assert tabs[-1][0][2] >= 480 - 480 // 8 - 2                     # (eight across the whole width)
     ui.open_tab("EDITOR")
     assert ui.tab == "HOME" and app.screen != "editor"
     assert app.state["editor_last"] == ["kick_C2.wav", "samples"]    # kept
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    ui.tab, ui.pad_edit = "XO4", 0
+    app.state["plugins"]["sampler"]["settings"]["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
+    ui.open_tab("PADS")                                              # the sampler's pad page: no TRIM
+    ui.plugin_tab("PADS").pad_edit = 0
     ui.render(0.0, force=True)
     acts = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "pad-act"]
     assert acts == ["PLAY", "SAMPLE", "CLEAR"]
@@ -2774,20 +2363,21 @@ def test_editor_plugin_off():
     ui.render(0.0, force=True)
     acts = [w[3][1] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "pad-act"]
     assert acts == ["PLAY", "SAMPLE", "TRIM", "CLEAR"] and app.edit_action()
-    ui.tab, ui.pad_edit = "HOME", None
+    ui.plugin_tab("PADS").pad_edit = None
+    ui.open_tab("HOME")
     assert "EDITOR" in tab_keys(ui)
 
 
 def test_plugins_page_lists_the_builtins():
-    """MORE > PLUG-INS: the Studio's own parts first, PART OF THE STUDIO, a tap switches one off (no trust
-    question); XO-4 asks for a hold first (the app starts again)"""
+    """MORE > PLUG-INS: the editor, decks and XO-4 listed as any plug-in (their version and author); off at a tap,
+    on again after the trust question, as anyone's; XO-4 asks for a hold first (the app starts again)"""
     app, ui = desk_with()
     restarted = []
     app.restart_app = lambda: restarted.append(True)
     ui.open_tab("PLUGINS")
     ui.render(0.0, force=True)
     keys = [w[3] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "plugin-on"]
-    assert [k[1] for k in keys] == ["editor", "decks", "xo4"]
+    assert [k[1] for k in keys] == ["sampler", "editor", "decks"]
 
     def press(key):
         box = next(w[0] for w in ui.widgets if w[3] == key)
@@ -2800,13 +2390,10 @@ def test_plugins_page_lists_the_builtins():
     ui.open_tab("PLUGINS")
     ui.render(0.0, force=True)
     press(("plugin-on", "decks"))
-    assert app.plugin_on("decks")
-    ui.open_tab("PLUGINS")
-    ui.render(0.0, force=True)
-    press(("plugin-on", "xo4"))
-    assert app.plugin_on("xo4") and not restarted and app.screen == "confirm"   # asked first: nothing yet
+    assert not app.plugin_on("decks") and app.screen == "confirm"    # on: the trust question, as anyone's
     app.confirm["action"]()
-    assert not app.plugin_on("xo4") and restarted == [True]
+    app.screen = "status"
+    assert app.plugin_on("decks") and "DECKS" in tab_keys(ui) and not restarted
 
 
 def test_decks_plugin_off():
@@ -2835,95 +2422,155 @@ def test_decks_plugin_off():
         def set_names(self, rules):
             pass
 
-        def set_dj(self, on):
-            dj.append(on)
+        def set_taken(self, rules):
+            dj.append(rules)
     app, ui = desk_with()
-    app.state["decks_out"] = "hercules"
-    ui.decks_proc = Decks()
+    app.plugin_host.entry("decks")["settings"]["out"] = "hercules"
+    tab = ui.plugin_tab("DECKS")
+    tab.proc = Decks()
     ui.open_tab("DECKS")
-    assert ui.tab == "DECKS" and app.web_decks()
+    assert ui.tab == "DECKS" and app.web_status()["decks"]
     app.screen, app.settings_menu = "settings", "audio"
-    assert "decks_out" in [r[0] for r in app.settings_rows()]
+    assert "DJ decks out" in [r[1] for r in app.settings_rows()]
     app.screen = "status"
     app.midi = Midi()
     app.plugin_host.set_on("decks", False)
     app.midi = None
-    assert stopped and ui.decks_proc is None and ui.tab == "HOME" and dj[-1] is False
-    assert "DECKS" not in tab_keys(ui) and app.web_decks() is None
+    assert stopped and tab.proc is None and ui.tab == "HOME" and dj[-1] == []   # (the Hercules: the routes')
+    assert "DECKS" not in tab_keys(ui) and app.web_status()["decks"] is None
     ui.open_tab("DECKS")
-    assert ui.tab == "HOME"
-    ui.open_decks()
-    assert ui.tab == "HOME" and ui.decks_proc is None                 # (not started)
+    assert ui.tab == "HOME" and tab.proc is None                      # (not started)
     app.screen, app.settings_menu = "settings", "audio"
-    assert "decks_out" not in [r[0] for r in app.settings_rows()]
+    assert "DJ decks out" not in [r[1] for r in app.settings_rows()]
     app.screen = "status"
     ui.open_tab("MIX")
     ui.render(0.0, force=True)
     assert not any(w[3] == ("slide", "decks") for w in ui.widgets)
-    assert app.state["decks_out"] == "hercules"                      # kept
+    assert app.state["plugins"]["decks"]["settings"]["out"] == "hercules"   # kept
     app.midi = Midi()
     app.plugin_host.set_on("decks", True)
-    assert dj[-1] is True and "DECKS" in tab_keys(ui)
+    assert dj[-1] == [[["djcontrol"], "Studio DJ Music/.studio-dj-controllers.json"]] and "DECKS" in tab_keys(ui)
 
 
-def test_xo4_plugin_off_keeps_the_sequencer():
-    """XO-4's synths switched off: the tab is SEQ, the sequencer's: patterns, PLAY, REC, DRUMS (the pads) and MIDI
-    only (SYN 1 / SYN 2, SOUND, the synths' FX gone, a pick of them ignored); MIDI IN plays the pads; the MIDI
-    routes' source is SEQ; the pads' channel in the mixer is PADS; the web page can't change a synth's sound. The
-    song (its synth tracks too) is kept. Switching it asks for a hold and starts the Studio app again"""
-    import bridge
-    import xo4
+def test_seq_eight_midi_tracks():
+    """SEQ: eight MIDI tracks (channels 1-8), no pads on it; a step tapped takes the last notes and is selected,
+    keys add notes (four at most) or take them off, VEL and LEN step, tapped again it's empty; CH steps a track's
+    channel (held: back); LEN up to 64 (four pages); GRID puts a note on a step or off; HOLD CLR empties it"""
+    app, ui = desk_with()
+    sent = []
 
-    class XO4:
+    class Seq:
         step = pattern = queued = None
 
-        def __init__(self):
-            self.sent = []
-
         def send(self, *msg):
-            self.sent.append(msg)
-
-    class Pads:
-        sounding, step = [], None
-
-        def send(self, *msg):
-            pass
-    app, ui = desk_with(off=("xo4",))
-    assert not app.plugin_on("xo4")
-    app.xo4, app.pads = XO4(), Pads()
-    app.state["kit"] = {"name": "K", "pads": [{"sample": ""}] * 16}
-    song = app.song()
-    song["patterns"]["A"][xo4.SYNTH1]["steps"][0] = {"notes": [64], "vel": 90, "len": 1}
-    app.set_song(song)
-    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE"]
-    assert ui.tab_label("XO4") == "SEQ"
-    ui.open_tab("XO4")
+            sent.append(msg)
+    app.sequencer = Seq()
+    ui.open_tab("SEQ")
     ui.render(0.0, force=True)
     keys = {w[3] for w in ui.widgets}
-    assert {("xo4-track", 0), ("xo4-track", 3), "xo4-play", "xo4-rec", ("xo4-pat", "B"), "xo4-grid"} <= keys
-    assert ("xo4-track", 1) not in keys and ("xo4-track", 2) not in keys
-    ui.xo4_pick_track(1)
-    assert ui.xo4_track == 0
-    ui.xo4_pick_track(3)                                              # the MIDI track: notes, no SOUND or FX
+    assert {("seq-track", k) for k in range(8)} <= keys and ui.tab_label("SEQ") == "SEQ"
+    assert not any("pad" in str(k) or "xo4" in str(k) or "rec" in str(k) for k in keys)
+    assert [t["channel"] for t in app.song()["tracks"]] == list(range(8))
+
+    def steps(k=0):
+        return app.song()["patterns"]["A"][k]["steps"]
+    ui.sq_tap(0)
+    assert steps()[0]["notes"] == [60] and ui.sq_step == 0 and sent[-1][0] == "song"
+    ui.sq_key(64)
+    ui.sq_key(67)
+    assert steps()[0]["notes"] == [60, 64, 67]
+    ui.sq_key(64)
+    assert steps()[0]["notes"] == [60, 67]
+    ui.sq_change("vel", -8)
+    ui.sq_change("len", 0.5)
+    assert steps()[0]["vel"] == 92 and steps()[0]["len"] == 1.5
+    ui.sq_tap(4)                                                     # an empty step: the last notes
+    assert steps()[4]["notes"] == [60, 67] and ui.sq_step == 4
+    ui.sq_tap(4)                                                     # the selected one again: empty
+    assert steps()[4] is None and ui.sq_step is None
+    ui.sq_pick_track(2)                                              # track 3: MIDI channel 3
+    ui.sq_channel(1)
+    assert app.song()["tracks"][2]["channel"] == 3
+    ui.sq_channel(-1)
+    assert app.song()["tracks"][2]["channel"] == 2
+    for _ in range(48):                                              # LEN to 64: four pages
+        ui.sq_length(1)
     ui.render(0.0, force=True)
-    keys = {w[3] for w in ui.widgets}
-    assert "xo4-sound" not in keys and "xo4-synth-fx" not in keys and any(
-        isinstance(k, tuple) and k[0] == "xo4-key" for k in keys)
-    ui.xo4_track, ui.xo4_sound = 1, True                              # (left on a synth: back on DRUMS)
+    assert app.song()["patterns"]["A"][2]["len"] == 64
+    assert {("seq-page", pg) for pg in range(4)} <= {w[3] for w in ui.widgets}
+    ui.sq_go_page(3)
+    ui.sq_tap(63)
+    assert steps(2)[63]["notes"] == [60]
+    ui.sq_toggle_grid()
     ui.render(0.0, force=True)
-    assert ui.xo4_track == 0 and not ui.xo4_sound
-    app.set_xo4_keys(1)
-    assert getattr(app, "xo4_keys", 0) == 0                           # MIDI IN: the pads
-    patch = dict(app.song()["patches"][0])
-    app.xo4_sound(1, "BELL")
-    assert app.song()["patches"][0] == patch
-    assert app.web_command({"cmd": "xo4", "action": "sound", "track": 1, "value": "BELL"}).endswith("off (MORE > PLUG-INS)")
-    assert app.song()["patterns"]["A"][xo4.SYNTH1]["steps"][0]["notes"] == [64]   # kept
-    ui.open_tab("MIDI")
+    cells = [w[3] for w in ui.widgets if isinstance(w[3], tuple) and w[3][0] == "seq-cell"]
+    assert len(cells) == 16 * 8 and {c[1] for c in cells} == set(range(48, 64))
+    ui.sq_grid_tap(50, 62)
+    assert steps(2)[50]["notes"] == [62]
+    ui.sq_grid_tap(50, 62)
+    assert steps(2)[50] is None
+    ui.sq_clear()
+    assert not any(steps(2))
+
+
+def test_studio_without_its_plugins():
+    """the Studio with none of the plug-ins (no sampler, editor or decks): HOME, MIXER, MIDI, RECORD, SEQ and MORE;
+    their tabs can't be opened, no PADS or DECKS channel, no DECKS setting, no MIDI controllers kept off the routes;
+    every screen draws"""
+    import copy
+    import bridge
+    import deskui
+    app = bridge.App(RgbCapture(), copy.deepcopy(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    app.plugin_host.dirs = [Path(tempfile.mkdtemp(prefix="xoxo-noplugins-"))]
+    app.plugin_host.start()
+    ui = deskui.DeskUI(app, app.display)
+    app.desk = ui
+    ui.theme_check = 1e12
+    assert tab_keys(ui) == ["HOME", "MIX", "MIDI", "REC", "SEQ", "MORE"] and ui.tab_label("SEQ") == "SEQ"
+    assert not any(app.plugin_on(pid) for pid in ("editor", "decks"))
+    assert ui.editor_screen() is None and ui.app_sounds() == []
+    for name in ("EDITOR", "DECKS"):
+        ui.open_tab(name)
+        assert ui.tab == "HOME"
+    app.screen = "editor"                                            # (nothing to draw it with: the tab instead)
     ui.render(0.0, force=True)
+    app.screen = "status"
+    for tab in ("HOME", "MIX", "MIDI", "REC", "SEQ", "MORE", "PLUGINS"):
+        ui.open_tab(tab)
+        ui.render(0.0, force=True)
+        assert ui.tab == tab, tab
+    assert not app.edit_action()
+    for name in ("PADS", "EDITOR", "DECKS"):
+        ui.open_tab(name)
+        assert ui.tab == "HOME"
+    app.screen, app.settings_menu = "settings", "audio"
+    assert "DJ decks out" not in [r[1] for r in app.settings_rows()]
+    app.screen = "status"
+    assert app.plugin_host.taken_controllers() == [] and app.app_nodes() == {}
+    st = app.web_status()
+    assert st["decks"] is None and st["kits"] is None
+    assert st["plugins"]["builtin"] == {"editor": False, "decks": False, "sampler": False}
     objects = [{"id": 7, "type": "PipeWire:Interface:Node", "info": {"props": {
         "media.class": "Audio/Source", "node.name": "fm1-xo4", "node.description": "XO-4"}}}]
-    assert [s["label"] for s in bridge.pick_nodes(objects, app.plugin_host)[1]] == ["PADS"]
-    app.plugin_host.set_on("xo4", True)                               # (restart_app: a no-op here)
-    assert [s["label"] for s in bridge.pick_nodes(objects, app.plugin_host)[1]] == ["XO-4"]
-    assert ui.tab_label("XO4") == "XO-4"
+    assert bridge.pick_nodes(objects, app.plugin_host)[1] == []    # (the pads' channel: the sampler's)
+
+
+def test_old_settings_move_to_the_sequencer(tmp_path, monkeypatch):
+    """a Studio's settings from when the sequencer was XO-4's: its song and the routes from XO4 (and in the route
+    presets) are the sequencer's (SEQ) now; the pads' kit, note repeat and MIDI IN move to the sampler plug-in's
+    settings, the decks' output to the decks plug-in's"""
+    import bridge
+    song = {"pattern": "C"}
+    old = {"xo4": song, "xo4_midi_in": True, "decks_out": "hercules", "kit": {"name": "MINE"}, "repeat": 2,
+           "routes": {"XO4>USB": {"on": True}, "BT>SMP": {"on": False}},
+           "route_presets": {"1": {"routes": {"XO4>NET": {"on": True}}, "saved": 1}}}
+    path = tmp_path / "fm1-bridge.json"
+    path.write_text(json.dumps(old))
+    monkeypatch.setattr(bridge, "STATE_FILE", path)
+    state = bridge.load_state()
+    assert state["seq"] == song and "xo4" not in state and "xo4_midi_in" not in state and "kit" not in state
+    assert state["plugins"]["sampler"]["settings"] == {"kit": {"name": "MINE"}, "repeat": 2, "midi_in": True}
+    assert state["routes"] == {"SEQ>USB": {"on": True}, "BT>SMP": {"on": False}}
+    assert state["route_presets"]["1"]["routes"] == {"SEQ>NET": {"on": True}}
+    assert state["plugins"]["decks"]["settings"]["out"] == "hercules" and "decks_out" not in state

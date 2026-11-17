@@ -7,7 +7,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
 
 import plugins  # noqa: E402
 
@@ -189,34 +190,103 @@ def test_sound_source_of_its_own():
     assert bridge.pick_nodes(objects, host)[1] == []
 
 
-def test_builtins_on_until_switched_off():
-    """the Studio's own optional parts (XO-4, the decks, the editor): listed with the rest, on at first, switched off
-    and on again (kept); XO-4's switch starts the Studio app again; a folder can't take a built-in's id"""
+def test_studio_plugins_are_ordinary():
+    """the sampler, the editor and the decks (the repository's plugins/): plug-ins like any other, listed with the rest, off until
+    switched on (the trust question is the screen's, as for anyone's), kept; a plug-in whose manifest says
+    "restart" starts the Studio app again when it's switched"""
     base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
     make(base, "fm1", GOOD)
-    make(base, "decks", GOOD)                                       # (a plug-in folder with a built-in's id)
     app = App()
     restarts = []
     app.restart_app = lambda: restarts.append(True)
-    host = plugins.Host(app, [base], builtins=plugins.BUILTINS)
+    host = plugins.Host(app, [ROOT / "plugins", base])
     host.start()
     listed = {p["id"]: p for p in host.listing()}
-    assert set(listed) == {"editor", "decks", "xo4", "fm1"}
-    assert all(listed[b]["on"] and listed[b]["builtin"] for b in plugins.BUILTINS) and not listed["fm1"]["on"]
-    assert listed["decks"]["name"] == "DJ decks"                      # the Studio's, not the folder's
-    assert all(plugins.builtin_on(app.state, b) for b in plugins.BUILTINS)
-    assert plugins.builtin_on({}, "xo4") and plugins.builtin_on({"plugins": {"xo4": {"settings": {}}}}, "xo4")
-    assert host.set_on("editor", False) == "Sample editor off" and not plugins.builtin_on(app.state, "editor")
-    assert "editor" not in host.loaded and not restarts
-    again = plugins.Host(app, [base], builtins=plugins.BUILTINS)    # kept off at the next start
+    assert list(listed) == ["sampler", "editor", "decks", "fm1"] and not any(p["on"] for p in listed.values())
+    assert listed["decks"]["name"] == "DJ decks" and not hasattr(plugins, "BUILTINS") and "xo4" not in listed
+    assert host.loaded == {} and not plugins.switched_on(app.state, "editor") and not plugins.switched_on({}, "decks")
+    assert host.set_on("editor", True) == "Sample editor on" and plugins.switched_on(app.state, "editor")
+    assert host.tabs()[0][:2] == ("editor", "EDITOR") and not restarts
+    assert host.set_on("decks", True) == "DJ decks on" and [t[1] for t in host.tabs()] == ["EDITOR", "DECKS"]
+    again = plugins.Host(app, [ROOT / "plugins", base])             # kept at the next start
     again.start()
-    assert "editor" not in again.loaded and "decks" in again.loaded
-    assert again.set_on("editor", True) == "Sample editor on" and plugins.builtin_on(app.state, "editor")
-    assert again.set_on("xo4", False).startswith("XO-4 off") and restarts == [True]
-    assert not plugins.builtin_on(app.state, "xo4") and "xo4" not in again.loaded
-    assert again.set_on("xo4", True).startswith("XO-4 on") and restarts == [True, True]
-    assert again.set_on("xo4", True) == "XO-4 on" and len(restarts) == 2    # (already on: no restart)
-    assert plugins.Host(App(), [base]).builtins == ()                # (none unless the Studio says so)
+    assert list(again.loaded) == ["editor", "decks"]
+    restart = make(base, "restarts", GOOD)                          # a plug-in whose manifest says "restart"
+    manifest = json.loads((restart / "plugin.json").read_text())
+    (restart / "plugin.json").write_text(json.dumps(dict(manifest, restart=True)))
+    again.start()
+    assert again.set_on("restarts", True).endswith("starts again") and restarts == [True]
+    assert again.set_on("restarts", False).endswith("starts again") and restarts == [True, True]
+    assert again.set_on("restarts", False) == "RESTARTS off" and len(restarts) == 2   # (already off: no restart)
+
+
+TABBED = '''
+API = 1
+def setup(studio):
+    class Tab:
+        what = "the box"
+        def __init__(self, ui, s):
+            self.ui, self.stopped = ui, False
+        def draw(self, img, d, now):
+            pass
+        def stop(self):
+            self.stopped = True
+    playing = []
+    studio.add_tab("box", Tab)
+    studio.add_app_sound("Box!", "fm1-box", "THE BOX", shown=lambda: bool(playing))
+    studio.add_setting("audio", "Box out", lambda: studio.settings.get("out", "a"),
+                       lambda: studio.settings.__setitem__("out", "b"))
+    studio.add_setting("nowhere", "Lost", lambda: "x", lambda: None)
+    studio.on("tick", lambda: playing.append(1))
+'''
+
+
+def test_tabs_sounds_settings_controllers():
+    """what a plug-in can add: a tab, a program's sound in the mixer, a settings row; the MIDI controllers its
+    manifest says are its own (read before any plug-in runs, for the MIDI process); a tab stopped when it goes off"""
+    own = Path(tempfile.mkdtemp(prefix="xoxo-own-"))
+    folder = make(own, "box", TABBED)
+    manifest = json.loads((folder / "plugin.json").read_text())
+    manifest.update(controllers=["^boxctl", "([bad"], controller_maps="Box/maps.json")
+    (folder / "plugin.json").write_text(json.dumps(manifest))
+    app = App()
+    host = plugins.Host(app, [own])
+    host.start()
+    assert host.loaded == {}
+    host.set_on("box", True)
+    assert "box" in host.loaded and host.listing()[0]["on"]
+    assert host.tabs()[0][:2] == ("box", "BOX")
+    tab = host.tab("box", "BOX", "ui")
+    assert tab.ui == "ui" and host.tab("box", "BOX", "other") is tab     # made once a run
+    assert [s[1:4] for s in host.app_sounds()] == [("box", "fm1-box", "THE BOX")]
+    assert not host.app_sounds()[0][4]()
+    host.emit("tick")
+    assert host.app_sounds()[0][4]()
+    rows = host.setting_rows("audio")
+    assert rows == [("plugin:box:0", "Box out", "a")] and host.setting_rows("nowhere") == []
+    assert host.change_setting("plugin:box:0") and host.setting_rows("audio")[0][2] == "b"
+    assert not host.change_setting("plugin:box:7") and not host.change_setting("speaker")
+    assert host.taken_controllers() == [[["^boxctl"], "Box/maps.json"]]          # (a bad pattern dropped)
+    assert plugins.taken_controllers(app.state, dirs=[own]) == [[["^boxctl"], "Box/maps.json"]]
+    assert plugins.taken_controllers({}, dirs=[own]) == []
+    assert host.set_on("box", False) == "BOX off" and tab.stopped and host.tabs() == []
+    assert host.app_sounds() == [] and host.setting_rows("audio") == [] and host.taken_controllers() == []
+    again = plugins.Host(app, [own])                               # kept off at the next start
+    again.start()
+    assert "box" not in again.loaded and "box" in again.found
+    assert plugins.plugin_module("box", "plugin", dirs=[own]) is not None
+    assert plugins.plugin_module("box", "nothing", dirs=[own]) is None and plugins.plugin_module("x", "y", [own]) is None
+    manifest["controller_maps"] = "../escape.json"
+    (folder / "plugin.json").write_text(json.dumps(manifest))
+    assert plugins.read_manifest(folder)["controller_maps"] is None
+
+
+def test_the_decks_plugin_takes_the_hercules():
+    """the repository's plugins/decks: its manifest's Hercules, kept off the routes only while it's on"""
+    found = plugins.find([ROOT / "plugins"])
+    assert found["decks"][1]["name"] == "DJ decks" and found["decks"][1]["controllers"] == ["djcontrol"]
+    on = {"plugins": {"decks": {"on": True}}}
+    assert plugins.taken_controllers(on, dirs=[ROOT / "plugins"])[0][0] == ["djcontrol"]
 
 
 if __name__ == "__main__":

@@ -81,8 +81,8 @@ class LibraryScreens:
                        lambda action: self.recording_action(name, action), "", back="pick")
 
     def edit_action(self):
-        """"Edit as sample": the sample editor's (a built-in plug-in), while it's on"""
-        on = self.plugin_on("editor") if hasattr(self, "plugin_on") else True
+        """"Edit as sample": the sample editor's (a plug-in of the Studio's), while it's on"""
+        on = self.plugin_on("editor") if getattr(self, "desk", None) else True   # (the Pocket: its own)
         return [("Edit as sample ›", "", "edit")] if on else []
 
     def recording_action(self, name, action):

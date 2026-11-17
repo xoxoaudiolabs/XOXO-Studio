@@ -1,7 +1,7 @@
 """The Studio's MORE > PLUG-INS: every plug-in found (plugins.py), switched on or off with a tap, and the screens the
 ones switched on add, each opened full screen with "< PLUG-INS" (top left). Mixed into deskui.DeskUI. The Studio's
-own optional parts come first (plugins.BUILTINS: the sample editor, the DJ decks, XO-4): no trust question for
-those, and XO-4 asks for a hold first, as the Studio app starts again.
+sample editor, the DJ decks and XO-4's synths are plug-ins like any other here. XO-4 asks for a hold first, as the
+Studio app starts again (its manifest's "restart"). A plug-in's tab (Studio.add_tab) is drawn with Tab, below.
 
 A plug-in's screen (Studio.add_screen) is a class: screen(ui, studio), with draw(img, d, now) drawing below the
 header (y from HDR_H) with ui's widgets (ui.button, ui.widget, ui.centre, ui.theme), and view(now), anything that
@@ -12,6 +12,30 @@ import xoxostyle as st
 
 W, H, HDR_H, TAB_H = 480, 320, 34, 44
 RED = (255, 112, 92)
+
+
+class Tab:
+    """a plug-in's tab (Studio.add_tab): made as tab(ui, studio); drawn with the Studio's widgets through these"""
+    what = None                                 # a tab that plays sound: its name in the Pi Bluetooth warning
+
+    def __init__(self, ui, studio):
+        self.ui, self.studio = ui, studio
+
+    @property
+    def theme(self):
+        return self.ui.theme
+
+    def button(self, *args, **kw):
+        self.ui.button(*args, **kw)
+
+    def widget(self, *args, **kw):
+        self.ui.widget(*args, **kw)
+
+    def centre(self, *args, **kw):
+        self.ui.centre(*args, **kw)
+
+    def home(self):
+        self.ui.open_tab("HOME")
 
 
 class DeskPlugins:
@@ -53,7 +77,7 @@ class DeskPlugins:
             box = (4, y, W - 4, y + 40)
             d.rectangle(box, fill=t.grey[0])
             st.text(img, (12, y + 4), p["name"].upper()[:24], t.hi)
-            sub = p["error"] or ("PART OF THE STUDIO" if p.get("builtin") else f"{p['version']}  {p['author']}".upper())
+            sub = p["error"] or f"{p['version']}  {p['author']}".upper()
             st.text(img, (12, y + 21), sub[:40], RED if p["error"] else t.c[2])
             self.button(img, d, (W - 84, y + 6, W - 10, y + 34), "ON" if p["on"] else "OFF",
                         lambda pid=p["id"], on=p["on"]: self.plugin_switch(pid, not on), on=p["on"],
@@ -72,7 +96,7 @@ class DeskPlugins:
             a.ask(f"{m['name']} {'on' if on else 'off'}?", ["The Studio app starts again.", "Songs and settings stay."],
                   lambda: a.say(a.plugin_host.set_on(pid, on), 3), back="status")
             return
-        if on and pid in a.plugin_host.found and not m.get("builtin") and not a.plugin_host.entry(pid)["on"]:
+        if on and pid in a.plugin_host.found and not a.plugin_host.entry(pid)["on"]:
             name = a.plugin_host.found[pid][1]["name"]   # (a plug-in is code: said once, before it first runs)
             a.ask(f"Switch on {name[:16]}?", ["A plug-in runs as the Studio does.", "Only ones you trust."],
                   lambda: a.say(a.plugin_host.set_on(pid, True), 2), back="status")

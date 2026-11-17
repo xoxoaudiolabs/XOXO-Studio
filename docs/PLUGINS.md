@@ -5,7 +5,8 @@
 plug-ins. Tried on a Studio (a Pi 3 B+) with XOXO Audio Labs' Synths and Tester Tools plug-ins (their repository,
 XOXO-Studio-Plugins, says what each was tried with); the rest tested on a PC. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own
 repository (XOXO-Studio-Plugins): it isn't part of this beta, and this repository's docs make no claims for it. The device registry (section 1) is a design, not built; of
-section 3, the editor, the decks and XO-4's synths are built-in plug-ins that can be switched off (tried on a PC). Plug-ins are open to anyone from the start, so the API
+section 3, the editor and the decks are plug-ins like anyone's, in the repository's `plugins/` (tried on a PC);
+XO-4 is gone, the sequencer is SEQ. Plug-ins are open to anyone from the start, so the API
 below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and
 MIDI, and its library.
 
@@ -14,7 +15,7 @@ MIDI, and its library.
 Today every feature is built into the core:
 
 - The Studio's screens are one class with every feature mixed in (`deskui.DeskUI` takes `DeskPads`, `DeskDecks`,
-  `DeskXO4`), and the tabs are one fixed list (`deskui.TABS`).
+  `DeskSeq`), and the tabs are one fixed list (`deskui.TABS`).
 - The app (`bridge.App`) still mixes in the Pocket's OLED screens (`LibraryScreens`, `MeterScreens`, `MidiScreens`,
   `SampleEditor`).
 - Devices are found in half a dozen places, each its own way: USB sound and the Studio's own sources in
@@ -46,7 +47,7 @@ MidiProfile(id="computer", label="COMPUTER", match=lambda port: port.lower().sta
 
 The built-in profiles: the Bluetooth speaker, the Pi's jack, the DAC HAT, the I/O card (line out, DIN), the
 computer link (audio, MIDI), any USB sound source, any USB MIDI device, the Hercules, a learnt DJ controller,
-the pads, XO-4, the decks, the Pocket link. Each one moves over with its tests, one at a time.
+the pads, the decks, the Pocket link. Each one moves over with its tests, one at a time.
 
 ## 2. Plug-ins
 
@@ -118,7 +119,7 @@ change that breaks plug-ins makes a new one, and the old one stays supported for
 (upload a `.zip`). Each is switched on or off in MORE › PLUG-INS and on the web page; one that's off leaves no
 trace: no tab, no device profiles, no process. First-party plug-ins live in their own repository,
 **xoxoaudiolabs/XOXO-Studio-Plugins** (one folder per plug-in, the same layout as anyone's), apart from the Studio's code,
-except the **default plug-ins** (XO-4, the decks, the Pocket link, the computer link: section 3), which stay in the
+except the **Studio's own plug-ins** (the editor, the decks, the Pocket link, the computer link: section 3), which stay in the
 Studio's repository (`plugins/`), so a new Studio works without a second download.
 
 **Trust:** a plug-in is Python running as the Studio does, with its access to the files and the network. The
@@ -127,36 +128,47 @@ A plug-in that raises an error is switched off with a message on the screen, ins
 
 ## 3. The built-ins move onto it
 
-**Built so far (2026-11-13, tried on a PC only):** the sample editor, the DJ decks and XO-4's synths are
-**built-in plug-ins** (`plugins.BUILTINS`): their code stays in the Studio's (installed as before), but each is
-listed in MORE › PLUG-INS and the web app's status beside anyone's plug-ins, switched on or off the same way
-(`state["plugins"][id]["on"]`, on unless switched off), with no trust question. The core asks
-`plugins.builtin_on(state, id)` (the app: `App.plugin_on`) where each one hooks in:
+**Built so far (2026-11-17, tried on a PC only):** the sampler, the sample editor and the DJ decks are plug-ins like anyone's:
+each a folder in the repository's `plugins/` with a `plugin.json` and a `plugin.py`, put into `~/xoxo-plugins` by
+`install-app.sh`, found, listed, switched (with the same trust question) and loaded by the same host, off until
+switched on (`state["plugins"][id]["on"]`). The core has no special case for them, and the Studio runs without
+them.
 
-- **Sample editor** (`editor`): the EDITOR tab, the touch editor, a pad's TRIM, "Edit as sample", the Pocket's
-  Sample editor row, the web app's Editor tab (`/api/edit-info` and `/api/save-sample` answer 403 while it's off).
-  `sampler.py` stays in the core: sampling a pad uses it.
-- **DJ decks** (`decks`): the DECKS tab and `decks.py`'s process (stopped when switched off), DECKS in the mixer,
-  Settings › Audio › DJ decks out, the web app's DJ decks and DJ music (no uploads to their folder while off). The
-  MIDI process is told (`MidiProcess.set_dj`): with the decks off a Hercules or a learnt controller is a MIDI
-  device in the routes.
-- **XO-4** (`xo4`): its two FM synths, their SOUND page and FX, live play on them. **The sequencer stays in the
-  core** (Pat, 2026-11-13: always a sequencer for MIDI): XO-4's process always runs; with XO-4 off it's
-  `xo4.run_sequencer`, the patterns, the clock's grid, DRUMS to the pads and the MIDI track out through the routes,
-  with no synths, FX or audio player. The tab is then SEQ (DRUMS and MIDI only), the routes' source SEQ, the pads'
-  mixer channel PADS. XO-4's process starts before the MIDI process, so switching XO-4 asks for a hold and starts
-  the Studio app again (`App.restart_app`: `systemctl --user restart fm1-bridge`, the app only).
+- **Sampler** (`plugins/sampler`: `pads.py`, `padfx.py`, `deskpads.py`, `padkit.py`, the 808 KIT's sounds): the PADS
+  tab (`add_tab`), PADS in the mixer (`add_sound_source`: its channel's node is still "fm1-xo4", so its level
+  stays), the web page's kits (`add_web`). Its pads run in a process of their own, started with the Studio app
+  before the MIDI process while the plug-in is on (manifest `"process": "pads"`: `pads.start_process`, by
+  `plugins.start_processes`; the plug-in has it as `studio.process()`), so `"restart"`; the routes' SMP notes go to
+  it, and its MIDI IN (a setting of its own) decides whether they play. Its kit, note repeat and MIDI IN are its
+  settings (an older Studio's are moved there).
+- **Sample editor** (`plugins/editor`: `deskeditor.py`): the EDITOR tab (`add_tab`) and the touch editor
+  (`add_editor_screen`), which a pad's TRIM and "Edit as sample" open while it's on; the web app's Editor
+  (`/api/edit-info` and `/api/save-sample` answer 403 while it's off). What it edits (`sampleui.SampleEditor`) and
+  the sums (`sampler.py`) stay in the core: sampling a pad uses them, and so does the Pocket's own OLED editor.
+- **DJ decks** (`plugins/decks`: `decks.py`, `djlib.py`, `deskdecks.py`): the DECKS tab (`add_tab`; the decks'
+  program started when it first opens, stopped when switched off), their sound in the mixer (`add_app_sound`),
+  MORE › AUDIO › DJ decks out (`add_setting`), the web app's DJ decks (`add_web`) and DJ music (the web server
+  finds `djlib` in the plug-in's folder: `plugins.plugin_module`). The Hercules and learnt controllers are kept off
+  the MIDI routes by the manifest's `"controllers"` and `"controller_maps"`, which the MIDI process is given
+  before any plug-in runs (`plugins.taken_controllers`) and again on each switch (`MidiProcess.set_taken`): off, a
+  Hercules is a MIDI device in the routes.
 
-Off never deletes anything: XO-4's song (its synth tracks too), MIDI IN, the routes from XO4, the decks' output
+**XO-4 is gone** (Pat, 2026-11-17): its synths, SOUND page and synth FX were taken out, and the Studio's sequencer
+(`sequencer.py`, its screen `deskseq.py`, the SEQ tab) is a new one in the core: eight MIDI tracks, up to 64 steps,
+patterns A-H, with no sampler on it (the pads play from it through the route SEQ > SMP). An XO-4 song and its
+routes from XO4 are read into SEQ (its drums as notes 36-51 on channel 10).
+
+Off never deletes anything: the decks' output (a plug-in setting now; an older Studio's `decks_out` is moved there)
 and learnt maps, the DJ music, the file last edited are all kept for when it's on again.
 
-Still to do, the design below: moving their code into `plugins/<id>/` folders behind a wider API, the Pocket link
-and the computer link.
+What these added to API 1 is listed in `plugins.py`: `add_tab`, `add_app_sound`, `add_setting`, `clock`,
+`redraw`, `add_editor_screen`, `process`, and the manifest's `"controllers"`, `"controller_maps"`, `"process"`,
+`"restart"` and `"order"`. Anyone's plug-in may use them; only the sampler, the editor and the decks do so far. Still to do, the design below: the device
+profiles, the Pocket link and the computer link.
 
 The core keeps the HOME, MIXER, RECORD, MIDI, EDITOR and MORE screens, the device registry, the mixer, the
 recorder and the plug-in host. These become first-party plug-ins, each its own step with its tests:
 
-- **XO-4** (with the pads, its DRUMS)
 - **DJ decks** (the Hercules and learnt controllers are its device profiles)
 - **Pocket link** (its receiver, its network MIDI peer, POCKET in the mixer)
 - **Computer link** (the USB interface: the gadget, COMPUTER)
@@ -187,6 +199,6 @@ the Studio this plug-in is what gets the FM-1 updates made on the Pocket. Its co
 1. The device registry: the built-in profiles, one at a time, tests unchanged
 2. The plug-in host: manifests, switching on and off, settings, screens, MIDI route ends, events, errors
 3. The web app's plug-in sections (with the Web app development session: the page is shared)
-4. XO-4, the decks, the Pocket link and the computer link as plug-ins
+4. The decks, the Pocket link and the computer link as plug-ins
 5. The FM-1 Companion plug-in
 6. The plug-in guide for others (this file, finished as a guide) and an example plug-in

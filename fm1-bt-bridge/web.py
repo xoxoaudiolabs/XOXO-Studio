@@ -3,8 +3,8 @@
 apart from the FM-1 Companion's: its own name and manifest id, so a phone keeps both on its home screen.
 
 Tabs: Status (the box's live status, and the settings you change while playing: metronome, tempo, clock, arp,
-chord, volume, the mixer, audio rate, Start/Stop, recording, a linked Pocket), Studio (XO-4's patterns, play,
-MIDI IN and its synths' sounds; the pads' kit; the DJ decks: what's loaded, and their music folder), MIDI (the
+chord, volume, the mixer, audio rate, Start/Stop, recording, a linked Pocket), Studio (the sequencer's patterns, play,
+MIDI IN; the pads' kit; the DJ decks: what's loaded, and their music folder), MIDI (the
 routes as a grid, each route's settings, the four presets), Library (samples), Editor (a recording or a sample
 made into a new sample) and Recordings (listen in the browser, download, edit as a sample, delete).
 
@@ -26,7 +26,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import blemidi  # noqa: E402
-import djlib  # noqa: E402
 import library  # noqa: E402
 import plugins  # noqa: E402
 import sampler  # noqa: E402
@@ -34,8 +33,7 @@ import sampler  # noqa: E402
 MAX_UPLOAD = 50 * 1024 * 1024
 CONTENT = {".wav": "audio/wav", ".json": "application/json"}   # a file's type when it's sent (else octet-stream)
 MAX_MUSIC = 200 * 1024 * 1024                  # a track for the DJ decks (a long WAV)
-PATTERNS = tuple("ABCDEFGH")                   # XO-4's (xo4.PATTERNS; xo4.py isn't loaded here: numpy)
-SOUNDS = ("KEYS", "BASS", "BELL", "PLUCK", "PAD", "LEAD")   # its synths' starting sounds (xo4.SOUNDS)
+PATTERNS = tuple("ABCDEFGH")                   # the sequencer's (sequencer.PATTERNS)
 EDITABLE = ("recordings", "samples")    # what the sample editor opens
 ICONS = Path(__file__).resolve().parent / "icons"    # the home-screen icons, for installing the page as an app
 MANIFEST = {"id": "/xoxo-studio", "name": "XOXO Studio", "short_name": "XOXO Studio", "start_url": "/", "scope": "/",
@@ -58,10 +56,19 @@ def plugin_folders():
     return out
 
 
+def djlib():
+    """the DJ decks plug-in's music library (its djlib.py), or None if the Studio hasn't that plug-in"""
+    try:
+        return plugins.plugin_module("decks", "djlib")
+    except Exception:
+        return None
+
+
 def builtin_off(pid):
-    """one of the Studio's own optional parts ("editor", "decks", "xo4": plugins.BUILTINS) switched off, by the box's
-    status (on while the box isn't answering: nothing is taken away for that)"""
-    return (((library.read_status() or {}).get("plugins") or {}).get("builtin") or {}).get(pid) is False
+    """the editor or decks plug-in not switched on, by the box's status (the page's sections for them; while
+    the box isn't answering, nothing is taken away for that)"""
+    status = library.read_status()            # (no box answering: nothing is taken away for that)
+    return bool(status) and (((status.get("plugins") or {}).get("builtin") or {}).get(pid) is not True)
 
 
 def disposition(kind, name):
@@ -75,18 +82,19 @@ def disposition(kind, name):
 def safe_path(folder, name):
     """a file in the library, or None: one of its folders (or "music", the DJ decks' Studio DJ Music, or a folder
     of a plug-in's: plugin_folders), a plain name, the right kind of file"""
-    own = folder in library.FOLDERS or folder == "music"
+    dj = djlib() if folder == "music" else None
+    own = folder in library.FOLDERS or (folder == "music" and dj is not None)
     kinds = None if own or not isinstance(folder, str) else plugin_folders().get(folder)
     if not isinstance(name, str) or not (own or kinds):
         return None
     base = Path(name).name
     if own:
-        kinds = djlib.AUDIO if folder == "music" else library.SUFFIXES[folder]
+        kinds = dj.AUDIO if folder == "music" else library.SUFFIXES[folder]
     if base != name or base.startswith(".") or Path(base).suffix.lower() not in kinds:
         return None
     if folder == "music":
-        djlib.MUSIC.mkdir(parents=True, exist_ok=True)
-        return djlib.MUSIC / base
+        dj.MUSIC.mkdir(parents=True, exist_ok=True)
+        return dj.MUSIC / base
     return library.folder(folder) / base
 
 
@@ -94,8 +102,9 @@ def music_listing():
     """the DJ decks' music folder: [{name, title, artist, bpm, camelot, bytes, top}] (top: a file of its own
     there, which the page can delete; in a subfolder: only listed)"""
     out = []
-    for rel, entry in sorted(djlib.listing(djlib.MUSIC).items()):
-        path = djlib.MUSIC / rel
+    dj = djlib()
+    for rel, entry in sorted(dj.listing(dj.MUSIC).items() if dj else []):
+        path = dj.MUSIC / rel
         try:
             size = path.stat().st_size
         except OSError:
@@ -145,11 +154,10 @@ def check_command(c):
         return {"cmd": cmd, "routes": blemidi.clean_routes(c.get("routes"))}
     if cmd == "xo4":
         action, value = c.get("action"), c.get("value")
-        ok = {"pattern": value in PATTERNS, "midi_in": isinstance(value, bool), "play": True,
-              "sound": value in SOUNDS and c.get("track") in (1, 2) and not isinstance(c.get("track"), bool)}
+        ok = {"pattern": value in PATTERNS, "play": True}
         if not ok.get(action):
-            raise ValueError("bad XO-4 command")
-        return {"cmd": cmd, "action": action, "value": value, "track": c.get("track")}
+            raise ValueError("bad SEQ command")
+        return {"cmd": cmd, "action": action, "value": value}
     if cmd == "plugin":                        # a plug-in: on / off, or one of its commands (plugins.py)
         pid, on, name, args = c.get("id"), c.get("on"), c.get("name"), c.get("args")
         if not isinstance(pid, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", pid):
@@ -533,16 +541,13 @@ table.mx td button{min-width:44px;padding:12px 0;font-size:11px}}
 <!-- ======================= STUDIO ======================= -->
 <div class="tab" id="tab-studio">
 <div class="grid">
-<section><h2 id="x-title">XO-4</h2>
+<section><h2 id="x-title">Sequencer</h2>
   <div class="line"><span class="k">Pattern</span><span class="v" id="x-state">–</span></div>
   <div class="patgrid" id="x-pats"></div>
   <div class="line"><span class="k">Transport</span><button class="primary" id="x-play" onclick="cmd({cmd:'xo4',action:'play'})">▶ Play</button></div>
-  <div class="line"><span><span class="k">MIDI in</span><br><span class="dim small"><span id="x-midiin-note">notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth</span></span></span><label class="sw"><input type="checkbox" id="x-midiin"><span></span></label></div>
-  <div class="line xo4only"><span class="k">SYN 1 sound</span><select id="x-s1" onchange="xo4Sound(1, this.value)"></select></div>
-  <div class="line xo4only"><span class="k">SYN 2 sound</span><select id="x-s2" onchange="xo4Sound(2, this.value)"></select></div>
   <p class="dim small" style="margin:6px 0 0">While it plays, a pattern starts on the next bar. Steps are made on the Studio's screen.</p>
 </section>
-<section><h2>Kit</h2>
+<section class="sampleronly"><h2>Kit</h2>
   <div class="line"><span class="k">Loaded</span><span class="v" id="k-cur">–</span></div>
   <div id="k-list"></div>
 </section>
@@ -702,12 +707,12 @@ const xoxo = () => !!st && st.box === "xoxo-studio";
 // on XOXO Studio the FM-1 library is the FM-1 Companion plug-in's (XOXO-Studio-Plugins): its status, or null when it's off
 const fm1 = () => (xoxo() && ((st.plugins || {}).status || {})["fm1-companion"]) || null;
 const plug = (name, args = {}) => post("/api/command", {cmd:"plugin", id:"fm1-companion", name, args}).then((j) => { setTimeout(update, 600); return j; });
-// the Studio's own optional parts (the built-in plug-ins: "xo4", "decks", "editor"): on unless the Studio says off
-const plugOn = (id) => !(st && !st.offline && ((st.plugins || {}).builtin || {})[id] === false);
+// the decks', the editor's and the sampler's sections: shown while those plug-ins are on
+const plugOn = (id) => !!(st && !st.offline && ((st.plugins || {}).builtin || {})[id]);
 let shownBox = null;
 function applyBox() {
   const x = xoxo(), studio = !!(st && !st.offline && (st.xo4 || st.kits || st.decks)), p = fm1(), nolib = x && !p;
-  const key = `${x}${studio}${!!p}${p ? (p.fm1s || []).join("") + p.library_fm1 : ""}${plugOn("xo4")}${plugOn("decks")}${plugOn("editor")}`;
+  const key = `${x}${studio}${!!p}${p ? (p.fm1s || []).join("") + p.library_fm1 : ""}${plugOn("decks")}${plugOn("sampler")}${plugOn("editor")}`;
   if (key === shownBox) return;
   shownBox = key;
   $("title").innerHTML = x ? "XOXO<i>//</i>Studio" : "FM-1<i>//</i>Companion";
@@ -726,10 +731,7 @@ function applyBox() {
     : "Records the FM-1 on the box (a WAV at the FM-1's own rate). Takes are in the Recordings tab.";
   $("s-kbnote").textContent = x ? "Arp and Chord switch every keyboard route to your MIDI gear; pattern, rate and chord type: MIDI tab, on a route."
     : "Pattern, rate and chord type: MIDI tab, Bluetooth → FM-1.";
-  for (const id of ["xo4", "decks", "editor"]) document.querySelectorAll("." + id + "only").forEach((e) => e.hidden = !plugOn(id));
-  $("x-title").textContent = plugOn("xo4") ? "XO-4" : "Sequencer";
-  $("x-midiin-note").textContent = plugOn("xo4") ? "notes from the MIDI routes play the track picked on the Studio: DRUMS the pads, SYNTH 1 or 2 that synth"
-    : "notes from the MIDI routes play the pads";
+  for (const id of ["decks", "editor", "sampler"]) document.querySelectorAll("." + id + "only").forEach((e) => e.hidden = !plugOn(id));
   if (tab === "studio" && !studio) show("status");
   if (tab === "editor" && !plugOn("editor")) show("status");
   if (tab === "library" || tab === "recordings") refresh();
@@ -869,12 +871,6 @@ function renderStudio() {
     $("x-state").textContent = `${x.pattern}${x.queued ? " → " + x.queued + " next bar" : ""} · ${x.playing ? "playing" : "stopped"}`;
     $("x-pats").innerHTML = "ABCDEFGH".split("").map((p) => `<button class="${p === x.pattern ? "on" : ""} ${p === x.queued ? "queued" : ""} ${(x.used || []).includes(p) ? "" : "empty"}" onclick="cmd({cmd:'xo4',action:'pattern',value:${q(p)}})">${p}</button>`).join("");
     $("x-play").textContent = x.playing ? "■ Stop" : "▶ Play"; $("x-play").className = x.playing ? "" : "primary";
-    $("x-midiin").checked = x.midi_in; $("x-midiin").onchange = (e) => cmd({cmd:"xo4", action:"midi_in", value:e.target.checked});
-    for (const t of [1, 2]) {
-      const el = $("x-s" + t), v = x.sounds[t - 1];
-      if (document.activeElement === el) continue;          // (not under a finger)
-      el.innerHTML = opt(v === "CUSTOM" ? ["CUSTOM", ...x.choices] : x.choices, v, (n) => n === "CUSTOM" ? "custom (from the SOUND page)" : n);
-    }
   }
   const k = st && !st.offline && st.kits;
   if (k) {
@@ -893,20 +889,19 @@ function renderMusic() {
     ${m.top ? `<button class="danger" onclick="del('music',${q(m.name)})">Delete</button>` : ""}</div>`).join("")
     : `<p class="empty">No music yet: add MP3, FLAC or WAV files.</p>`;
 }
-function xo4Sound(track, v) { if (v !== "CUSTOM") cmd({cmd:"xo4", action:"sound", track, value:v}); }
 
 // ---------------------------------------------------------------- MIDI tab
 // FM-1 B's row and column only while a second FM-1 is plugged in (then the first is FM-1 A)
 // NET (network MIDI: a DAW on a computer, the desk box) only while a computer is connected
-const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "FM-1":"FM-1", "FM-1 B":"FM-1 B", "XO4":"XO-4", "Box":"Box clock"}, ALL_DESTS = ["FM-1", "FM-1 B", "BT", "USB", "NET", "SMP"];
+const ALL_SOURCES = {"BT":"Bluetooth", "USB":"USB keys", "NET":"Network", "FM-1":"FM-1", "FM-1 B":"FM-1 B", "SEQ":"Sequencer", "Box":"Box clock"}, ALL_DESTS = ["FM-1", "FM-1 B", "BT", "USB", "NET", "SMP"];
 let twoFm1 = false, netOn = false, padsOn = false, SOURCES = {}, DESTS = [];
 // the Studio: each USB MIDI device its own row and column ("U:" + its name), as st.matrix lists them
 let matrixKey = "";
 const devName = (k) => k.startsWith("U:") ? k.slice(2) : null;
 function setFm1s(two, net = netOn, pads = padsOn, matrix = null) {
   twoFm1 = two; netOn = net; padsOn = pads;
-  const shown = (k) => (two || k !== "FM-1 B") && (net || k !== "NET") && (pads || k !== "SMP") && k !== "XO4";   // (XO-4: in st.matrix)
-  const label = (k) => devName(k) || (two && k === "FM-1" ? "FM-1 A" : k === "XO4" && !plugOn("xo4") ? "Sequencer" : ALL_SOURCES[k] || k);
+  const shown = (k) => (two || k !== "FM-1 B") && (net || k !== "NET") && (pads || k !== "SMP") && k !== "SEQ";   // (the sequencer: in st.matrix)
+  const label = (k) => devName(k) || (two && k === "FM-1" ? "FM-1 A" : ALL_SOURCES[k] || k);
   const srcs = matrix ? matrix.sources : Object.keys(ALL_SOURCES).filter(shown);
   SOURCES = Object.fromEntries(srcs.map((k) => [k, label(k)]));
   DESTS = matrix ? matrix.dests : ALL_DESTS.filter(shown);

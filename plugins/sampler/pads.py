@@ -1,15 +1,16 @@
-"""The Studio's 4x4 sampler: 16 pads in a kit, played from MIDI (notes 36-51 on any channel, as an MPC:
-pad 1 is C1) and from the PADS tab.
+"""The sampler plug-in's 4x4 sampler: 16 pads in a kit, played from MIDI (notes 36-51 on any channel, as an MPC:
+pad 1 is C1; while its MIDI IN is on) and from its PADS tab.
 
 Each pad: a sample, its level, pan and tuning, one-shot (plays to its end), gate (stops when the note is let
 go) or loop (loops while held), an attack and a release, a choke group (a pad cuts the others in its group: an
 open hi-hat stopped by the closed one) and reverse. Up to VOICES at once; past that the oldest stops.
 
 The engine runs in a process of its own (PadProcess) that renders blocks of BLOCK frames with numpy and
-streams them into PipeWire: into XO-4's virtual speaker (the pads are XO-4's drums: they share its channel,
-one loopback fewer), whose other side is the source "fm1-xo4": a slider in the mixer, a file in Record parts,
-the meters. This process makes that loopback (it starts before XO-4's), XO-4's player plays into it too. The
-MIDI process sends it notes (the routes' SMP), the app sends it taps and kits; it sends back which pads sound.
+streams them into PipeWire: into a virtual speaker whose other side is the source "fm1-xo4" (PADS: a slider in
+the mixer, a file in Record parts, the meters; its name from when it was XO-4's channel, so its level stays). This
+process makes that loopback. It starts with the Studio app, before the MIDI process (start_process: the plug-in's
+manifest "process"), which sends it the routes' SMP notes; the app sends it taps and kits; it sends back which
+pads sound.
 Kits are JSON files in ~/fm1-library/kits/. One comes ready-made (factory_kits): 808 KIT, Michael Fischer's
 recordings of a real TR-808 (CC0).
 
@@ -40,7 +41,7 @@ PADS, FIRST_NOTE = 16, 36
 MAPS = ("mpc",)                             # how notes reach the pads (a kit saved with SLOOP's layout: as an MPC)
 VOICES, BLOCK = 16, 512                     # voices at once (an MPC 2000: 32); frames a block (11 ms at 48 kHz:
                                             # numpy's cost a call, not a sample, is what a Pi 3 feels)
-SOURCE, SINK = "fm1-xo4", "fm1-xo4-in"         # XO-4's channel (xo4.py's), made here
+SOURCE, SINK = "fm1-xo4", "fm1-xo4-in"         # the pads' channel, made here (named as it was: its level stays)
 MODES = ("one-shot", "gate", "loop")
 DEFAULT_PAD = {"sample": None, "level": 100, "pan": 0, "tune": 0, "mode": "one-shot", "attack": 0,
                "release": 50, "choke": 0, "reverse": False}
@@ -291,7 +292,7 @@ class Sequencer:
 
     def steps_due(self, seq, t0, t1):
         if not self.playing():
-            if self.next is not None or self.pending:   # stopped: what's held ends (XO-4's hits too)
+            if self.next is not None or self.pending:   # stopped: what's held ends (queued hits too)
                 self.next, self.step, self.skip = None, None, set()
                 offs = [(t0, "off", p[2], 0) for p in self.pending if p[1] == "off"]
                 self.pending = []
@@ -311,7 +312,7 @@ class Sequencer:
         return due
 
     def queue(self, hits):
-        """XO-4's drum track: [(time, "on" / "off", pad, velocity)], each played at its time (while playing)"""
+        """hits from elsewhere: [(time, "on" / "off", pad, velocity)], each played at its time (while playing)"""
         if self.playing():
             self.pending += [(float(t), str(kind), int(pad), int(vel)) for t, kind, pad, vel in hits
                              if 0 <= int(pad) < PADS]
@@ -535,7 +536,7 @@ class Engine:
         return sorted({v["pad"] for v in self.voices})
 
 
-OUT_LEVEL = 0.5                             # -6 dB: room in the mix (XO-4's synths share the channel, at
+OUT_LEVEL = 0.5                             # -6 dB: room in the mix (the pads and the decks at
                                             # theirs; XO-4 at 80% and the decks at 100% clipped, 2026-11-03)
 
 
@@ -547,21 +548,32 @@ def to_pcm(block):
 
 # ---------------------------------------------------------------- the process
 
-def run(app_conn, midi_conn, rate, xo4_conn=None):
+def start_process(state, box):
+    """the sampler's process, started with the Studio app while the plug-in is on (plugins.start_processes),
+    before the MIDI process: -> the PadProcess (its midi_conn: where the MIDI process sends the SMP notes)"""
+    global VOICES
+    if "fast" in (box or {}).get("can", ()):    # a Pi 4 or newer: twice the voices (an MPC 2000's 32)
+        VOICES = 32
+    proc = PadProcess((state or {}).get("audio_rate", 48000))
+    proc.start()
+    return proc
+
+
+def run(app_conn, midi_conn, rate):
     """the pad process: render, stream into the virtual speaker SINK (pw-loopback makes it, and the SOURCE the
     box hears), take the app's and the MIDI process's messages between blocks, tell the app which pads sound"""
     import fcntl
     # a sampler left running (an app killed without its children, one started by hand): gone, or the box gets
-    # two XO-4 sources; and an older one's own SAMPLER channel. (Only command lines that start with pw-loopback or
-    # pw-cat: never a shell that merely mentions it; not XO-4's player, which plays into this loopback too.)
+    # two PADS sources; and an older one's own SAMPLER channel. (Only command lines that start with pw-loopback or
+    # pw-cat: never a shell that merely mentions it.)
     for pattern in (f"^pw-loopback .*node.name={SINK} ", "^pw-cat .*node.name = fm1-pads ",
                     "^pw-(loopback|cat) .*fm1-sampler-in"):
         subprocess.run(["pkill", "-f", pattern], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     loop = subprocess.Popen(
         ["pw-loopback", "--capture-props", f"media.class=Audio/Sink node.name={SINK} audio.position=[FL,FR] "
-                                           "node.description=XO-4 priority.session=1",
+                                           "node.description=PADS priority.session=1",
          "--playback-props", f"media.class=Audio/Source node.name={SOURCE} audio.position=[FL,FR] "
-                             "node.description=XO-4"],
+                             "node.description=PADS"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(1.0)
     cat = subprocess.Popen(
@@ -575,22 +587,18 @@ def run(app_conn, midi_conn, rate, xo4_conn=None):
     except OSError:
         pass
     engine, shown, step_shown = Engine(rate), None, None
+    midi_in = False                             # MIDI IN: the routes' notes play the pads (off: only the clock)
     ahead = 1024 / rate + 0.010                 # a block written now is heard after the pipe (4096 B) and pw-cat
     base, frames = None, 0                      # heard-time of frame 0; frames written since
     try:
         while True:
-            for conn in (app_conn, midi_conn, xo4_conn):
+            for conn in (app_conn, midi_conn):
                 while conn is not None and conn.poll():
                     try:
                         msg = conn.recv()
                     except (EOFError, OSError):
-                        if conn is xo4_conn:                # (XO-4 gone: the pads carry on)
-                            xo4_conn = None
-                            break
                         os._exit(0)
-                    if msg[0] == "hits":                # ("hits", [...]): XO-4's drum track (xo4.py)
-                        engine.seq.queue(msg[1])
-                    elif msg[0] == "kit":
+                    if msg[0] == "kit":
                         engine.set_kit(msg[1])
                     elif msg[0] == "tap":
                         if engine.hit(msg[1], msg[2]):
@@ -599,8 +607,11 @@ def run(app_conn, midi_conn, rate, xo4_conn=None):
                     elif msg[0] == "untap":
                         engine.seq.let_go(msg[1])
                         engine.release(msg[1])
+                    elif msg[0] == "midi_in":           # ("midi_in", on)
+                        midi_in = bool(msg[1])
                     elif msg[0] == "midi":
-                        if any([engine.midi(bytes(m)) for m in msg[1]]):
+                        messages = msg[1] if midi_in else [m for m in msg[1] if m and m[0] >= 0xF8]
+                        if any([engine.midi(bytes(m)) for m in messages]):
                             engine.seq.dirty = False
                             app_conn.send(("seq", engine.kit["seq"]))
                     elif msg[0] == "grid":              # ("grid", seconds a tick, tick 0's time or None, playing)
@@ -621,10 +632,7 @@ def run(app_conn, midi_conn, rate, xo4_conn=None):
             if engine.seq.dirty:                    # note repeat recorded (taps and notes report at once)
                 engine.seq.dirty = False
                 app_conn.send(("seq", engine.kit["seq"]))
-            if engine.played:                       # pads played live: to the app (XO-4's live REC)
-                for pad, vel, at in engine.played:
-                    app_conn.send(("played", pad, vel, at))
-                engine.played = []
+            engine.played = []
             if engine.seq.step != step_shown:
                 step_shown = engine.seq.step
                 app_conn.send(("step", step_shown))
@@ -647,14 +655,11 @@ class PadProcess:
         ctx = multiprocessing.get_context("fork")
         self.conn, child = ctx.Pipe()
         self.midi_in, self.midi_conn = ctx.Pipe(duplex=False)     # (the MIDI process writes midi_conn)
-        self.xo4_in, self.xo4_conn = ctx.Pipe(duplex=False)       # (XO-4 writes xo4_conn: its drums' hits)
-        self.proc = ctx.Process(target=run, args=(child, self.midi_in, rate, self.xo4_in), daemon=True,
-                                name="fm1-pads")
+        self.proc = ctx.Process(target=run, args=(child, self.midi_in, rate), daemon=True, name="fm1-pads")
         self.sounding = []
         self.step = None                        # the sequencer's playhead
         self.on_seq = None                      # called with the pattern live REC changed (from this thread)
         self.on_step = None                     # called as the playhead moves
-        self.on_played = None                   # called with (pad, velocity, time) as a pad is played live
 
     def start(self):
         import threading
@@ -675,8 +680,6 @@ class PadProcess:
                     self.on_step(msg[1])
             elif msg[0] == "seq" and self.on_seq:
                 self.on_seq(msg[1])
-            elif msg[0] == "played" and self.on_played:
-                self.on_played(*msg[1:4])
 
     def send(self, *msg):
         try:

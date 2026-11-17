@@ -56,7 +56,6 @@ DEFAULTS = {
     "clock_mode": "follow", # MIDI clock: "follow" (pass on and show incoming clock) or "box" (send our own)
     "bpm": 120,             # the box's tempo when it's the clock master
     "plugins": {},          # the plug-ins: {id: {"on": bool, "settings": {...}}} (plugins.py)
-    "xo4_midi_in": False,   # XO-4's MIDI IN: the routes' notes (the SMP column) play the track picked (the pads, a synth)
     "routes": None,         # the MIDI matrix: {"BT>SMP": {...}, ...}; None = every route as it starts
     "route_presets": None,  # {"1": {"routes": ..., "saved": time}, ...}: matrix setups to recall
     "metronome": False,     # a click on the speaker in time with the clock
@@ -68,7 +67,6 @@ DEFAULTS = {
     "touch_cal": [3900, 200, 3900, 200, True],   # the desk touchscreen: raw x left/right, y top/bottom, swap
     "desk_theme": "XOXO",   # the desk box's colours: one of xoxostyle.ALL (MORE > THEME)
     "output": "both",       # the Studio's sound: "speaker" (Bluetooth), "phones" (the 3.5 mm jack) or "both"
-    "decks_out": "studio",  # the DJ decks' master: "studio" (where the Studio plays, its MIXER) or "hercules"
     "phones": 80,           # the jack's level (%)
     "master": 100,          # a DAC HAT's level (%): the master out, its headphone (aux) and RCA outs alike; with
                             # no DAC, USB out's (an interface left at PipeWire's 40% was all but silent)
@@ -90,9 +88,7 @@ DEFAULTS = {
     "cue_mix": 50,          # the jack's blend while something's cued: 0 the cued sources only, 100 the main mix
     "boot_theme": None,     # the Studio's boot screen: the theme it last showed (deskboot.py)
     "editor_last": None,    # the Studio's sample editor: the file last opened, [name, folder], opened again
-    "repeat": None,         # the pads' note repeat: a division (pads.DIVS index 0-5) or None: off
-    "kit": None,            # the Studio's pads: the kit in use (pads.clean_kit), kept here between kit saves
-    "xo4": None,            # XO-4's song (xo4.clean_song): its patterns, patches, levels
+    "seq": None,            # the sequencer's song (sequencer.clean_song): its patterns, patches, levels
 }
 GPIO_CHIP = "/dev/gpiochip0"
 PIN_DC, PIN_RST = 24, 25
@@ -117,10 +113,39 @@ UNNAMED = re.compile(r"[0-9A-F]{2}(-[0-9A-F]{2}){5}")
 def load_state():
     state = dict(DEFAULTS)
     try:
-        state.update(json.loads(STATE_FILE.read_text()))
+        saved = json.loads(STATE_FILE.read_text())
     except (OSError, ValueError):
-        pass
+        saved = {}
+    saved = saved if isinstance(saved, dict) else {}
+    state.update(saved)
+    if "xo4" in state:                        # (the sequencer was XO-4's before it was the Studio's own)
+        value = state.pop("xo4")
+        if "seq" not in saved:
+            state["seq"] = value
+    pads_was = {new: state.pop(old) for old, new in (("kit", "kit"), ("repeat", "repeat"), ("xo4_midi_in", "midi_in"),
+                                                     ("seq_midi_in", "midi_in")) if old in state}
+    if pads_was:                              # (the pads were the core's before they were the sampler plug-in's)
+        entry = state.setdefault("plugins", {}).setdefault("sampler", {})
+        if isinstance(entry, dict):
+            for key, value in pads_was.items():
+                entry.setdefault("settings", {}).setdefault(key, value)
+    state["routes"] = moved_routes(state.get("routes"))
+    for preset in (state.get("route_presets") or {}).values():
+        if isinstance(preset, dict):
+            preset["routes"] = moved_routes(preset.get("routes"))
+    if "decks_out" in state:                  # (the DJ decks' output, kept in the core before they were a plug-in:
+        out = state.pop("decks_out")          # now the decks plug-in's own setting)
+        entry = state.setdefault("plugins", {}).setdefault("decks", {})
+        if isinstance(entry, dict):
+            entry.setdefault("settings", {}).setdefault("out", out)
     return state
+
+
+def moved_routes(routes):
+    """saved routes from XO-4's MIDI track ("XO4>USB") as the sequencer's ("SEQ>USB")"""
+    if not isinstance(routes, dict):
+        return routes
+    return {("SEQ>" + k[4:] if isinstance(k, str) and k.startswith("XO4>") else k): v for k, v in routes.items()}
 
 
 def save_state(state):
@@ -355,6 +380,8 @@ def device_keys(nodes):
         slug = re.sub(r"[^a-z0-9]", "", str(node.get("label", "")).lower())[:10] or "usb"
         if node.get("plugin"):                # a plug-in's own sound: by its node's name, whatever it's called
             slug = re.sub(r"[^a-z0-9]", "", str(node.get("name", "")).lower())[:10] or "plugin"
+        if node.get("name") == "fm1-xo4":     # the pads' channel (PADS): its key as it was, so its level stays
+            slug = "xo4"
         key, n = f"u-{slug}", 2
         while key in used:
             key, n = f"u-{slug}{n}", n + 1
@@ -397,10 +424,6 @@ def pick_nodes(objects, host=None):
             node["card"] = int(path.group(1)) if path else None
             node["ports"] = ports.get(o.get("id"), [])
             sources.append(node)
-        elif cls == "Audio/Source" and name == "fm1-xo4":         # XO-4: its synths and the pads (its drums);
-            synths = host is None or plugins.builtin_on(getattr(host.app, "state", None), "xo4")   # the pads alone
-            sources.append(dict(node, label="XO-4" if synths else "PADS", internal=True,   # with its synths off
-                                ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == "fm1-pocket":      # a Pocket's sound over the link (RTP, port 46000)
             sources.append(dict(node, label="POCKET", internal=True, ports=ports.get(o.get("id"), [])))
         elif cls == "Audio/Source" and name == FOLLOW_IN:        # a Studio following this one (port 46020)
@@ -916,8 +939,8 @@ class Loopback:
 MIX_MAX = 200                           # the levels go to 200%: some keyboards' synths are much quieter
 POCKET_FM1S = ("fm1-pocket-a", "fm1-pocket-b", "fm1-pocket-c")   # a linked Pocket's FM-1 A-C, each its own stream
 POCKET_FM1 = re.compile(r"Pocket FM-1 ([A-C])$")   # (their network MIDI sessions: blemidi.POCKET_FM1)
-APP_NODES = {"decks": "fm1-decks"}      # sound the Studio's own programs play (the DJ decks: decks.py, DJ decks
-                                        # out: STUDIO): mixer key -> its PipeWire node, its level set there
+# The sound the plug-ins' own programs play (Studio.add_app_sound: the DJ decks, DJ decks out STUDIO): App.app_nodes,
+# mixer key -> its PipeWire node, its level set there
 
 
 def link_ports(links):
@@ -1201,8 +1224,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.usb_set = None                   # (its node id, level) last set: MASTER
         self.usb_loop = Loopback(state["audio_rate"])   # the master copied to it
         self.cue_mixer = Mixer(state["audio_rate"], "fm1-cue-")   # sources cued to the jack, each its own loopback
-        self.plugin_host = plugins.Host(self, builtins=plugins.BUILTINS)   # the plug-ins (plugins.py) and the
-                                              # Studio's own optional parts (XO-4, the decks, the editor): main()
+        self.plugin_host = plugins.Host(self)   # the plug-ins (plugins.py, ~/xoxo-plugins: the sample editor, the
+                                              # DJ decks and XO-4's synths among them, as anyone's)
         self.cards_sent = None                # the plug-ins' {sound card: name} the MIDI process has
         self.computer = None                  # a computer on the USB-C port (computer_node: a Pi 4 as its interface)
         self.pc_mixer = Mixer(state["audio_rate"], "fm1-pc-")     # to the computer: every source but its own
@@ -1225,8 +1248,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.box = {"build": "pocket", "board": "", "screen": None, "can": set()}   # main() fills it in
         self.desk = None                      # the desk box's touch screens (deskui.DeskUI), from main()
         self.powering_off = False             # shutdown asked the system to power off: nothing more drawn
-        self.pads = None                      # the Studio's sampler (pads.PadProcess), from main()
-        self.xo4 = None                       # XO-4 (xo4.XO4Process), from main()
+        self.sequencer = None                       # the sequencer (sequencer.SeqProcess), from main()
         self.metro_sent = None                # what the MIDI process was last told about the metronome
         self.sink = None
         self.others = []                      # other USB sound: a keyboard's own synth
@@ -1465,10 +1487,10 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.usb_loop.ensure(usb and main and main != usb and "monitor:" + main, usb, "fm1-usb-out")
         app_ids = {key: next((o.get("id") for o in objects
                               if ((o.get("info") or {}).get("props") or {}).get("node.name") == node), None)
-                   for key, node in APP_NODES.items()}
+                   for key, node in self.app_nodes().items()}
         self.app_here = {key for key, app_id in app_ids.items() if app_id is not None}
         cued = [(key, node["name"], self.input_pair(key, node)) for key, node in channels if key in self.cued()]
-        cued += [(key, APP_NODES[key], None) for key in sorted(self.app_here) if key in self.cued()]   # an app:
+        cued += [(key, self.app_nodes()[key], None) for key in sorted(self.app_here) if key in self.cued()]   # an app:
         self.cue_mixer.ensure(self.jack and self.jack["name"], cued)   # its stream, after its level (set there)
         self.pc_mixer.ensure(self.computer and self.computer["name"], self.computer_feeds(channels))
         self.pc_mixer.set_levels(objects, {key: self.heard(key) for key, _ in channels}
@@ -1507,7 +1529,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return []
         feeds = [(key, node["name"], self.input_pair(key, node)) for key, node in channels
                  if node.get("label") != "COMPUTER" and self.mix_level(key) > 0]
-        return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
+        return feeds + [(key, self.app_nodes()[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
 
     def outputs(self):
         """(the node name the sound goes to, a second one that gets a copy of it, or None): with a DAC HAT, the DAC
@@ -1540,7 +1562,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         but not STUDIO, the follower's own sound (as the computer's: computer_feeds)"""
         feeds = [(key, node["name"], self.input_pair(key, node)) for key, node in channels
                  if node.get("name") != FOLLOW_IN and self.mix_level(key) > 0]
-        return feeds + [(key, APP_NODES[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
+        return feeds + [(key, self.app_nodes()[key], None) for key in sorted(self.app_here) if self.mix_level(key) > 0]
 
     def leader_out(self, main):
         """the follower: where the leader's mix plays, an output its link doesn't send from (not main, whose
@@ -1656,11 +1678,15 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         self.scan_now = True
 
     def plugin_on(self, pid):
-        """one of the Studio's own optional parts (plugins.BUILTINS: "xo4", "decks", "editor") switched on?"""
-        return plugins.builtin_on(self.state, pid)
+        """a plug-in switched on ("editor", "decks", anyone's)? Before the
+        plug-ins are found (or one that isn't there): by the settings, the Studio's own on unless switched off"""
+        host = self.plugin_host
+        if host.started:                      # (once they're found: one that isn't there is off)
+            return pid in host.loaded
+        return plugins.switched_on(self.state, pid)
 
     def restart_app(self):
-        """the Studio app started again (XO-4 switched on or off: its process is forked at the start): the
+        """the Studio app started again (a plug-in whose manifest says "restart" switched on or off): the
         settings saved, then the app's own service restarted, a moment later (never the Pi)"""
         self.save_settings()
 
@@ -1670,14 +1696,19 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                                               # this process is the one stopped, it can't wait for the job)
         threading.Thread(target=later, daemon=True).start()
 
+    def app_nodes(self):
+        """{mixer key: PipeWire node} of the plug-ins' own programs (Studio.add_app_sound)"""
+        host = getattr(self, "plugin_host", None)
+        return {key: node for _pid, key, node, _label, _shown in (host.app_sounds() if host else [])}
+
     def plugins_changed(self):
         """a plug-in switched on or off: its device names to the MIDI process, the sources scanned again"""
         if self.desk and hasattr(self.desk, "builtins_changed"):
             self.desk.builtins_changed()
         if self.midi and hasattr(self.midi, "set_names"):
             self.midi.set_names(self.plugin_host.midi_names())
-        if self.midi and hasattr(self.midi, "set_dj"):
-            self.midi.set_dj(self.plugin_on("decks"))
+        if self.midi and hasattr(self.midi, "set_taken"):   # the controllers the plug-ins read (the decks'): off
+            self.midi.set_taken(self.plugin_host.taken_controllers())   # the routes
         self.cards_sent = None                # (sent again on the next scan)
         self.scan_now = True
         self.post("status", True)
@@ -1723,100 +1754,28 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         """a plug-in's few words for a sound source ("SLOOP 2.8" for an FM-1), or None"""
         return self.plugin_host.source_detail(self.channel_name(key, node))
 
-    def kit(self):
-        """the Studio's kit in use; none yet (a first start): the ready-made 808 KIT, so the pads and XO-4's drums
-        play out of the box"""
-        import pads
-        if not self.state.get("kit"):
-            pads.factory_kits()
-            self.state["kit"] = pads.load_kit(pads.kit_path(pads.FACTORY_KITS[0][1])) or pads.empty_kit()
-        kit = pads.clean_kit(self.state["kit"])
-        if any(kit["seq"]["steps"]):               # a pattern from the pads' own sequencer: XO-4's now
-            kit = self.absorb_pad_seq(kit)
-            self.state["kit"] = kit
-            self.save_settings()
-        return kit
-
-    def absorb_pad_seq(self, kit):
-        """the kit's pattern from the pads' own sequencer (before XO-4 took the drums over) -> the drums of XO-4's
-        first pattern whose drums are empty (its length, steps, levels, ratchets, nudges; the swing too if XO-4
-        has none); the kit keeps no pattern. Its division isn't kept: XO-4 steps in 16ths"""
-        import pads
-        import xo4
-        seq = kit["seq"]
-        song = self.song()
-        free = next((p for p in xo4.PATTERNS if not any(song["patterns"][p][xo4.DRUMS]["steps"])), None)
-        if free:
-            track = song["patterns"][free][xo4.DRUMS]
-            track["len"] = seq["len"]
-            for i, hits in enumerate(seq["steps"][:xo4.NSTEP]):
-                if hits:
-                    track["steps"][i] = {"notes": [h[0] for h in hits], "levels": [h[1] for h in hits],
-                                         "ratchets": [h[2] for h in hits], "nudge": seq["micro"][i], "vel": 100,
-                                         "len": 1.0}
-            if not song["swing"]:
-                song["swing"] = seq["swing"]
-            self.set_song(song)
-            self.say(f"The kit's pattern is XO-4's {free} now", 3)
-        return dict(kit, seq=pads.empty_seq())
-
     def song(self):
-        """XO-4's song"""
-        import xo4
-        return xo4.clean_song(self.state.get("xo4"))
+        """the sequencer's song"""
+        import sequencer
+        return sequencer.clean_song(self.state.get("seq"))
 
     def set_song(self, song):
-        """XO-4's song changed: kept, and sent to XO-4"""
-        import xo4
-        self.state["xo4"] = xo4.clean_song(song)
-        self.song_rev = getattr(self, "song_rev", 0) + 1     # (the XO-4 screen redraws: a change from the web page)
+        """the sequencer's song changed: kept, and sent to it"""
+        import sequencer
+        self.state["seq"] = sequencer.clean_song(song)
+        self.song_rev = getattr(self, "song_rev", 0) + 1     # (the SEQ screen redraws: a change from the web page)
         self.save_settings()
-        if self.xo4:
-            self.xo4.send("song", self.state["xo4"])
+        if self.sequencer:
+            self.sequencer.send("song", self.state["seq"])
 
-    def xo4_pick_pattern(self, p):
-        """XO-4's pattern p: played from the next bar (at once while stopped)"""
-        if self.xo4:
-            self.xo4.send("pick", p)
+    def sq_pick_pattern(self, p):
+        """the sequencer's pattern p: played from the next bar (at once while stopped)"""
+        if self.sequencer:
+            self.sequencer.send("pick", p)
         if not self.seq_playing():
             song = self.song()
             song["pattern"] = p
             self.set_song(song)
-
-    def set_xo4_midi_in(self, on):
-        """XO-4's MIDI IN: the routes' notes play the track picked on XO-4's screen (on) or not"""
-        self.state["xo4_midi_in"] = bool(on)
-        self.save_settings()
-        self.send_xo4_in()
-        self.song_rev = getattr(self, "song_rev", 0) + 1
-
-    def set_xo4_keys(self, track):
-        """the track picked on XO-4's screen: MIDI IN's notes play it (0 DRUMS: the pads; 1, 2: SYNTH 1, 2; the
-        MIDI track leaves it as it was). Not saved: XO-4 opens on DRUMS"""
-        if track in (1, 2) and not self.plugin_on("xo4"):   # (XO-4's synths switched off: the pads)
-            track = 0
-        if track in (0, 1, 2) and track != getattr(self, "xo4_keys", 0):
-            self.xo4_keys = track
-            self.send_xo4_in()
-
-    def send_xo4_in(self):
-        if self.midi and hasattr(self.midi, "set_xo4_in"):
-            self.midi.set_xo4_in(self.state["xo4_midi_in"], getattr(self, "xo4_keys", 0))
-
-    def xo4_sound(self, track, name):
-        """a synth track's (1, 2) starting sound (xo4.SOUNDS), as the SOUND page's buttons"""
-        import xo4
-        if not self.plugin_on("xo4"):
-            return
-        song = self.song()
-        song["patches"][track - xo4.SYNTH1].update(xo4.SOUNDS[name])
-        self.set_song(song)
-
-    @staticmethod
-    def xo4_sound_name(patch):
-        """the starting sound a patch is, or "CUSTOM" (changed on the SOUND page)"""
-        import xo4
-        return next((n for n, s in xo4.SOUNDS.items() if all(patch.get(k) == v for k, v in s.items())), "CUSTOM")
 
     def pocket_link(self):
         """a linked Pocket: "cable" (a link-local address) or "network"; None: no Pocket"""
@@ -1830,16 +1789,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
         """a linked Pocket's IP address (its network MIDI session's), or None"""
         hosts = getattr(self.midi, "net_hosts", None) or {}
         return next((str(ip) for name, ip in sorted(hosts.items()) if "Pocket" in name), None)
-
-    def set_kit(self, kit):
-        import pads
-        kit = pads.clean_kit(kit)
-        if any(kit["seq"]["steps"]):               # (a kit saved with the pads' own pattern: XO-4's now)
-            kit = self.absorb_pad_seq(kit)
-        self.state["kit"] = kit
-        self.save_settings()
-        if self.pads:
-            self.pads.send("kit", self.state["kit"])
 
     def mix_level(self, key):
         mix = self.state.get("mix") or {}
@@ -2165,7 +2114,8 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return [("metronome", "Metronome", onoff(self.state["metronome"])),
                     ("tempo", "Tempo", f"± {tempo}" if self.editing == "tempo" else tempo),
                     ("clock", "Clock", self.state["clock_mode"]), ("arp_on", "Arp", onoff(keys["arp_on"])),
-                    ("chord_on", "Chord", onoff(keys["chord_on"])), ("click", "Click level", self.state["click"])]
+                    ("chord_on", "Chord", onoff(keys["chord_on"])), ("click", "Click level", self.state["click"])
+                    ] + self.plugin_host.setting_rows("play")
         if self.settings_menu == "audio":
             channels = self.mix_channels()
             names = {k: self.channel_name(k, n) for k, n in channels}   # a long device name: no room for "level"
@@ -2175,8 +2125,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             parts = [("rec_parts", "Record parts", onoff(self.state["rec_parts"]))] if mix else []
             jack = ([("output", "Output", self.state["output"]), ("cue", "Click to phones", onoff(self.state["cue"]))]
                     if self.jack else [])           # the Studio's 3.5 mm jack
-            decks = ([("decks_out", "DJ decks out", self.state.get("decks_out", "studio"))]
-                     if self.desk and self.plugin_on("decks") else [])
+            theirs = self.plugin_host.setting_rows("audio")   # the plug-ins' rows (the DJ decks' out)
             latency = latency_step(self.state.get("latency"))
             usb_out = [("usb_out", "USB out", self.usb_out_text())] if self.usb_outs and not self.dac else []
             return ([("speaker", "Speaker", speaker), ("audio", "BT audio", audio)] + jack
@@ -2185,7 +2134,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
                        ("link_return", "Mix to Pocket", onoff(self.state.get("link_return", True))),
                        ("link_rec", "Linked REC", onoff(self.state.get("link_rec", True))),
                        ("follow_studio", "Follow Studio", self.follow_text())]
-                    + usb_out + mix + parts + decks)
+                    + usb_out + mix + parts + theirs)
         if self.settings_menu == "midi":
             keys = getattr(self.midi, "controllers", None) or []
             bt_keys = getattr(self.midi, "ble_keys", None) or []
@@ -2193,15 +2142,18 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             return [("midi", "BLE MIDI", midi), ("pairing", "Pairing", f"open {int(left)}s" if left > 0 else "closed"),
                     ("btkeys", "BT keys", f"{linked} of {len(bt_keys)}" if bt_keys else "add ›"),
                     ("usbkeys", "USB keys", str(len(keys)) if keys else "none"),
-                    ("routes", "MIDI routes", "›"), ("presets", "Route presets", "›")]
+                    ("routes", "MIDI routes", "›"), ("presets", "Route presets", "›")
+                    ] + self.plugin_host.setting_rows("midi")
         return [("g_play", "Playing", "›"), ("g_audio", "Audio", "›"), ("g_midi", "MIDI", "›"),
-                ("recording", "Recordings", "›")] + ([("editor", "Sample editor", "›")] if self.plugin_on("editor")
+                ("recording", "Recordings", "›")] + ([("editor", "Sample editor", "›")] if not self.desk or self.plugin_on("editor")
                                                       else []) + [("sd", "Import SD card", ""),
                 ("wifi", "Wi-Fi", wifi), ("btdevices", "BT devices", "›")]
 
     def change_setting(self):
         key = self.settings_rows()[self.setting][0]
-        if key in GROUPS:
+        if self.plugin_host.change_setting(key):   # a plug-in's row (plugins.Studio.add_setting)
+            pass
+        elif key in GROUPS:
             self.settings_menu, self.setting = GROUPS[key][0], 0
         elif key in LIBRARY_KEYS:
             self.library_choose(key)
@@ -2217,14 +2169,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.state["output"] = outs[(outs.index(now_out) + 1) % 3] if now_out in outs else "both"
             self.save_settings()
             self.scan_now = True
-        elif key == "decks_out":              # the DJ decks' master: the Studio's (its MIXER), or the Hercules's
-            self.state["decks_out"] = "hercules" if self.state.get("decks_out", "studio") == "studio" else "studio"
-            self.save_settings()
-            proc = self.desk and self.desk.decks_proc
-            if proc:
-                proc.send("output", self.state["decks_out"])
-            self.say("DJ decks: through the Studio's mixer" if self.state["decks_out"] == "studio"
-                     else "DJ decks: the Hercules's own outputs", 2)
         elif key == "cue":
             self.state["cue"] = not self.state["cue"]
             self.save_settings()
@@ -2712,17 +2656,6 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.web_commands()                       # the web page's settings (a file check: cheap)
             if event and event[0] in KEYS:
                 self.on_key(event[0], len(event) > 1 and event[1])
-            elif event and event[0] == "xo4_song":      # XO-4's live REC changed the song (XO-4 has it)
-                import xo4
-                self.state["xo4"] = xo4.clean_song(event[1])
-                self.save_settings()
-                if self.desk:
-                    self.desk.xo4_rev += 1
-            elif event and event[0] == "pad_seq":       # live REC changed the pattern (the pad process has it)
-                kit = self.kit()
-                kit["seq"] = event[1]
-                self.state["kit"] = kit
-                self.save_settings()
             elif event and event[0] == "touch" and self.desk:   # the desk UI's screens (desk.Touch)
                 self.last_activity = time.monotonic()
                 self.desk.touch(*event[1:], time.monotonic())
@@ -2809,31 +2742,25 @@ def main():
         # MIDI gets its own process, forked before any thread exists (App.run lowers the drawing
         # thread's priority so the kernel runs MIDI and audio first)
         import blemidi
-        pad_process = xo4_process = None
-        if box["build"] == "desk":            # the Studio's sampler and XO-4, each in a process of its own
-            import pads
-            import xo4
-            import xo4synth
-            if "fast" in box["can"]:          # a Pi 4 or newer: twice the pads' voices (an MPC 2000's 32), and
-                pads.VOICES = 32              # XO-4's chords ring on under the next (8 a track, 4 a step still)
-                xo4synth.VOICES = 8
-            pad_process = pads.PadProcess(state["audio_rate"])
-            pad_process.start()
-            # the sequencer always (the core's); XO-4's synths with it while that built-in plug-in is on
-            xo4_process = xo4.XO4Process(state["audio_rate"], pads_conn=pad_process.xo4_conn,
-                                         synths=plugins.builtin_on(state, "xo4"))
-            xo4_process.start()
+        sq_process, processes = None, {}
+        if box["build"] == "desk":            # the sequencer, and the plug-ins' own processes (the sampler's pads)
+            import sequencer
+            processes = plugins.start_processes(state, box)
+            sq_process = sequencer.SeqProcess(state["audio_rate"])
+            sq_process.start()
             deskboot.show(display, boot, 1)
+        smp = next((getattr(p, "midi_conn", None) for p in processes.values()
+                    if getattr(p, "midi_conn", None) is not None), None)   # (the routes' SMP: the pads)
         midi = blemidi.MidiProcess(state["midi_enabled"],
                                    net=box["build"] == "desk",          # network MIDI (a DAW): the Studio
-                                   pads=pad_process and pad_process.midi_conn,
-                                   xo4=xo4_process and xo4_process.midi_conn,
-                                   xo4_notes=xo4_process and xo4_process.notes_in)
+                                   pads=smp,
+                                   sequencer=sq_process and sq_process.midi_conn,
+                                   sq_notes=sq_process and sq_process.notes_in)
         midi.start()
-        midi.set_ble_saved(state["ble_keys"])
+        midi.set_taken(plugins.taken_controllers(state))   # (the decks' controllers off the routes from the start:
+        midi.set_ble_saved(state["ble_keys"])              # the plug-ins' manifests, read before any runs)
         midi.set_clock(state["clock_mode"], state["bpm"])
         midi.set_routes(state["routes"])
-        midi.set_xo4_in(state["xo4_midi_in"])
         if state.get("follow_studio"):
             midi.set_follow(True)
     if boot:
@@ -2841,8 +2768,7 @@ def main():
     state["touch_cal"] = list(state["touch_cal"])   # its own list: calibrating changes it in place
     app = App(display, state)
     app.midi, app.box = midi, box
-    if box["build"] != "desk":                # (the Pocket: only its sample editor is its own optional part)
-        app.plugin_host.builtins = ("editor",)
+    app.plugin_host.processes = processes if not sim else {}
     app.plugin_host.start()                   # the plug-ins switched on (plugins.py)
     app.plugins_changed()
     if midi:
@@ -2850,16 +2776,9 @@ def main():
         midi.on_saved = lambda keys: app.post("ble_saved", keys)
         midi.on_mmc = lambda command, peer: app.post("mmc", command, peer)
     if not sim and box["build"] == "desk":
-        app.pads = pad_process
-        app.pads.send("kit", app.kit())
-        app.pads.send("repeat", state["repeat"])
-        app.pads.on_seq = lambda seq: app.post("pad_seq", seq)
-        app.pads.on_step = lambda step: app.post("pad_step", step)     # (wakes the screen: the playhead)
-        app.xo4 = xo4_process
-        app.xo4.send("song", app.song())
-        app.xo4.on_step = lambda: app.post("xo4_step")                  # (the XO-4 tab's playhead)
-        app.xo4.on_song = lambda song: app.post("xo4_song", song)       # live REC changed it
-        app.pads.on_played = lambda pad, vel, at: app.xo4.send("played", pad, vel, at)   # (XO-4's live REC)
+        app.sequencer = sq_process
+        app.sequencer.send("song", app.song())
+        app.sequencer.on_step = lambda: app.post("sq_step")                  # (the SEQ tab's playhead)
     if not sim and box["build"] == "desk":    # its own touch screens; the classic ones' on-screen keys
         import deskui
         app.desk = deskui.DeskUI(app, display)

@@ -4,7 +4,7 @@
 
 **[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen on a real Studio (a Pi 3 B+), with the Studio's own sound. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in. Credits are at the end of the video.
 
-A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: a groovebox (XO-4) with a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument.
+A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: an 8-track MIDI sequencer (SEQ), a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument.
 
 > **This is a beta.** Version 0.2.2 has been built and used on three Studios: two Raspberry Pi 3s and one Raspberry Pi 4. Much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) and [Known limitations](#known-limitations). Nothing here is claimed beyond what's been tried.
 
@@ -16,9 +16,9 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 |---|---|---|
 | Install, boot, touchscreen | Pi 4 (Waveshare 3.5" (C), DAC HAT); Pi 3 B+ (Hosyond 3.5" SPI); Pi 3 B (UCTRONICS 3.5" HDMI) | Waveshare (A); a fresh install with the `xoxo35` screen set-up; the `--screen hdmi` option itself |
 | Pi 4 as a USB interface | Windows 11, no driver: audio and MIDI both ways | a DAW; macOS or Linux; the power/data splitter; latency |
-| XO-4 and the pads | used by hand on the screen; the sound measured; the FX heard | finger drumming, live REC, RPT; XO-4's timing by ear; its MIDI track to real gear |
+| SEQ and the pads | the pads used by hand and measured (with XO-4, before SEQ replaced it); SEQ on a PC only | SEQ on a Studio: its tracks, timing, MIDI out to real gear |
 | Mixer and sound out | USB sources heard (two FM-1s, an Ember Nanocore, a USB mic); the DAC HAT's outs; a Bluetooth speaker; mute, solo and level measured | the Pi's own 3.5 mm jack; CUE |
-| DJ decks | played by touch, music from a USB drive; SYNC to XO-4 measured | a controller (the Hercules, MIDI LEARN) |
+| DJ decks | played by touch, music from a USB drive; SYNC to the Studio's clock measured (with XO-4) | a controller (the Hercules, MIDI LEARN) |
 | Two Studios linked | clock, start/stop, REC from the leader on both, the link's latency measured | sound heard across by ear; REC from the follower |
 | A Pocket linked | its link and its sound into the Studio | the speaker handover; the mix back to a Pocket; its FM-1s on their own streams |
 | MIDI | network MIDI; clock out a route to a USB device; a USB keyboard playing XO-4's synth (Pi 4) | a keyboard's notes out to other gear through the routes; arp and chord |
@@ -60,7 +60,7 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
    - `--screen c`: the Waveshare 3.5" (C) (tried on the Pi 4: right side up).
    - No `--screen`: the Hosyond 3.5" / Waveshare (A), with the Studio's `xoxo35` overlay for blacker blacks (made and used on a running Studio; a fresh install with it not yet tried).
    - `--screen hdmi`: the UCTRONICS 3.5" HDMI touchscreen (its settings tried, set by hand; the option itself not yet run).
-   - On a Pi 4 the installer also sets up the USB interface on its USB-C port, with nothing to choose (tried: see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)), and the Studio plays more at once: up to 32 pad voices (16 on a Pi 3) and 8 notes a XO-4 track (4), so a chord rings on under the next (measured, not yet listened to).
+   - On a Pi 4 the installer also sets up the USB interface on its USB-C port, with nothing to choose (tried: see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)), and the Studio plays more at once: up to 32 pad voices (16 on a Pi 3) (measured, not yet listened to).
 5. **On the first start** the Studio asks for the touch setup (four targets) before HOME.
 
 ## Updating
@@ -77,7 +77,7 @@ At `http://xoxostudio.local` (or the address in MORE › STUDIO SETTINGS › ABO
 
 Its tabs:
 - **Status:** the tempo, start / stop, the metronome, speaker, volume, the mixer (with DECKS while they play), a linked Pocket, keyboard, Record
-- **Studio:** XO-4's patterns A–H, Play / Stop, MIDI IN and the synths' starting sounds; the pads' kits; the DJ decks; the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
+- **Studio:** the sequencer's patterns A–H, Play / Stop, MIDI IN; the pads' kits; the DJ decks; the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
 - **MIDI:** the routes and presets (on a phone the grid's destination names stand up, so every route fits across)
 - **Library** (samples), **Editor**, **Rec** (the recordings)
 - **Settings:** the clock, the audio rate and Latency, USB out, the Studio link, the screen's theme, About, and Software (updates)
@@ -86,11 +86,11 @@ Its tabs:
 
 The pictures are drawn on a PC by the Studio's own drawing code with a made-up studio (`python tools/studio_screens.py docs/images`), at twice the screen's 480×320: they're not photos of the device.
 
-The tab bar: HOME, MIXER, MIDI, RECORD, XO-4, EDITOR, DECKS, MORE. EDITOR, XO-4, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
+The tab bar: HOME, MIXER, MIDI, RECORD, SEQ, MORE, and the plug-ins' tabs before MORE (PADS, EDITOR, DECKS while they're on). SEQ, PADS, EDITOR, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
 
 ### HOME
 
-The tempo with − / +; every source (each USB device, the pads, XO-4, the decks while they run) and the speaker, each with a small bar and a % for its mixer level (beside a source's name: USB, its input pair, or a plug-in's words for it); REC, START, TAP.
+The tempo with − / +; every source (each USB device, the pads, the decks while they run) and the speaker, each with a small bar and a % for its mixer level (beside a source's name: USB, its input pair, or a plug-in's words for it); REC, START, TAP.
 
 <img src="docs/images/studio-home.png" width="480" alt="HOME">
 
@@ -106,53 +106,36 @@ The sample editor (full screen): a recording or a sample trimmed, faded, its not
 
 <img src="docs/images/studio-editor.png" width="480" alt="EDITOR">
 
-### XO-4
+### SEQ, the sequencer
 
-The Studio's own groovebox, still growing (`fm1-bt-bridge/xo4.py`, `xo4synth.py`, `deskxo4.py`). The tab is used by hand on the Studio's screen and its sound measured there; what hasn't been tried on hardware is in [Tested](#tested). The 808 KIT is loaded on the first start.
+The Studio's step sequencer (`fm1-bt-bridge/sequencer.py`, its screen `deskseq.py`): eight MIDI tracks, up to 64 steps each, on the box's beat grid, out through the MIDI routes as the source SEQ. It replaced XO-4 (2026-11-17). Tried on a PC only; on a Studio its screen has been seen, not yet played.
 
-- **Four tracks on the box's beat grid:**
-  - **DRUMS** is the 16-pad sampler (notes 36–51 play it from the MIDI routes, as SMP): each hit with its level (NORM, GHOST, SOFT, HARD) and ratchet (X1–X4). The pads play in XO-4's own channel: one XO-4 in the mixer, the meters and recordings, with no SAMPLER channel. So a pad can't be sampled from XO-4 (that channel has the pads in it).
-  - **SYN 1** and **SYN 2** are two-operator FM synths, with chords of up to four notes.
-  - **MIDI** goes out through the routes, as the source XO4.
-- **Patterns:** A–H, changing on the next bar. Each track has its own length, up to 64 steps.
-- **Sound:** a source of its own, XO-4, in the mixer, the meters and recordings.
-- **The XO-4 tab:**
-  - **Header:** < HOME, the patterns A–H, REC (live: pads played go onto DRUMS while it plays) and PLAY / STOP.
-  - **Track row:** the track, its length LEN − / +, HOLD CLR, and GRID.
-  - **Steps:** 16 a page.
-  - **Step row:** the pages, then the selected step's VEL and LEN.
-  - **DRUMS:**
-    - **The pads:** played (they sound while held, playing or not) and picked for the steps: the steps put the picked pad on or off.
-    - **The hit just put on:** its LEVEL, ratchet and the step's NUDGE − / +. QUANT: live REC on the grid, or where it was played.
-    - **KIT:** the kits (load, save, new). **RPT:** note repeat. **FX:** the sixteen punch-in FX (on the pads' sound). **PADS:** the 16 pads big, 4×4, full screen, with KIT, RPT, FX, REC and EDIT above them. **MIDI IN:** off at first, so a synth or the Pocket on the MIDI routes plays only itself; on, the routes' SMP column plays the track picked: on DRUMS the pads (and live REC records them), on SYN 1 or SYN 2 that synth. Clock and start/stop still reach the pads either way. **EDIT:** a tap opens the pad's page (its sample, level, pan, tune, mode, choke; sampling into it, trimming it).
-  - **SYN 1, SYN 2, MIDI:**
-    - **The note keys:** OCT, KEY, SCALE, and 14 keys, which offer only the scale's notes.
-    - **Played from a keyboard:** with MIDI IN on (on the DRUMS page, or in the web app), a keyboard on the MIDI routes plays the synth picked, with its velocity, a sustain pedal, the pitch wheel (two semitones each way) and the mod wheel (a vibrato, up to half a semitone); back on DRUMS it plays the pads again. What's played isn't recorded onto the steps. Tried on the Pi 4 with a USB keyboard on SYN 1 and SYN 2, its pitch and mod wheels and a sustain pedal too (the user's report).
-    - **FX:** XO-4's own sixteen punch-in FX on the two synths' sound (hold one, or LATCH it), apart from the pads' FX.
-    - **Placing a step:** tap an empty step to place the last notes and select it. Keys add notes to it or take them off, four at most.
-    - **Emptying a step:** tap the selected step again.
-  - **Hearing it:** while stopped, what you tap sounds.
+- **Eight tracks**, each on a MIDI channel (1–8 to start with; CH sets it: a tap the next, held the one before). A step: chords of up to four notes, a velocity and a length.
+- **Patterns:** A–H, changing on the next bar. Each track has its own length, 1–64 steps (four pages of 16).
+- **The SEQ tab:** < HOME, the patterns A–H and PLAY / STOP; tracks 1–8, the track's length LEN − / +, HOLD CLR and GRID; 16 steps a page and the pages; the selected step's VEL and LEN; OCT, KEY, SCALE, CH and 14 note keys that offer the scale's notes. Tap an empty step to place the last notes and select it; keys add notes to it or take them off (four at most); tap the selected step again to empty it.
+- **GRID** shows the whole pattern's track at once: a row a note of the scale (OCT − / + moves it), 16 steps across (P 1/2 … for a longer track), the playhead lit. A tap puts the row's note on the step or takes it off; held, the step is emptied.
+- **The pads** aren't on it: they play from SEQ as any MIDI gear does, through the route SEQ › SMP (notes 36–51), while the sampler plug-in is on.
 
 | | |
 |---|---|
-| <img src="docs/images/studio-xo4-drums.png" width="400" alt="XO-4 DRUMS"><br>**DRUMS** | <img src="docs/images/studio-xo4-synth.png" width="400" alt="XO-4 SYN 1"><br>**SYN 1** |
-| <img src="docs/images/studio-xo4-pads.png" width="400" alt="XO-4 PADS"><br>**PADS** | <img src="docs/images/studio-xo4-fx.png" width="400" alt="XO-4 synth FX"><br>**The synths' FX** |
+| <img src="docs/images/studio-seq.png" width="400" alt="SEQ"><br>**SEQ** | <img src="docs/images/studio-seq-grid.png" width="400" alt="SEQ GRID"><br>**GRID** |
 
-**GRID** shows the whole pattern at once, as on XO-4 Pocket: a row a sound (DRUMS: pads 1–8 or 9–16) or a note of the scale (SYN 1, SYN 2, MIDI: OCT − / + moves it), 16 steps across (P 1/2 … for a longer track), the playhead lit. A tap puts the row's sound or note on the step or takes it off; held, the step is emptied. The bottom line says what's on the step last tapped.
+A song from before is kept: XO-4's DRUMS (or a track that played the pads) becomes a MIDI track on channel 10, each pad its note (36–51), its MIDI track keeps its channel, and SYN 1 and SYN 2's notes go on the next channels; its routes from XO-4 are SEQ's. What SEQ can't do yet is under [Known limitations](#known-limitations).
+
+### PADS, the sampler (a plug-in)
+
+The 16-pad sampler is a plug-in (`plugins/sampler`), off until switched on in MORE › PLUG-INS (the Studio app starts again: its pads run in a process of their own). On, it adds the **PADS** tab and PADS in the mixer, the meters and recordings. Tried on a PC only.
+
+- **The pads:** 4×4, pad 1 bottom left as on an MPC, lit while they sound; played by touch, or from the MIDI routes' SMP column (notes 36–51) while **MIDI IN** is on (off at first: then only the clock reaches them).
+- **KIT:** the kits (load, save, new); the 808 KIT the first time. **RPT:** note repeat. **FX:** the sixteen punch-in FX on the pads' sound (hold one, or LATCH it). **EDIT**, then a pad: its page (sample, level, pan, tune, mode, attack, release, choke, reverse; PLAY, SAMPLE from any source, TRIM in the sample editor while that plug-in is on, CLEAR).
 
 | | |
 |---|---|
-| <img src="docs/images/studio-xo4-grid.png" width="400" alt="XO-4 GRID, DRUMS"><br>**GRID, DRUMS** | <img src="docs/images/studio-xo4-grid-synth.png" width="400" alt="XO-4 GRID, SYN 2"><br>**GRID, SYN 2** |
-
-**SOUND** (SYN 1, SYN 2): the synth's page. Six starting sounds (KEYS, BASS, BELL, PLUCK, PAD, LEAD) and its settings, each − / + (held: four steps): RATIO, BRIGHT, BR DECAY, BR HOLD (how the brightness falls, and what stays), ATTACK, DECAY, SUSTAIN, RELEASE, LEVEL. HEAR plays the track's last notes; while stopped, a change does.
-
-<img src="docs/images/studio-xo4-sound.png" width="480" alt="XO-4 SOUND">
-
-The SAMPLER tab and its own step sequencer are gone: a kit's pattern from it moves into the drums of XO-4's first pattern with empty drums, the first time that kit is used. What XO-4 can't do yet is under [Known limitations](#known-limitations).
+| <img src="docs/images/studio-pads.png" width="400" alt="PADS"><br>**PADS** | <img src="docs/images/studio-pad-page.png" width="400" alt="A pad's page"><br>**A pad's page** |
 
 ### DECKS
 
-Two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch (tried), a Hercules DJControl Inpulse 200 MK2 (its mapping is built in; not yet tried on the Studio), or another MIDI controller after MIDI LEARN (not yet tried). Each deck has its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out). **SYNC** follows the other deck's tempo and beat, or, while XO-4 plays, the Studio's clock (the deck shows SYNC XO-4). A synced deck started lands on its lead's bar: the track's first beat is taken as a bar's first, which is a guess. SYNC pressed while a deck plays moves it less than a beat. A deck fades over 6 ms when it starts, stops, cues or jumps (no click).
+Two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch (tried), a Hercules DJControl Inpulse 200 MK2 (its mapping is built in; not yet tried on the Studio), or another MIDI controller after MIDI LEARN (not yet tried). Each deck has its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out). **SYNC** follows the other deck's tempo and beat, or, while the sequencer plays, the Studio's clock (the deck shows SYNC SEQ). A synced deck started lands on its lead's bar: the track's first beat is taken as a bar's first, which is a guess. SYNC pressed while a deck plays moves it less than a beat. A deck fades over 6 ms when it starts, stops, cues or jumps (no click).
 
 <img src="docs/images/studio-decks.png" width="480" alt="DECKS">
 
@@ -164,7 +147,7 @@ Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and th
 
 ### MORE and STUDIO SETTINGS
 
-**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS, STUDIO SETTINGS and SHUT DOWN (it ends on SAFE TO UNPLUG: tried). **PLUG-INS** lists the plug-ins in `~/xoxo-plugins` and switches each on or off (the Studio asks first: a plug-in is code that runs as the Studio does). Three of the Studio's own parts are listed there too, on unless switched off: the **sample editor** (off: no EDITOR tab, no TRIM or "Edit as sample", no Editor in the web app), the **DJ decks** (off: no DECKS tab or decks program; a Hercules is then a MIDI device in the routes) and **XO-4**'s two synths (off: the tab is SEQ, the same sequencer with DRUMS and MIDI only, its MIDI track still out through the routes; switching XO-4 asks for a hold and starts the Studio app again). Songs, settings and music are kept while one is off (tried on a PC only). None ships with the Studio: XOXO Audio Labs' own (Synths, Tester Tools, FM-1 Companion) are in their own repository, XOXO-Studio-Plugins, with what each has been tried with; Synths and Tester Tools have run on a Pi 3 B+ Studio. **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, SOFTWARE UPDATE, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
+**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS, STUDIO SETTINGS and SHUT DOWN (it ends on SAFE TO UNPLUG: tried). **PLUG-INS** lists the plug-ins in `~/xoxo-plugins` and switches each on or off (the Studio asks first: a plug-in is code that runs as the Studio does). Three come with the Studio, in its repository's `plugins/` and installed into `~/xoxo-plugins` like anyone's, off until switched on: the **sampler** (`plugins/sampler`; the PADS tab, PADS in the mixer; switching it starts the Studio app again), the **sample editor** (`plugins/editor`; off: no EDITOR tab, no TRIM or "Edit as sample", no Editor in the web app) and the **DJ decks** (`plugins/decks`; off: no DECKS tab or decks program; a Hercules is then a MIDI device in the routes). The sequencer (SEQ) is the Studio's own, and it runs without any of them. Songs, settings and music are kept while one is off (tried on a PC only). None of anyone else's ships with the Studio: XOXO Audio Labs' own (Synths, Tester Tools, FM-1 Companion) are in their own repository, XOXO-Studio-Plugins, with what each has been tried with; Synths and Tester Tools have run on a Pi 3 B+ Studio. **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, SOFTWARE UPDATE, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
 
 | | |
 |---|---|
@@ -201,11 +184,11 @@ Tried (2026-11-07, the Pi 4 on Windows 11, no driver installed): Windows listed 
 - **A Bluetooth speaker can come up silent** after it reconnects, now and then; another reconnect (the speaker off and on, or SPEAKER on the screen) brings it back. The cause isn't found.
 - **The Pi 3's own Bluetooth sounds poor; use a USB Bluetooth dongle.** On a Pi 3 B+ a JBL Go 3 on the Pi's own Bluetooth had dropouts and a dull sound (a trace showed stalls of up to 140 ms at a low bitrate); on a TP-Link UB500 dongle it played clean. Plugged in, a dongle takes over Bluetooth by itself, and unplugged, the Pi's own takes over again (a speaker is paired once on each). **The UB500's firmware crashes on a Pi 3 B+** about every 1-2 minutes, dropping the speaker for a few seconds each time, so it isn't recommended. Not yet tried: another dongle (one with a CSR8510 chip, such as TP-Link's UB400), a Pi 4's own Bluetooth.
 - **RECORD's capture can lose a block now and then; record at Latency SAFE** (the default). Measured on a Pi 3 B+: at SAFE about 0.3-0.7 lost blocks a minute, at LOWER 0-3. The sound itself isn't affected, only the take.
-- **The mix can clip with loud sources together.** XO-4 (with the pads) and the decks are 6 dB down at the source, but there's no limiter on the master and USB sources aren't turned down.
+- **The mix can clip with loud sources together.** The pads and the decks are 6 dB down at the source, but there's no limiter on the master and USB sources aren't turned down.
 - **Screens are drawn for 480×320 only.**
 - **USB out** works only with no DAC HAT (with one, the DAC is the master out).
 - **Two Studios linked:** the link measured about 12-22 ms one way, but a pad's sound adds about 40-50 ms before the Studio's mixer (worked out from the code, not measured).
-- **XO-4:** patterns can't be copied yet, and notes played on a synth from a keyboard aren't recorded onto its steps. Eight patterns (A-H), up to 64 steps a track, four notes a step; a pattern change waits for the next bar.
+- **SEQ:** patterns can't be copied yet, and nothing is recorded into it live (no REC: steps are placed by touch). Eight patterns (A-H), eight MIDI tracks, up to 64 steps a track, four notes a step; a pattern change waits for the next bar. Not yet played on a Studio.
 - **DJ decks:** one FX at a time a deck. Controllers other than the Hercules go through MIDI LEARN (not yet tried with hardware).
 - **Speaker battery** shows only for speakers that report it over Bluetooth.
 - **The web page** is plain HTTP on the local network with no password: anyone on the same network can use it (an update from it still needs a hold on the Studio's screen).

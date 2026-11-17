@@ -1,13 +1,13 @@
 """The desk box's touch screens (480x320), in the XOXO look and the theme picked in MORE > THEME (xoxostyle.py).
 
 A tab bar along the bottom: HOME (the sources, tempo, record / start / tap), MIXER (tab "MIX": a slider a
-source, and the speaker; METERS opens the meters, larger), EDITOR (the sample editor, full screen; the pads
-themselves are XO-4's DRUMS: deskxo4.py, with their pages from deskpads.py, pads.py, padfx.py), RECORDER (tab "REC": the reel-to-reel
+source, and the speaker; METERS opens the meters, larger), SEQ (the sequencer: deskseq.py), RECORDER (tab "REC": the reel-to-reel
 meter, REC / STOP, Record parts, the takes), MIDI (the routes: tap to switch one; DAW opens a Mackie Control
 surface for a DAW on a computer, such as Kraken, over network MIDI: netmidi.py) and MORE (settings, the theme,
 the DJ decks, shut down). Nothing of the Pocket's screens shows here: settings, lists, confirmations, jobs and the
-rest are the Studio's own pages (deskpages.py), and the sample editor has a touch screen of its own
-(draw_editor: drag the markers), opened from PADS > BROWSE or a pad's TRIM.
+rest are the Studio's own pages (deskpages.py), and the sample editor has a touch screen of its own (the editor
+plug-in's, plugins/editor: drag the markers), opened from its EDITOR tab or a pad's TRIM. The plug-ins' tabs
+(Studio.add_tab: PADS, EDITOR, DECKS) sit before MORE.
 
 Drawing and touches run on the app's own thread (touches arrive through App.post): DeskUI calls the same App
 methods the keys and the web page call. Widgets are rebuilt with every frame: (box, kind, action, key, long),
@@ -17,30 +17,30 @@ the finger: action(fraction from the bottom)); key: which one is lit while held.
 
 import json
 import time
-from pathlib import Path
 
 from PIL import Image, ImageDraw
 
 import blemidi
 import xoxostyle as st
 from deskabout import DeskAbout
-from deskdecks import DeskDecks
-from deskpads import DeskPads
 from deskpages import HOLD, DeskPages
 from deskplugins import DeskPlugins
-from deskxo4 import DeskXO4
+from deskseq import DeskSeq
 
 W, H = 480, 320
 TAB_H, HDR_H = 44, 34
 MUTE_COLOUR, SOLO_COLOUR = st.rgb(255, 59, 31), st.rgb(255, 198, 24)   # the mixer's M and S lit, in any theme
 CHARGING = st.rgb(80, 220, 120)                 # the battery's bolt while it charges, in any theme
-TABS = ("HOME", "MIX", "MIDI", "REC", "XO4", "EDITOR", "DECKS", "MORE")   # (Pat's order, 2026-11-07)
-TAB_LABEL = {"MIX": "MIXER", "XO4": "XO-4", "REC": "RECORD"}   # what a tab says, if not its name
-PLUGIN_TABS = {"EDITOR": "editor", "DECKS": "decks"}   # tabs of built-in plug-ins (plugins.BUILTINS): gone while off
-FULL_TABS = ("EDITOR", "XO4", "DECKS", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
+TABS = ("HOME", "MIX", "MIDI", "REC", "SEQ", "MORE")   # (Pat's order, 2026-11-07; the plug-ins' tabs before MORE:
+                                                       # the sample editor's EDITOR, the DJ decks' DECKS)
+TAB_LABEL = {"MIX": "MIXER", "REC": "RECORD"}   # what a tab says, if not its name
+PLUGIN_TABS = {}                     # (tabs the core switches by a plug-in's id: none; plug-ins add their own)
+FULL_TABS = ("EDITOR", "SEQ", "REC", "PLUGIN")    # screens of their own: no tab bar under them (< HOME, top left)
 METER_TABS = ("METER", "REC")                   # tabs with live audio levels (the meters' reader runs)
 PARENT = {"METER": "MIX", "DAW": "MIDI", "THEME": "MORE", "PLUGINS": "MORE", "PLUGIN": "MORE", "ABOUT": "MORE",
           "SETTINGS": "MORE"}   # pages opened from a tab: it stays lit under them
+DRAW = {"SEQ": "draw_sq"}                  # a tab drawn by a method of another name
+CORE_SCREENS = set(TABS) | set(PARENT)   # the Studio's own screens (any other: a plug-in's tab)
 DAW_KEYS = [("<<", "rewind"), (">>", "forward"), ("STOP", "stop"), ("PLAY", "play"), ("REC", "record"),
             ("LOOP", "loop")]
 MORE = [("PLAYING", ("menu", "play")), ("AUDIO", ("menu", "audio")), ("MIDI SETTINGS", ("menu", "midi")),
@@ -51,22 +51,19 @@ STUDIO_SETTINGS = [("WI-FI", ("wifi", None)), ("BLUETOOTH DEVICES", ("row", "btd
 HIDDEN_METERS = ("Tuner",)                      # meters the Studio leaves out (the Pocket keeps all eleven)
 
 
-class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
+class DeskUI(DeskPages, DeskSeq, DeskPlugins, DeskAbout):
     def __init__(self, app, display):
         self.app, self.display = app, display
         self.tab, self.classic = "HOME", False      # (classic: never, now; desk.Touch still asks)
         self.page_init()
         self.plugins_init()
-        self.pads_init()
-        self.decks_init()
-        self.xo4_init()
+        self.sq_init()
         self.about_init()
         self.widgets, self.held, self.shown = [], None, None
         self.theme, self.theme_seen, self.theme_check = st.Theme(), None, 0.0
         self.more_top = 0
         self.cal = None                           # calibrating the touch: the raw readings so far (desk.Touch)
         self.daw_local = {}                       # strip -> (fader value, when): ours, until the DAW's catches up
-        self.ed_view, self.ed_wave, self.ed_drag = None, None, None   # the editor's zoom, its waveform, a marker
         import deskmeters
         self.meters = deskmeters.DeskMeters()     # the meters' own pictures and smoothing
 
@@ -115,10 +112,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         if a.screen in self.PAGES:
             return ("page", self.page_view(now), self.theme.name, id(self.theme),
                     a.message if now < a.message_until else None, a.busy)
-        if a.screen == "editor":
-            return ("editor", self.held and self.held[3], self.theme.name, id(self.theme), self.ed_view,
-                    a.editor_view(), a.message if now < a.message_until else None, self.ed_files, self.browse,
-                    self.browse_top, self.ed_to_pad)
+        if a.screen == "editor" and self.editor_screen() is not None:
+            return ("editor", self.held and self.held[3], self.theme.name, id(self.theme),
+                    a.editor_view(), a.message if now < a.message_until else None, self.editor_screen()[1].view())
         rec = a.recording_tick(now) if hasattr(a, "recording_tick") else None
         base = (self.tab, self.held and self.held[0], self.theme.name, id(self.theme), rec, a.live(), a.volume,
                 json.dumps(a.state.get("mix")), a.state.get("rec_parts"), str(a.battery), a.clock_text(),
@@ -127,7 +123,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
                 tuple(sorted(getattr(a, "app_here", ()))),
                 a.message if now < a.message_until else None, tuple(self.sources()),
                 a.sink and a.sink["label"], a.state.get("desk_theme"), self.more_top,
-                bool(self.decks_proc and self.decks_proc.running()))     # (HOME's DECKS row)
+                tuple(self.app_sounds()))     # (HOME's rows of the plug-ins' programs: the DJ decks')
         if self.tab == "MIDI":
             base += (json.dumps(a.routes(), sort_keys=True), tuple(a.matrix_lists()[0]))
         if self.tab in METER_TABS:
@@ -135,10 +131,11 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         if self.tab == "DAW":
             base += (json.dumps(getattr(a.midi, "mcu", None)), tuple(getattr(a.midi, "net", None) or ()),
                      json.dumps(sorted(self.daw_local.items())))
-        if self.tab == "XO4":
-            base += self.xo4_view()
-        if self.tab == "DECKS":
-            base += self.decks_view()
+        if self.tab == "SEQ":
+            base += self.sq_view()
+        tab = self.plugin_tab()
+        if tab is not None and hasattr(tab, "view"):
+            base += (self.app.plugin_host.call(self.plugin_tabs()[self.tab], tab.view, now),)
         if self.tab in ("PLUGINS", "PLUGIN"):
             base += self.plugins_view(now)
         if self.tab == "ABOUT":
@@ -154,7 +151,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             self.open_tab("MIDI")
         elif a.screen == "settings" and a.settings_menu is None:
             a.screen = "status"
-            self.open_tab(self.tab if self.tab == "XO4" else "MORE")    # back where the list was opened from
+            self.open_tab(self.tab if self.tab == "SEQ" else "MORE")    # back where the list was opened from
 
     def render(self, now, force=False):
         self.current_theme(now)
@@ -171,12 +168,20 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         self.widgets = []
         if self.cal is not None:                            # calibrating the touch: the targets, nothing else
             self.draw_calibration(img, ImageDraw.Draw(img))
-        elif self.app.screen == "editor":                   # the sample editor: a screen of its own, no tabs
-            self.draw_editor(img, ImageDraw.Draw(img), now)
+        elif self.app.screen == "editor" and self.editor_screen():   # the sample editor (a plug-in's): its own
+            pid, screen = self.editor_screen()                      # screen, no tabs
+            self.app.plugin_host.call(pid, screen.draw, img, ImageDraw.Draw(img), now)
         elif self.app.screen in self.PAGES:                  # settings, lists, confirmations, jobs: no tabs
             self.draw_page(img, ImageDraw.Draw(img), now)
+        elif self.tab in self.plugin_tabs():               # a plug-in's tab: full screen, its own < HOME
+            tab = self.plugin_tab()
+            if tab is not None:
+                self.app.plugin_host.call(self.plugin_tabs()[self.tab], tab.draw, img, ImageDraw.Draw(img), now)
+            if self.tab not in self.plugin_tabs() or self.plugin_tab() is None:   # (it failed: switched off)
+                self.tab, self.shown = "HOME", None
+                return self.render(now, force=True)
         else:
-            getattr(self, "draw_" + self.tab.lower())(img, ImageDraw.Draw(img), now)
+            getattr(self, DRAW.get(self.tab, "draw_" + self.tab.lower()))(img, ImageDraw.Draw(img), now)
             if self.tab not in FULL_TABS:          # (EDITOR, XO-4 and its pads' pages, DECKS, RECORD: full screen)
                 self.draw_tabs(img)
         a = self.app
@@ -224,185 +229,10 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         a.save_settings()
         a.say("Touch set up", 2)
 
-    # ---- the sample editor: the take full width, markers to drag, big buttons for the rest
-
-    def draw_editor(self, img, d, now):
-        import meters
-        a, t, ed = self.app, self.theme, self.app.ed
-        home = (self.tab == "EDITOR" and self.pad_trim is None and not self.ed_from_browse
-                and not (self.ed_files and ed))     # (the EDITOR tab's: back is HOME, as the other tabs)
-        self.button(img, d, (4, 3, 84, HDR_H - 5), "< HOME" if home else "< BACK", self.editor_back, key="ed-back")
-        self.button(img, d, (90, 3, 170, HDR_H - 5), "OPEN", self.editor_files, on=self.ed_files or not ed,
-                    key="ed-open")
-        if self.ed_files or not ed:                # OPEN: the samples and takes to edit
-            st.text(img, (180, 9), "SAMPLE EDITOR: PICK A FILE", t.hi)
-            d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-            return self.draw_files(img, d)
-        if ed["loading"] or ed["error"]:
-            text = "LOADING THE TAKE..." if ed["loading"] else "CAN'T OPEN IT: " + str(ed["error"])[:30]
-            st.text(img, (180, 9), ed["name"][:30], t.c[3])
-            self.centre(img, (0, HDR_H, W, H), text, t.hi if ed["error"] else t.c[3])
-            return
-        length = ed["end"] - ed["start"]
-        st.text(img, (180, 9), Path(ed["name"]).stem[:22], t.c[3])
-        tag = f"{length:.2f}S"
-        tw = st.text_size(tag)[0]
-        st.text(img, (W - tw - 10, 9), tag, t.hi)
-        d.line((0, HDR_H - 1, W, HDR_H - 1), fill=t.c[0], width=2)
-        # the waveform, in the view (zoomed in or the whole take)
-        v0, v1 = self.ed_view or (0.0, ed["seconds"])
-        top, bottom = HDR_H + 6, HDR_H + 132
-        mid, half = (top + bottom) // 2, (bottom - top) // 2 - 4
-        wave = self.editor_wave(ed, v0, v1)
-
-        def x_of(sec):
-            return int((sec - v0) / max(1e-6, v1 - v0) * (W - 1))
-        sx, ex = x_of(ed["start"]), x_of(ed["end"])
-        d.rectangle((max(0, sx), top, min(W - 1, ex), bottom), fill=t.grey[0])
-        for i, (lo, hi) in enumerate(wave):
-            inside = sx <= i <= ex
-            if inside or i % 2 == 0:
-                d.line((i, mid - int(hi * half), i, mid - int(lo * half)), fill=t.c[4] if inside else t.c[1])
-        for fade, at, sign in ((ed["fade_in"], ed["start"], 1), (ed["fade_out"], ed["end"], -1)):
-            if fade > 0:                              # the fades: a ramp from the marker
-                d.line((x_of(at), bottom, x_of(at + sign * fade), top), fill=t.track[2], width=2)
-        for x, which in ((sx, "start"), (ex, "end")):
-            if 0 <= x < W:
-                hot = self.ed_drag == which
-                colour = t.hi if hot else t.track[0 if which == "start" else 3]
-                d.rectangle((x - 1, top, x + 1, bottom), fill=colour)
-                flag = (x - 14, top - 4, x + 14, top + 18) if which == "start" else (x - 14, bottom - 18, x + 14,
-                                                                                      bottom + 4)
-                d.rectangle(flag, fill=colour)
-                st.text(img, (x - 4, flag[1] + 3), "S" if which == "start" else "E", t.bg)
-        self.widget((0, top - 6, W - 1, bottom + 6), "drag", self.editor_drag, "ed-wave")
-        st.text(img, (6, bottom + 6), f"{ed['start']:.2f}", t.track[0])
-        end_text = f"{ed['end']:.2f}"
-        st.text(img, (W - 6 - st.text_size(end_text)[0], bottom + 6), end_text, t.track[3])
-        view_text = "ALL" if self.ed_view is None else f"{v0:.2f} - {v1:.2f}"
-        st.text(img, ((W - st.text_size(view_text)[0]) // 2, bottom + 6), view_text, t.c[2])
-        # the controls: three rows of big buttons
-        y1, y2, y3 = bottom + 26, bottom + 66, bottom + 106
-        self.button(img, d, (4, y1, 64, y1 + 36), "-", lambda: self.editor_zoom(2.0), key="ed-zoom-")
-        self.button(img, d, (68, y1, 128, y1 + 36), "+", lambda: self.editor_zoom(0.5), key="ed-zoom+")
-        self.button(img, d, (132, y1, 192, y1 + 36), "ALL", lambda: self.editor_zoom(None), key="ed-all")
-        for x0, field, label in ((200, "fade_in", "IN"), (340, "fade_out", "OUT")):
-            st.text(img, (x0, y1 + 2), label, t.c[2])
-            st.text(img, (x0, y1 + 20), f"{round(ed[field] * 1000)}MS", t.hi)
-            self.button(img, d, (x0 + 62, y1, x0 + 96, y1 + 36), "-",
-                        lambda field=field: a.editor_change(field, -5), key=("ed-", field))
-            self.button(img, d, (x0 + 100, y1, x0 + 134, y1 + 36), "+",
-                        lambda field=field: a.editor_change(field, 5), key=("ed+", field))
-        self.button(img, d, (4, y2, 154, y2 + 36), "NORMALIZE", lambda: a.editor_change("normalize", 1),
-                    on=ed["normalize"], key="ed-norm")
-        self.button(img, d, (160, y2, 270, y2 + 36), "REVERSE", lambda: a.editor_change("reverse", 1),
-                    on=ed["reverse"], key="ed-rev")
-        note = "NONE" if ed["note"] is None else meters.note_name(ed["note"])
-        found = ed["note"] is not None and ed["note"] == ed["found"]
-        self.button(img, d, (276, y2, 316, y2 + 36), "<", lambda: a.editor_change("note", -1), key="ed-note-")
-        st.text(img, (322, y2 + 2), "NOTE", t.c[2])
-        st.text(img, (322, y2 + 20), note + (" FOUND" if found else ""), t.hi)
-        self.button(img, d, (436, y2, 476, y2 + 36), ">", lambda: a.editor_change("note", 1), key="ed-note+")
-        playing = a.player.playing()
-        self.button(img, d, (4, y3, 156, y3 + 36), "STOP" if playing else "PLAY",
-                    lambda: a.player.stop() if a.player.playing() else a.editor_preview(), on=playing,
-                    key="ed-play")
-        save = f"SAVE ON PAD {self.pad_trim + 1}" if self.pad_trim is not None else "SAVE"   # (a pad's trim)
-        self.button(img, d, (162, y3, 318, y3 + 36), save, a.editor_save, color=t.track[1], key="ed-save")
-        self.button(img, d, (324, y3, 476, y3 + 36), "TO PAD", self.choose_pad, color=t.track[0], key="ed-to-pad")
-        if self.ed_to_pad:                         # which pad: over the controls
-            self.draw_pad_choice(img, d, HDR_H + 134)
-
-    def choose_pad(self):
-        self.ed_to_pad = not self.ed_to_pad
-
-    def draw_pad_choice(self, img, d, top):
-        """the 16 pads, MPC order (pad 1 bottom left), to put the edit on one"""
-        t, kit = self.theme, self.app.kit()
-        d.rectangle((0, top, W, H), fill=t.bg)
-        st.text(img, (8, top + 2), "PUT IT ON PAD:", t.hi)
-        self.button(img, d, (W - 96, top, W - 4, top + 20), "BACK", self.choose_pad, key="ed-pad-cancel")
-        gw, gh = (W - 8) // 8, (H - top - 26) // 2
-        for i in range(16):
-            row, col = 1 - i // 8, i % 8
-            box = (4 + col * gw + 1, top + 24 + row * gh + 1, 4 + (col + 1) * gw - 2, top + 24 + (row + 1) * gh - 2)
-            colour = t.track[(3 - i // 4) % 4]
-            hot = self.lit(("ed-pad", i))
-            used = bool(kit["pads"][i]["sample"])
-            d.rectangle(box, fill=t.hi if hot else t.dim[(3 - i // 4) % 4] if used else t.grey[0], outline=colour,
-                        width=2)
-            self.centre(img, box, str(i + 1), t.bg if hot else colour)
-            self.widget(box, "tap", lambda i=i: self.to_pad(i), ("ed-pad", i))
-
-
     @staticmethod
     def centre(img, box, text, colour, size=1):
         w, h = st.text_size(text, size)
         st.text(img, ((box[0] + box[2] - w) // 2, (box[1] + box[3] - h) // 2), text, colour, size)
-
-    def editor_wave(self, ed, v0, v1):
-        """(low, high) a screen column for the view, scaled to the whole take's peak (so zooming in doesn't
-        make a quiet part look loud); kept until the view changes"""
-        import numpy as np
-        key = (id(ed["x"]), v0, v1)
-        if self.ed_wave and self.ed_wave[0] == key:
-            return self.ed_wave[1]
-        x = ed["x"]
-        if "peak" not in ed:
-            ed["peak"] = max(1.0, float(np.abs(x).max())) if len(x) else 1.0   # (an empty file: a flat line, not a
-                                                                                   # crash: the app died on one, 2026-11-03)
-        part = x[int(v0 * ed["rate"]):max(int(v0 * ed["rate"]) + W, int(v1 * ed["rate"]))]
-        edges = np.linspace(0, len(part), W + 1).astype(int)[:-1]
-        if len(part) < W:
-            wave = [(0.0, 0.0)] * W
-        else:
-            wave = list(zip((np.minimum.reduceat(part, edges) / ed["peak"]).tolist(),
-                            (np.maximum.reduceat(part, edges) / ed["peak"]).tolist()))
-        self.ed_wave = (key, wave)
-        return wave
-
-    def editor_drag(self, phase, x, y):
-        """a finger on the waveform: takes the nearer marker (down) and moves it (move); lifted: lets it go"""
-        import sampler
-        ed = self.app.ed
-        if phase == "up":
-            self.ed_drag = None
-            return
-        v0, v1 = self.ed_view or (0.0, ed["seconds"])
-        sec = v0 + max(0, min(W - 1, x)) / (W - 1) * (v1 - v0)
-        if phase == "down":
-            self.ed_drag = "start" if abs(sec - ed["start"]) <= abs(sec - ed["end"]) else "end"
-        if self.ed_drag == "start":
-            ed["start"] = round(min(max(0.0, sec), ed["end"] - sampler.SHORTEST), 3)
-        elif self.ed_drag == "end":
-            ed["end"] = round(max(min(ed["seconds"], sec), ed["start"] + sampler.SHORTEST), 3)
-
-    def editor_zoom(self, factor):
-        """factor 0.5: in (around the selection), 2: out; None: the whole take"""
-        ed = self.app.ed
-        if factor is None:
-            self.ed_view = None
-            return
-        v0, v1 = self.ed_view or (0.0, ed["seconds"])
-        width = min(ed["seconds"], max(0.05, (v1 - v0) * factor))
-        centre = (ed["start"] + ed["end"]) / 2 if factor < 1 else (v0 + v1) / 2
-        v0 = min(max(0.0, centre - width / 2), ed["seconds"] - width)
-        self.ed_view = None if width >= ed["seconds"] else (round(v0, 4), round(v0 + width, 4))
-
-    def editor_back(self):
-        if self.ed_files and self.app.ed:          # the OPEN list: back to the take
-            self.ed_files = False
-            return
-        self.ed_files = False
-        self.ed_view, self.ed_wave, self.ed_drag, self.ed_to_pad = None, None, None, False
-        back_to_pads = self.pad_trim is not None or self.ed_from_browse
-        self.trimmed()                             # a pad's sample trimmed: back on its pad
-        self.app.editor_close()
-        if back_to_pads:                           # opened from a pad: back to it, in XO-4's DRUMS
-            self.app.screen, self.tab, self.ed_from_browse, self.xo4_track = "status", "XO4", False, 0
-        elif self.tab == "EDITOR":                 # the EDITOR tab: HOME
-            self.app.screen = "status"
-            self.open_tab("HOME")
 
     def widget(self, box, kind, action, key=None, long=None):
         self.widgets.append((box, kind, action, key or box, long))
@@ -475,31 +305,56 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         return text.replace("follow", "FOLLOW")
 
     def tabs(self):
-        """the tabs there now: TABS without the built-in plug-ins switched off (EDITOR, DECKS). XO4 is always
-        there: the sequencer's, called SEQ while XO-4 (its synths) is off"""
+        """the tabs there now: TABS without the built-in plug-ins switched off (EDITOR), and the plug-ins' tabs
+        before MORE (the DJ decks' DECKS). SEQ (the sequencer's) is always there"""
         a = self.app
-        return tuple(name for name in TABS if PLUGIN_TABS.get(name) is None or a.plugin_on(PLUGIN_TABS[name]))
+        core = [name for name in TABS if PLUGIN_TABS.get(name) is None or a.plugin_on(PLUGIN_TABS[name])]
+        theirs = [name for name in self.plugin_tabs() if name not in core]
+        return tuple(core[:-1] + theirs + core[-1:])
+
+    def plugin_tabs(self):
+        """{tab name: plug-in id} of the plug-ins switched on (Studio.add_tab)"""
+        host = getattr(self.app, "plugin_host", None)
+        out = {}
+        for pid, name, _ in (host.tabs() if host else []):
+            out.setdefault(name, pid)
+        return out
+
+    def plugin_tab(self, name=None):
+        """the open plug-in tab's object (or name's), made once; None if it isn't a plug-in's"""
+        name = name or self.tab
+        pid = self.plugin_tabs().get(name)
+        return self.app.plugin_host.tab(pid, name, self) if pid else None
+
+    def editor_screen(self):
+        """(plug-in id, the sample editor's screen) while the editor plug-in is on, or None"""
+        host = getattr(self.app, "plugin_host", None)
+        return host.editor_screen(self) if host else None
+
+    def app_sounds(self):
+        """[(mix key, label)] of the plug-ins' programs on HOME and the MIXER now (Studio.add_app_sound: the DJ
+        decks while they run)"""
+        host = getattr(self.app, "plugin_host", None)
+        out = []
+        for pid, key, _node, label, shown in (host.app_sounds() if host else []):
+            if shown is None or host.call(pid, shown, default=False):
+                out.append((key, label))
+        return out
 
     def tab_label(self, name):
-        if name == "XO4" and not self.app.plugin_on("xo4"):
-            return "SEQ"
         return TAB_LABEL.get(name, name)
 
     def builtins_changed(self):
-        """a built-in plug-in switched on or off: its tab gone (HOME instead, if it was open), the decks stopped"""
+        """a plug-in switched on or off: its tab gone (HOME instead, if it was open; the host has stopped it)"""
         a = self.app
-        if not a.plugin_on("decks") and self.decks_proc:
-            self.decks_proc.stop()
-            self.decks_proc = None
-        if self.tab in PLUGIN_TABS and self.tab not in self.tabs():
-            if a.screen == "editor":
-                a.editor_close()
+        if a.screen == "editor" and self.editor_screen() is None:   # (the editor switched off while open)
+            a.editor_close()
             a.screen = "status"
+            if self.tab not in CORE_SCREENS:
+                self.tab = "HOME"
+        if self.tab not in self.tabs() and (self.tab in PLUGIN_TABS or self.tab not in CORE_SCREENS):
+            a.screen = "status" if a.screen == "editor" else a.screen
             self.tab = "HOME"
-        if not a.plugin_on("xo4"):
-            self.xo4_sound = False
-            if self.xo4_track in (1, 2):
-                self.xo4_track = 0
         self.shown = None
 
     def draw_tabs(self, img):
@@ -533,8 +388,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         for k, s in enumerate(lines):
             st.text(img, (box[0] + 12, box[1] + 8 + k * (h + 6)), s, t.hi)
 
-    def bt_warn(self, name):
-        """XO-4 or the decks opened while a speaker plays through the Pi's own Bluetooth: it sounds poor there
+    def bt_warn(self, name, what=None):
+        """SEQ or the decks opened while a speaker plays through the Pi's own Bluetooth: it sounds poor there
         (on a Pi 3 B+ it sent in stalls of up to 140 ms at SBC bitpool 14-16, 2026-11-03), so a word to use the
         DAC's out (or the jack) or a USB Bluetooth dongle. Once a run for each"""
         a = self.app
@@ -542,7 +397,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         if name in warned or not a.sink or getattr(a, "bt_usb", False):
             return
         warned.add(name)
-        what = "XO-4" if name == "XO4" else "the decks"
+        what = what or name.lower()
         out = "the DAC out" if getattr(a, "dac", None) else "the headphone jack"
         a.say(f"Pi's Bluetooth: dropouts with {what}.\nUse {out} or a USB Bluetooth dongle.", 6)
 
@@ -550,18 +405,18 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         a = self.app
         if name in PLUGIN_TABS and not a.plugin_on(PLUGIN_TABS[name]):   # (switched off: HOME)
             name = "HOME"
-        if name in ("XO4", "DECKS"):
-            self.bt_warn(name)
+        tab = self.plugin_tab(name)
+        if tab is None and name not in CORE_SCREENS:  # (a plug-in's tab, its plug-in off or gone: HOME)
+            name = "HOME"
+        if getattr(tab, "what", None):
+            self.bt_warn(name, getattr(tab, "what", None))
         if a.screen == "meter" and name not in METER_TABS:
             a.screen = "status"
             a.levels.stop()
-        if name == "DECKS":                         # the DJ decks: started (once) and their screen shown
-            self.open_decks()
-            return
-        if name == "EDITOR":                        # the sample editor: the file last edited, or its OPEN list
-            self.tab, self.classic = name, False
-            self.open_sample_editor()
-            self.ed_from_browse = False             # (closed: HOME, not the pads)
+        if tab is not None:                         # a plug-in's tab (the DJ decks: started, once, and shown)
+            opened = getattr(tab, "opened", None)
+            if opened is None or a.plugin_host.call(self.plugin_tabs()[name], opened, default=False) is not False:
+                self.tab, self.classic, self.shown = name, False, None
             return
         self.tab, self.classic = name, False
         if name in METER_TABS:
@@ -599,9 +454,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             return "MUTE" if key in a.mutes else "OFF" if a.heard(key) == 0 < a.mix_level(key) else f"{a.mix_level(key)}%"
         rows = [(key, label, detail, k, a.mix_level(key) / 200, level(key))
                 for key, label, detail, k in self.sources()]
-        if self.decks_proc and self.decks_proc.running():
-            rows.append(("decks", "DECKS", "", len(rows) % 3, a.mix_level("decks") / 200,   # (not the speaker's colour)
-                         level("decks")))
+        for key, label in self.app_sounds():   # the plug-ins' programs (the DJ decks), while they run
+            rows.append((key, label, "", len(rows) % 3, a.mix_level(key) / 200,   # (not the speaker's colour)
+                         level(key)))
         master = ([("master", "MASTER", "DAC" if a.dac else "USB", 2, a.state.get("master", 100) / 100,
                     f"{a.state.get('master', 100)}%")]
                   if a.dac or getattr(a, "usb_out", None) else [])   # a DAC HAT (or USB out): the master out
@@ -676,8 +531,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         parts = "ON" if a.state.get("rec_parts") else "OFF"
         self.header(img, d, "MIXER", self.status_right())
         cols = [(key, label, k, a.mix_level(key), 200) for key, label, _, k in self.sources()][:6]
-        if self.decks_proc and self.decks_proc.running():   # the DJ decks (the DECKS tab), while they run
-            cols.append(("decks", "DECKS", 0, a.mix_level("decks"), 200))
+        apps = dict(self.app_sounds())       # the plug-ins' programs (the DJ decks), while they run
+        for key, label in apps.items():
+            cols.append((key, label, 0, a.mix_level(key), 200))
         if a.dac or getattr(a, "usb_out", None):   # a DAC HAT: the master out (its headphone and RCA outs); or
             cols.append(("master", "MASTER", 2, a.state.get("master", 100), 100))   # USB out's level
         if a.sink or not a.dac:              # (with a DAC and no Bluetooth speaker: no SPKR to set)
@@ -703,7 +559,7 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             label = label[:room]
             st.text(img, (cx - st.text_size(label)[0] // 2, HDR_H + 5), label, t.track[k])
             silent = False
-            if key in nodes or key == "decks":   # a source: M (mute) and S (solo), each a tap
+            if key in nodes or key in apps:   # a source: M (mute) and S (solo), each a tap
                 half = (width - 12) // 2
                 for j, (tag, on, act, colour) in enumerate((("M", key in a.mutes, a.toggle_mute, MUTE_COLOUR),
                                                             ("S", key in a.solos, a.toggle_solo, SOLO_COLOUR))):
@@ -730,8 +586,8 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
             self.widget((x0, top_k - 10, x0 + width - 1, bottom + 10), "slide",
                         lambda f, key=key, most=most: self.slide(key, f, most), ("slide", key))
             box = (x0 + 6, H - TAB_H - 36, x0 + width - 7, H - TAB_H - 6)
-            if a.jack and (key in nodes or key == "decks"):   # a DJ mixer's cue: this source on the jack,
-                                             # before its fader (the decks': after it, its level set on its sound;
+            if a.jack and (key in nodes or key in apps):   # a DJ mixer's cue: this source on the jack,
+                                             # before its fader (an app's: after it, its level set on its sound;
                                              # lit while they're off, heard once they play)
                 self.button(img, d, box, "CUE", lambda key=key: a.toggle_cue(key), color=t.track[k],
                             on=key in a.cued() or (key not in nodes and key in (a.state.get("cues") or [])),
@@ -770,9 +626,9 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
         sources, dests = a.matrix_lists()
         routes = a.routes()
         short = {"BT": "BT", "USB": "USB", "Box": "CLOCK", "NET": "NET",
-                 "XO4": "XO-4" if a.plugin_on("xo4") else "SEQ"}       # (the sequencer's MIDI track)
+                 "SEQ": "SEQ"}       # (the sequencer's MIDI track)
         dshort = {"BT": "BT", "USB": "USB", "NET": "NET", "SMP": "SMP"}
-        colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1, "XO4": 3}
+        colour = {"BT": 0, "USB": 2, "Box": 3, "NET": 1, "SEQ": 3}
         name = lambda e: e[len(blemidi.DEVICE):].upper() if e.startswith(blemidi.DEVICE) else e   # noqa: E731
         short = {**{s: name(s)[:10] for s in sources}, **short}         # a USB device: its own name
         dshort = {**{x: name(x) for x in dests}, **dshort}
@@ -960,7 +816,6 @@ class DeskUI(DeskPages, DeskPads, DeskDecks, DeskXO4, DeskPlugins, DeskAbout):
                         width=2 if off else 0)
             value = (self.theme_label() if what[0] == "theme" else
                      ("ON" if self.app.wifi else "OFF") if what[0] == "wifi" else
-                     ("ON" if self.decks_proc and self.decks_proc.running() else "OFF") if what[0] == "decks" else
                      "..." if what[0] == "update" and getattr(self.app, "update_checking", False) else "")
             dy = -8 if value else 0
             self.centre(img, (box[0], box[1] + dy, box[2], box[3] + dy), label,

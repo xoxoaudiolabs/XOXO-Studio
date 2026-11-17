@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
+sys.path.insert(0, str(ROOT / "plugins" / "decks"))     # the DJ decks: a default plug-in of the Studio's
 
 import numpy as np  # noqa: E402
 
@@ -488,12 +489,14 @@ def test_midi_learn_on_the_decks():
     D2.browse = D2.load_selected = lambda *a: None
     D2.load_maps()
     assert {b["action"] for b in D2.maps["Any DJ 1"].binds} == {"a.shift", "a.pfl"}
-    import blemidi
-    was, djlib.MUSIC = djlib.MUSIC, folder                          # the MIDI routes leave it to the decks
+    import blemidi                                                  # the MIDI routes leave it to the decks (their
+    was, blemidi.LIBRARY = blemidi.LIBRARY, folder.parent           # manifest's "controller_maps", in the library)
+    rules = [[["djcontrol"], f"{folder.name}/{djlib.CONTROLLERS}"]]
     try:
-        assert blemidi.dj_learned("Any DJ 1 28:0") and not blemidi.dj_learned("SMK-37+VA:SMK-37+VA MIDI 1 20:0")
+        assert blemidi.taken("Any DJ 1 28:0", rules) and not blemidi.taken("SMK-37+VA:SMK-37+VA MIDI 1 20:0", rules)
+        assert blemidi.taken("DJControl Inpulse 200 MK2:DJControl Inpulse 200 MK2 MIDI 1 24:0", rules)
     finally:
-        djlib.MUSIC = was
+        blemidi.LIBRARY = was
     D.command(["learn_list", "Any DJ 1"], lambda m: None)
     D.command(["learn_forget"], lambda m: None)
     assert djlib.learned(folder) == {} and D.maps == {}

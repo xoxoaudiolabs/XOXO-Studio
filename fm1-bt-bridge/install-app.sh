@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The Studio's own files (its code, fonts, icons, kits, its PipeWire and WirePlumber settings, its user services):
+# The Studio's own files (its code, fonts, icons, its PipeWire and WirePlumber settings, its user services):
 # the part of install.sh that needs no root. install.sh runs it (sourced, DIR and BUILD set); the web app's update
 # runs it alone, as the Studio's user, when the root update (fm1-update) can't run here (update.py): then it
 # installs what it can without a password, and the system's files wait for install.sh or fm1-update.
@@ -25,15 +25,10 @@ install -D -m 644 "$DIR/desk.py"                                ~/.local/share/f
 install -D -m 644 "$DIR/deskui.py"                              ~/.local/share/fm1-bridge/deskui.py
 install -D -m 644 "$DIR/deskmeters.py"                          ~/.local/share/fm1-bridge/deskmeters.py
 install -D -m 644 "$DIR/deskpages.py"                           ~/.local/share/fm1-bridge/deskpages.py
-install -D -m 644 "$DIR/pads.py"                                ~/.local/share/fm1-bridge/pads.py
-install -D -m 644 "$DIR/xo4.py"                                 ~/.local/share/fm1-bridge/xo4.py
-install -D -m 644 "$DIR/xo4synth.py"                            ~/.local/share/fm1-bridge/xo4synth.py
-install -D -m 644 "$DIR/deskpads.py"                            ~/.local/share/fm1-bridge/deskpads.py
-install -D -m 644 "$DIR/deskxo4.py"                             ~/.local/share/fm1-bridge/deskxo4.py
+install -D -m 644 "$DIR/sequencer.py"                           ~/.local/share/fm1-bridge/sequencer.py
+install -D -m 644 "$DIR/deskseq.py"                             ~/.local/share/fm1-bridge/deskseq.py
 install -D -m 644 "$DIR/deskplugins.py"                             ~/.local/share/fm1-bridge/deskplugins.py
 install -D -m 644 "$DIR/plugins.py"                             ~/.local/share/fm1-bridge/plugins.py
-install -D -m 644 "$DIR/deskdecks.py"                           ~/.local/share/fm1-bridge/deskdecks.py
-install -D -m 644 "$DIR/padfx.py"                               ~/.local/share/fm1-bridge/padfx.py
 install -D -m 644 "$DIR/deskboot.py"                            ~/.local/share/fm1-bridge/deskboot.py
 install -D -m 644 "$DIR/deskabout.py"                           ~/.local/share/fm1-bridge/deskabout.py
 install -D -m 644 "$DIR/netmidi.py"                             ~/.local/share/fm1-bridge/netmidi.py
@@ -42,17 +37,31 @@ install -D -m 644 "$DIR/weblink.py"                             ~/.local/share/f
 install -D -m 644 "$DIR/sampler.py"                             ~/.local/share/fm1-bridge/sampler.py
 install -D -m 644 "$DIR/sampleui.py"                            ~/.local/share/fm1-bridge/sampleui.py
 install -D -m 755 "$DIR/library.py"                             ~/.local/share/fm1-bridge/library.py
-install -D -m 644 "$DIR/decks.py"                               ~/.local/share/fm1-bridge/decks.py
-install -D -m 644 "$DIR/djlib.py"                               ~/.local/share/fm1-bridge/djlib.py
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
 install -D -m 755 "$DIR/update.py"                              ~/.local/share/fm1-bridge/update.py
 mkdir -p ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins   # (plug-ins: plugins.py)
+# The plug-ins in the Studio's repository (plugins/: the sampler, the sample editor, the DJ decks) go into
+# ~/xoxo-plugins like anyone's, each folder put in whole (switched on or off is in the settings, kept). Their files
+# used to be the app's own: those old copies go, or they'd be imported before the plug-in's.
+rm -f ~/.local/share/fm1-bridge/decks.py ~/.local/share/fm1-bridge/djlib.py ~/.local/share/fm1-bridge/deskdecks.py ~/.local/share/fm1-bridge/xo4synth.py \
+      ~/.local/share/fm1-bridge/xo4.py ~/.local/share/fm1-bridge/deskxo4.py \
+      ~/.local/share/fm1-bridge/pads.py ~/.local/share/fm1-bridge/padfx.py ~/.local/share/fm1-bridge/deskpads.py
+rm -rf ~/.local/share/fm1-bridge/kits      # (the 808 KIT's sounds: the sampler plug-in's own folder now)
+rm -rf ~/.local/share/fm1-bridge/default-plugins ~/xoxo-plugins/xo4   # (XO-4 is gone: the sequencer is SEQ)
+if [ -d "$DIR/../plugins" ]; then
+    for src in "$DIR"/../plugins/*/; do
+        id="$(basename "$src")"
+        rm -rf ~/xoxo-plugins/"$id.new"
+        cp -r "$src" ~/xoxo-plugins/"$id.new"
+        find ~/xoxo-plugins/"$id.new" -name __pycache__ -type d -prune -exec rm -rf {} +
+        rm -rf ~/xoxo-plugins/"$id"
+        mv ~/xoxo-plugins/"$id.new" ~/xoxo-plugins/"$id"
+    done
+fi
 mkdir -p ~/.local/share/fm1-bridge/vendor/fonts
 install -m 644 "$DIR"/vendor/fonts/*                            ~/.local/share/fm1-bridge/vendor/fonts/
 mkdir -p ~/.local/share/fm1-bridge/icons
 install -m 644 "$DIR"/icons/*.png                              ~/.local/share/fm1-bridge/icons/
-mkdir -p ~/.local/share/fm1-bridge/kits/808       # the sampler's ready-made 808 KIT (pads.factory_kits copies it in)
-install -m 644 "$DIR"/kits/808/*                               ~/.local/share/fm1-bridge/kits/808/
 install -D -m 644 "$DIR/config/pipewire-10-fm1-bridge.conf"     ~/.config/pipewire/pipewire.conf.d/10-fm1-bridge.conf
 install -D -m 644 "$DIR/config/wireplumber-51-fm1-bridge.conf"  ~/.config/wireplumber/wireplumber.conf.d/51-fm1-bridge.conf
 if wireplumber --version 2>/dev/null | grep -q "Linked with libwireplumber 0\.4"; then   # Bookworm: Lua config

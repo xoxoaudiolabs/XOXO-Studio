@@ -54,44 +54,87 @@ Added to API 1 later (a plug-in checks with hasattr, so it runs on an older Stud
   plugin.json "library": {folder: [".suffix"]}   folders of its own in ~/fm1-library the web page can list files
                                                  of, upload to, download from and delete from (not the Studio's
                                                  own: samples, recordings)
+Added for the default plug-ins (2026-11-17: the DJ decks, the sample editor, the decks; anyone's may use them):
+  add_tab(name, tab)                             a tab of its own in the Studio's tab bar (before MORE), full
+                                                 screen: tab(ui, studio) with draw(img, d, now) (the whole 480x320,
+                                                 its own "< HOME"), and optional view(now), opened() (False: not
+                                                 opened), stop() (switched off), what (its name in the Pi
+                                                 Bluetooth warning: a tab that plays sound)
+  add_app_sound(key, node_name, label, shown)    a program of its own playing to the Studio's output (the
+                                                 default): a channel in the mixer under label, its level, MUTE,
+                                                 SOLO and CUE set on that node; key its level's name in the
+                                                 settings; shown() while it's on HOME and the MIXER
+  add_setting(menu, label, value, change)        a row in MORE > PLAYING / AUDIO / MIDI SETTINGS (menu "play",
+                                                 "audio", "midi"): value() its text, change() when it's pressed
+  clock()                                        the Studio's beat grid now ([beat time, beat length, playing]),
+                                                 or None
+  redraw()                                       the screen drawn again (something its tab shows changed)
+  add_editor_screen(screen)                      the sample editor's screen: drawn while a take or sample is open
+                                                 to edit (the editor plug-in's), screen(ui, studio) with draw(img,
+                                                 d, now); a pad's TRIM and "Edit as sample" are there while one is
+  plugin.json "restart": true                    switching it starts the Studio app again
+  plugin.json "process": "module"                a process of its own started with the Studio app, before the MIDI
+                                                 process, while it's on (plugins.start_processes: module.start_process
+                                                 (state, box), a module of its folder): the routes' SMP notes go to
+                                                 its midi_conn (the sampler's pads); with "restart" too
+  process()                                      that process (what start_process gave), or None
+  plugin.json "controllers": [pattern, ...]      MIDI controllers it reads itself (regular expressions on the
+                                                 port's name), kept off the MIDI routes while it's on;
+             "controller_maps": "path"           and a JSON file (in ~/fm1-library) whose keys are the names of
+                                                 more of them (learnt maps)
+
+The sample editor, the DJ decks and the decks are plug-ins like any other: their folders are in the Studio's
+repository (plugins/) and install-app.sh puts them in ~/xoxo-plugins, off until someone switches them on.
 """
+import importlib
 import importlib.util
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 API = 1                                        # the host API this Studio gives plug-ins
 LETTERS = "ABCDEFGH"
 
-# The Studio's own optional parts, listed and switched like any plug-in (MORE > PLUG-INS, the web page) but part
-# of its code: on unless someone switched them off (state["plugins"][id]["on"]), no trust question, nothing to
-# load. The core asks builtin_on(state, id) where each hooks in. "restart": switching it starts the Studio app
-# again (its process is forked before the MIDI process at the start).
-BUILTINS = {
-    "editor": {"name": "Sample editor", "description": "The EDITOR tab: trim, fade, normalize a take or a sample "
-               "into a new sample; the web page's Editor."},
-    "decks": {"name": "DJ decks", "description": "Two decks for the Studio DJ Music folder, with the Hercules "
-              "Inpulse and learnt DJ controllers: the DECKS tab and DECKS in the mixer."},
-    "xo4": {"name": "XO-4", "restart": True,
-            "description": "XO-4's two FM synths on the Studio's sequencer, their sound pages and FX, and live "
-                         "play from a keyboard. Off: the sequencer (SEQ) plays the pads and MIDI."},
-}
-
-
-def builtin_on(state, pid):
-    """a built-in plug-in switched on? (on unless switched off)"""
+def switched_on(state, pid):
+    """a plug-in switched on in the settings (state["plugins"][id]["on"]): off until someone switches it on"""
     entry = ((state or {}).get("plugins") or {}).get(pid)
-    return not isinstance(entry, dict) or entry.get("on", True) is not False
+    return isinstance(entry, dict) and entry.get("on") is True
 
 
-def builtin_manifest(pid):
-    b = BUILTINS[pid]
-    return {"id": pid, "name": b["name"], "version": "built in", "api": API, "author": "XOXO Audio Labs",
-            "license": "GPL-3.0", "entry": None, "description": b["description"], "library": {}, "builtin": True,
-            "restart": bool(b.get("restart"))}
 CARDS = Path("/proc/asound/cards")
 OWN_FOLDERS = ("samples", "recordings", "music")   # the Studio's library folders: not a plug-in's
+
+
+def taken_controllers(state, dirs=None):
+    """[[patterns, maps file]] of the MIDI controllers the plug-ins switched on read themselves (their manifests'
+    "controllers" and "controller_maps"), for the MIDI process: read before any plug-in runs"""
+    return [[list(m.get("controllers") or []), m.get("controller_maps")] for pid, (_, m) in find(dirs).items()
+            if switched_on(state, pid) and (m.get("controllers") or m.get("controller_maps"))]
+
+
+def start_processes(state, box, dirs=None):
+    """{plug-in id: what its module.start_process(state, box) gave} of the plug-ins switched on whose manifest has
+    "process" (the sampler's pads): started as the Studio app starts, before the MIDI process"""
+    out = {}
+    for pid, (folder, m) in sorted(find(dirs).items(), key=lambda kv: (kv[1][1]["order"], kv[0])):
+        if m.get("process") and switched_on(state, pid):
+            try:
+                out[pid] = plugin_module(pid, m["process"], dirs).start_process(state, box)
+            except Exception:
+                continue
+    return out
+
+
+def plugin_module(pid, name, dirs=None):
+    """a module of a plug-in's folder (web.py's: the decks' djlib), imported, or None if it isn't there"""
+    found = find(dirs).get(pid)
+    if not found or not (found[0] / f"{name}.py").is_file():
+        return None
+    if str(found[0]) not in sys.path:
+        sys.path.append(str(found[0]))
+    return importlib.import_module(name)
 
 
 def plugin_dirs():
@@ -104,7 +147,7 @@ def plugin_dirs():
 def find(dirs=None):
     """{id: (folder, manifest)} of the plug-ins in the folders (and one level further down: a repository of them)"""
     out = {}
-    for base in dirs or plugin_dirs():
+    for base in plugin_dirs() if dirs is None else dirs:
         if not base.is_dir():
             continue
         for folder in sorted([p for p in base.iterdir() if p.is_dir()] +
@@ -129,7 +172,27 @@ def read_manifest(folder):
     return {"id": m["id"], "name": str(m.get("name") or m["id"])[:24], "version": str(m.get("version") or "?")[:16],
             "api": m.get("api"), "author": str(m.get("author") or "")[:40], "license": str(m.get("license") or "")[:24],
             "entry": entry, "description": str(m.get("description") or "")[:200],
-            "library": library_folders(m.get("library"))}
+            "library": library_folders(m.get("library")),
+            "controllers": [str(x)[:64] for x in (m.get("controllers") or [])[:8] if isinstance(x, str) and valid_re(x)],
+            "controller_maps": controller_maps(m.get("controller_maps")),
+            "order": m.get("order") if isinstance(m.get("order"), int) else 99, "restart": m.get("restart") is True,
+            "process": m["process"] if isinstance(m.get("process"), str) and re.fullmatch(r"[a-z][a-z0-9_]{0,31}",
+                                                                                       m["process"]) else None}
+
+
+def valid_re(pattern):
+    try:
+        re.compile(pattern)
+        return True
+    except re.error:
+        return False
+
+
+def controller_maps(path):
+    """a manifest's "controller_maps": a file inside ~/fm1-library (relative, no ..), or None"""
+    if not isinstance(path, str) or not path or Path(path).is_absolute() or ".." in Path(path).parts:
+        return None
+    return path[:120]
 
 
 def library_folders(declared):
@@ -158,6 +221,8 @@ class Studio:
         self.web_status, self.web_commands = None, {}
         self.details = {}                     # source name (upper case) -> its few words (set_detail)
         self.nodes = {}                       # its own sound processes' node names -> their labels
+        self.tabs, self.app_sounds, self.settings_rows = [], [], []
+        self.editor_screens = []
 
     def save(self):
         self._host.save()
@@ -233,13 +298,40 @@ class Studio:
     def on(self, event, fn):
         self.events.setdefault(event, []).append(fn)
 
+    def add_tab(self, name, tab):
+        self.tabs.append((re.sub(r"[^A-Z0-9-]", "", str(name).upper())[:8] or self.id.upper()[:8], tab))
+
+    def add_app_sound(self, key, node_name, label, shown=None):
+        key = re.sub(r"[^a-z0-9]", "", str(key).lower())[:16]
+        self.app_sounds.append((key, str(node_name), str(label)[:10], shown))
+
+    def add_setting(self, menu, label, value, change):
+        if menu in ("play", "audio", "midi"):
+            self.settings_rows.append((menu, str(label)[:20], value, change))
+
+    def add_editor_screen(self, screen):
+        self.editor_screens.append(screen)
+
+    def process(self):
+        return self._host.processes.get(self.id)
+
+    def clock(self):
+        midi = getattr(self._host.app, "midi", None)
+        return (getattr(midi, "clock", None) or {}).get("grid")
+
+    def redraw(self):
+        if hasattr(self._host.app, "post"):
+            self._host.app.post("plugin")
+
 
 class Host:
     """the plug-ins found and those switched on; app: the Studio's App (its state, say, save_settings)"""
 
-    def __init__(self, app, dirs=None, builtins=()):
-        self.app, self.dirs, self.builtins = app, dirs, tuple(builtins)   # builtins: ids from BUILTINS
+    def __init__(self, app, dirs=None):
+        self.app, self.dirs = app, dirs
         self.found, self.loaded, self.errors = {}, {}, {}
+        self.processes = {}                     # plug-in id -> its own process (start_processes), from main()
+        self.started = False                    # start() run: a plug-in not found is off
 
     # ---- the Studio's side
 
@@ -252,32 +344,27 @@ class Host:
     def entry(self, pid):
         """state["plugins"][pid]: {"on": bool, "settings": {...}}"""
         plugins = self.app.state.setdefault("plugins", {})
-        entry = plugins.setdefault(pid, {"on": pid in self.builtins, "settings": {}})
-        entry.setdefault("on", pid in self.builtins)
+        entry = plugins.setdefault(pid, {"on": False, "settings": {}})
+        entry.setdefault("on", False)
         entry.setdefault("settings", {})
         return entry
 
     def start(self):
         """find the plug-ins, and run those switched on"""
-        self.found = {pid: (None, builtin_manifest(pid)) for pid in self.builtins}
-        for pid, found in find(self.dirs).items():
-            self.found.setdefault(pid, found)    # (a folder can't take a built-in's id)
+        self.started = True
+        self.found = dict(sorted(find(self.dirs).items(), key=lambda kv: (kv[1][1]["order"], kv[0])))
         for pid in self.found:
             if self.entry(pid)["on"]:
                 self.load(pid)
 
-    def builtin(self, pid):
-        return pid in self.builtins and pid in self.found
-
     def load(self, pid):
         folder, m = self.found[pid]
-        if m.get("builtin"):                   # the Studio's own: nothing to load, the core asks builtin_on
-            self.loaded[pid] = Studio(self, pid, self.entry(pid)["settings"])
-            return True
         if m["api"] != API:
             self.errors[pid] = f"needs a Studio with plug-in API {m['api']}"
             return False
         studio = Studio(self, pid, self.entry(pid)["settings"])
+        if str(folder) not in sys.path:        # (its other modules: imported by their names)
+            sys.path.append(str(folder))
         try:
             spec = importlib.util.spec_from_file_location(f"xoxo_plugin_{pid.replace('-', '_')}", folder / m["entry"])
             module = importlib.util.module_from_spec(spec)
@@ -313,13 +400,24 @@ class Host:
                 self.save()
                 return f"{name}: {self.errors.get(pid)}"
         if not on:
-            self.loaded.pop(pid, None)
+            self.stop_tabs(self.loaded.pop(pid, None))
         self.app.plugins_changed()
         return f"{name} {'on' if on else 'off'}"
+
+    def stop_tabs(self, studio):
+        """a plug-in switched off: its tabs' stop() (the decks' program stopped)"""
+        for tab in (getattr(studio, "made_tabs", None) or {}).values():
+            stop = getattr(tab, "stop", None)
+            if stop:
+                try:
+                    stop()
+                except Exception:
+                    pass
 
     def fail(self, pid, error):
         """a plug-in raised an error while running: switched off, said"""
         studio = self.loaded.pop(pid, None)
+        self.stop_tabs(studio)
         self.errors[pid] = f"{type(error).__name__}: {error}"[:80]
         self.entry(pid)["on"] = False
         self.save()
@@ -391,6 +489,67 @@ class Host:
     def midi_names(self):
         """[[pattern, name]] for the MIDI process: a device whose client name matches is called name ({n}: A, B..)"""
         return [rule for studio in self.loaded.values() for rule in studio.midi]
+
+    def tabs(self):
+        """[(pid, name, tab class)] of the plug-ins switched on, in their order"""
+        return [(pid, name, tab) for pid, studio in self.loaded.items() for name, tab in studio.tabs]
+
+    def tab(self, pid, name, ui):
+        """the tab's object (made once a run, with ui), or None if its plug-in is off or it failed"""
+        studio = self.loaded.get(pid)
+        if studio is None:
+            return None
+        made = studio.__dict__.setdefault("made_tabs", {})
+        if name not in made:
+            cls = next((t for n, t in studio.tabs if n == name), None)
+            obj = self.call(pid, cls, ui, studio) if cls else None
+            if obj is None:
+                return None
+            made[name] = obj
+        return made[name]
+
+    def editor_screen(self, ui):
+        """(pid, the sample editor's screen, made once a run) of the first plug-in on with one, or None"""
+        return self.first_made(ui, "editor_screens")
+
+    def first_made(self, ui, kind):
+        for pid, studio in list(self.loaded.items()):
+            if getattr(studio, kind):
+                made = studio.__dict__.setdefault("made_" + kind, [])
+                if not made:
+                    page = self.call(pid, getattr(studio, kind)[0], ui, studio)
+                    if page is None:
+                        continue
+                    made.append(page)
+                return pid, made[0]
+        return None
+
+    def app_sounds(self):
+        """[(pid, key, node name, label, shown)] of the plug-ins switched on"""
+        return [(pid,) + sound for pid, studio in self.loaded.items() for sound in studio.app_sounds]
+
+    def setting_rows(self, menu):
+        """[(row key, label, value text)] the plug-ins add to a settings menu"""
+        out = []
+        for pid, studio in list(self.loaded.items()):
+            for i, (m, label, value, _change) in enumerate(studio.settings_rows):
+                if m == menu:
+                    out.append((f"plugin:{pid}:{i}", label, str(self.call(pid, value, default="?"))[:12]))
+        return out
+
+    def change_setting(self, key):
+        """a plug-in's settings row pressed (its key from setting_rows); False if it isn't one"""
+        m = re.fullmatch(r"plugin:([a-z0-9-]+):(\d+)", str(key))
+        studio = m and self.loaded.get(m.group(1))
+        if not studio or int(m.group(2)) >= len(studio.settings_rows):
+            return False
+        self.call(m.group(1), studio.settings_rows[int(m.group(2))][3])
+        return True
+
+    def taken_controllers(self):
+        """[[patterns, maps file]] for the MIDI process, of the plug-ins switched on"""
+        return [[list(m.get("controllers") or []), m.get("controller_maps")] for pid, (_, m) in self.found.items()
+                if pid in self.loaded and (m.get("controllers") or m.get("controller_maps"))]
 
     def screens(self):
         """[(pid, label, screen class)] for MORE > PLUG-INS"""

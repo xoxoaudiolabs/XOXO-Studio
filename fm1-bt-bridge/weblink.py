@@ -41,6 +41,7 @@ class WebLink:
         """everything the page shows, as plain JSON"""
         midi, clock = self.midi, getattr(self.midi, "clock", None) if self.midi else None
         keys = self.keys_route()
+        theirs = self.plugin_host.web_status()    # each plug-in's fields (the DJ decks': their decks)
         return {
             "box": "xoxo-studio",             # which box (one web app for it and the FM-1 Companions: "pocket", "studio")
             "sources": [self.channel_name(k, n) for k, n in self.mix_channels()],
@@ -68,7 +69,7 @@ class WebLink:
             "midi": {"peer": midi and midi.peer, "enabled": bool(midi and midi.enabled),
                      "error": midi and midi.error, "controllers": list(getattr(midi, "controllers", None) or []),
                      "net": list(getattr(midi, "net", None) or []),
-                     "pads": bool(getattr(midi, "pads", False)), "xo4": bool(getattr(midi, "xo4", False))},
+                     "pads": bool(getattr(midi, "pads", False)), "xo4": bool(getattr(midi, "sequencer", False))},
             "matrix": dict(zip(("sources", "dests"), self.matrix_lists())),
             "clock": clock, "clock_text": self.clock_text(),
             "recording": int(self.recorder.seconds()) if self.recorder.recording() else None,
@@ -77,9 +78,11 @@ class WebLink:
             "routes": self.routes(), "presets": self.presets(), "wifi": self.wifi,
             "version": web_version(),         # the Studio's release (deskboot.VERSION): SETTINGS > About
             "theme": web_theme(self.state),   # the screen's theme and the ones there are: SETTINGS > Screen
-            "xo4": self.web_xo4(), "kits": self.web_kits(), "decks": self.web_decks(),
-            "plugins": {"list": self.plugin_host.listing(), "status": self.plugin_host.web_status(),
-                        "builtin": {pid: self.plugin_on(pid) for pid in self.plugin_host.builtins}},
+            "xo4": self.web_seq(), "kits": (theirs.get("sampler") or {}).get("kits"),
+            "decks": (theirs.get("decks") or {}).get("decks"),
+            "plugins": {"list": self.plugin_host.listing(), "status": theirs,
+                        "builtin": {pid: self.plugin_on(pid) for pid in ("editor", "decks", "sampler")}},   # (the
+                                              # page's sections for those plug-ins: shown while they're on)
         }
 
     def web_mixer(self):
@@ -88,34 +91,21 @@ class WebLink:
                  "input": self.input_label(k, n), "detail": self.source_detail(k, n),
                  "mute": k in self.mutes, "solo": k in self.solos}
                 for k, n in self.mix_channels()]
-        if "decks" in (getattr(self, "app_here", None) or ()):
-            rows.append({"key": "decks", "label": "DECKS", "level": self.mix_level("decks"), "input": None,
-                         "mute": "decks" in self.mutes, "solo": "decks" in self.solos})
+        here = getattr(self, "app_here", None) or ()
+        for _pid, key, _node, label, _shown in self.plugin_host.app_sounds():   # the plug-ins' programs (the DJ
+            if key in here:                                                     # decks) while they play
+                rows.append({"key": key, "label": label, "level": self.mix_level(key), "input": None,
+                             "mute": key in self.mutes, "solo": key in self.solos})
         return rows if len(rows) > 1 else None
 
-    def web_xo4(self):
-        """XO-4: the pattern playing (or to play), the one waiting for the bar, those with steps, MIDI IN, the
-        synths' starting sounds"""
-        import xo4
-        song = self.state.get("xo4") or self.song()
-        x = getattr(self, "xo4", None)
-        used = [p for p in xo4.PATTERNS if any(any(t["steps"]) for t in song["patterns"][p])]
+    def web_seq(self):
+        """the sequencer: the pattern playing (or to play), the one waiting for the bar, those with steps"""
+        import sequencer
+        song = self.state.get("seq") or self.song()
+        x = getattr(self, "sequencer", None)
+        used = [p for p in sequencer.PATTERNS if any(any(t["steps"]) for t in song["patterns"][p])]
         return {"pattern": (x and x.pattern) or song["pattern"], "queued": x and x.queued, "used": used,
-                "playing": self.seq_playing(), "midi_in": bool(self.state.get("xo4_midi_in")),
-                "sounds": [self.xo4_sound_name(p) for p in song["patches"]], "choices": list(xo4.SOUNDS)}
-
-    def web_kits(self):
-        import pads
-        return {"current": self.kit()["name"], "list": pads.list_kits()}
-
-    def web_decks(self):
-        """the DJ decks while they run: each deck's track, tempo, key, playing, FX; None: not running"""
-        proc = getattr(self, "desk", None) and self.plugin_on("decks") and self.desk.decks_proc
-        if not proc or not proc.running():
-            return None
-        status = getattr(proc, "status", None) or {}
-        keep = ("title", "artist", "bpm", "camelot", "playing", "fx", "fx_on")
-        return [{k: (d or {}).get(k) for k in keep} for d in (status.get("decks") or [])]
+                "playing": self.seq_playing()}
 
     def web_publish(self):
         """called by the monitor thread every second: the status file, rewritten when it changed, and every 2 s
@@ -275,7 +265,7 @@ class WebLink:
             self.preset_apply(c["slot"], c["action"], name if isinstance(name, str) else None)
             return None                       # preset_apply says it
         if cmd == "xo4":
-            return self.web_xo4_command(c)
+            return self.web_seq_command(c)
         if cmd == "update":                   # Library > Software: the newest release, held to confirm here
             return self.web_update()
         if cmd == "plugin":                   # a plug-in switched on or off, or one of its own commands
@@ -290,31 +280,20 @@ class WebLink:
                 return "Web: " + self.plugin_host.set_on(c["id"], bool(c["on"]))
             text = self.plugin_host.web_command(c["id"], c["name"], c.get("args") or {})
             return text if isinstance(text, str) else None
-        if cmd == "kit":
-            import pads
-            if c.get("name") not in pads.list_kits():
-                raise ValueError("no such kit")
-            kit = pads.load_kit(pads.kits_folder() / f"{c['name']}.json")
-            if kit:
-                self.set_kit(kit)
-            return kit and f"Web: Kit {kit['name']}"
+        if cmd == "kit":                      # (the sampler plug-in's kits)
+            if not self.plugin_on("sampler"):
+                return "Web: the sampler is off (MORE > PLUG-INS)"
+            text = self.plugin_host.web_command("sampler", "kit", {"name": c.get("name")})
+            return text if isinstance(text, str) else None
         raise ValueError(f"bad command {cmd}")
 
-    def web_xo4_command(self, c):
-        import xo4
+    def web_seq_command(self, c):
+        import sequencer
         action, value = c.get("action"), c.get("value")
-        if action == "pattern" and value in xo4.PATTERNS:
-            self.xo4_pick_pattern(value)
-            return f"Web: XO-4 pattern {value}"
-        if action == "midi_in" and isinstance(value, bool):
-            self.set_xo4_midi_in(value)
-            return f"Web: XO-4 MIDI IN {'on' if value else 'off'}"
-        if action == "sound" and c.get("track") in (1, 2) and value in xo4.SOUNDS:
-            if not self.plugin_on("xo4"):
-                return "Web: XO-4's synths are off (MORE > PLUG-INS)"
-            self.xo4_sound(c["track"], value)
-            return f"Web: SYN {c['track']} {value}"
+        if action == "pattern" and value in sequencer.PATTERNS:
+            self.sq_pick_pattern(value)
+            return f"Web: SEQ pattern {value}"
         if action == "play":
             self.seq_play()
             return None
-        raise ValueError(f"bad XO-4 command {action}")
+        raise ValueError(f"bad SEQ command {action}")

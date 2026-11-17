@@ -254,9 +254,9 @@ def desk_screens(state, out):
     import xoxostyle
     meters.load_numpy()
     samples = studio_samples()
-    pages = [("home", "HOME", {}), ("mix", "MIX", {}), ("pads", "XO4", {"xo4_track": 0}), ("rec", "REC", {}),
-             ("midi", "MIDI", {}), ("more", "MORE", {}), ("pad", "XO4", {"xo4_track": 0, "pad_edit": 0}),
-             ("fx", "XO4", {"xo4_track": 0, "fx_open": True, "fx_on": 1, "fx_latch": True}),
+    pages = [("home", "HOME", {}), ("mix", "MIX", {}), ("pads", "SEQ", {"sq_track": 0}), ("rec", "REC", {}),
+             ("midi", "MIDI", {}), ("more", "MORE", {}), ("pad", "SEQ", {"sq_track": 0, "pad_edit": 0}),
+             ("fx", "SEQ", {"sq_track": 0, "fx_open": True, "fx_on": 1, "fx_latch": True}),
              ("editor", "EDITOR", {"editor": True})]   # (the pads: XO-4's DRUMS, their pages over it)
     for suffix, theme in (("", xoxostyle.Theme("XOXO")), ("-theme", xoxostyle.Theme("KAWAII"))):
         for name, tab, attrs in pages:

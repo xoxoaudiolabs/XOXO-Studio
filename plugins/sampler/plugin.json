@@ -1,0 +1,3 @@
+{"id": "sampler", "name": "Sampler", "version": "1.0", "api": 1, "author": "XOXO Audio Labs", "license": "GPL-3.0",
+ "entry": "plugin.py", "order": 0, "restart": true, "process": "pads",
+ "description": "The 16-pad sampler: the PADS tab (kits, pad pages, sampling, the pads' FX, note repeat), PADS in the mixer, and the routes' SMP notes (36-51) playing it."}
