@@ -406,20 +406,6 @@ def test_usb_midi_devices():
 
 
 
-def test_dj_controllers_free_with_the_decks_off():
-    """a Hercules is the DJ decks' (off the routes) while they're on; switched off (MORE > PLUG-INS), it's a MIDI
-    device in the routes like any other"""
-    import plugins
-    controllers = blemidi.UsbControllers(lambda message, name=None: None)
-    herc = "DJControl Inpulse 200 MK2:DJControl Inpulse 200 MK2 MIDI 1 24:0"
-    on = {"plugins": {"decks": {"on": True}}}
-    controllers.taken = plugins.taken_controllers(on, dirs=[ROOT / "plugins"])   # (the decks plug-in's manifest)
-    assert controllers.taken[0][0] == ["djcontrol"]
-    assert "DJControl Inpulse 200 MK2" not in controllers.wanted(PORTS + [herc])
-    controllers.taken = plugins.taken_controllers({}, dirs=[ROOT / "plugins"])  # (off until switched on)
-    assert controllers.taken == [] and controllers.wanted(PORTS + [herc])["DJControl Inpulse 200 MK2"] == herc
-
-
 def test_usb_keys_play_the_pads():
     bridge = make_bridge()
     bridge.from_controllers(b"\x90\x3c\x40")

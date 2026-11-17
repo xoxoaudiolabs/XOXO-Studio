@@ -21,7 +21,8 @@ TMP = Path(tempfile.mkdtemp(prefix="xoxo-shots-"))     # an empty library: the s
 atexit.register(shutil.rmtree, TMP, ignore_errors=True)          # (gone when the run ends)
 os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "fm1-bt-bridge"))
-sys.path.append(str(Path(__file__).resolve().parents[1] / "plugins" / "sampler"))   # (the sampler plug-in's pads)
+PLUGINS = Path(os.environ.get("XOXO_STUDIO_PLUGINS") or Path(__file__).resolve().parents[2] / "XOXO-Studio-Plugins")
+sys.path.append(str(PLUGINS / "sampler"))   # (the sampler plug-in's pads: a clone of XOXO-Studio-Plugins beside this one)
 
 from PIL import Image  # noqa: E402
 
@@ -138,7 +139,7 @@ def studio():
     display = Capture()
     app = bridge.App(display, state)
     app.save_settings = lambda: None
-    app.plugin_host.dirs = [Path(__file__).resolve().parents[1] / "plugins"]   # the repository's plug-ins, on
+    app.plugin_host.dirs = [PLUGINS]                                  # XOXO-Studio-Plugins' plug-ins, some on
     app.state["plugins"] = {pid: {"on": True, "settings": {}} for pid in ("editor", "decks")}
     app.state["plugins"]["sampler"] = {"on": True, "settings": {"kit": kit, "repeat": 2, "midi_in": True}}
     app.plugin_host.processes = {"sampler": Pads()}                   # (the sampler's process, pretend)

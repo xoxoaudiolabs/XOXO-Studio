@@ -14,10 +14,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "fm1-bt-bridge"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.append(str(ROOT / "plugins" / "decks"))        # (the DJ decks plug-in's djlib: their music folder)
 TMP = Path(tempfile.mkdtemp(prefix="fm1-web-"))
-os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"),
-                  XOXO_PLUGINS=str(ROOT / "plugins"))      # (the decks plug-in, as in ~/xoxo-plugins)
+os.environ.update(FM1_LIBRARY=str(TMP / "library"), XDG_RUNTIME_DIR=str(TMP / "run"), FM1_SD_LIBRARY=str(TMP / "sd"))
+os.environ.setdefault("XOXO_PLUGINS", str(TMP / "plugins"))   # (none: XOXO-Studio-Plugins' decks test sets its own)
 
 import library  # noqa: E402
 import web  # noqa: E402
@@ -181,25 +180,6 @@ def test_studio_commands():
     assert [c["cmd"] for c in queued] == ["xo4"] * 2 + ["kit", "set"]
 
 
-def test_dj_music():
-    """the DJ decks' music folder: listed, a track added (streamed to disk), deleted; only audio, only plain names"""
-    import djlib
-    library.write_status({"live": True, "plugins": {"builtin": {"decks": True}}})   # (the decks plug-in on)
-    status, body, _ = call("/api/upload?folder=music&name=Night%20Drive.mp3", raw=b"ID3" + b"\0" * 4096)
-    assert status == 200, body
-    assert (djlib.MUSIC / "Night Drive.mp3").stat().st_size == 4099
-    (djlib.MUSIC / "Crate").mkdir(exist_ok=True)
-    (djlib.MUSIC / "Crate" / "Deep.flac").write_bytes(b"fLaC")
-    tracks = {m["name"]: m for m in jcall("/api/music")[1]}
-    assert tracks["Night Drive.mp3"]["top"] and tracks["Night Drive.mp3"]["title"] == "Night Drive"
-    assert not tracks["Crate/Deep.flac"]["top"]                       # in a subfolder: listed, not deleted here
-    assert call("/api/upload?folder=music&name=notes.txt", raw=b"hi")[0] == 400
-    assert call("/api/upload?folder=music&name=..%2Fx.mp3", raw=b"ID3")[0] == 400
-    assert jcall("/api/delete", {"folder": "music", "name": "Crate/Deep.flac"})[0] == 404
-    assert jcall("/api/delete", {"folder": "music", "name": "Night Drive.mp3"})[1]["ok"]
-    assert not (djlib.MUSIC / "Night Drive.mp3").exists()
-
-
 def test_served_as_xoxo_studio():
     """the shared page, served under this box's name (what a phone keeps on its home screen)"""
     status, page, _ = call("/")
@@ -253,14 +233,14 @@ def test_editor_off():
 
 
 def test_decks_off():
-    """the DJ decks switched off: no music added to their folder (it's kept); on, it's taken"""
+    """the DJ decks switched off, or not installed (they're XOXO-Studio-Plugins'): no music added to their folder;
+    on, it's taken (that half is the decks plug-in's own test)"""
     data = b"ID3" + bytes(64)
     library.write_status({"live": True, "plugins": {"builtin": {"decks": False}}})
     assert call("/api/upload?folder=music&name=t.mp3", raw=data)[0] == 400
     library.write_status({"live": True, "plugins": {"builtin": {"decks": True}}})
-    status, reply = jcall("/api/upload?folder=music&name=t.mp3", raw=data)
-    assert status == 200 and reply["ok"], reply
-    assert jcall("/api/delete", {"folder": "music", "name": "t.mp3"})[1]["ok"]
+    assert web.djlib() is None and call("/api/upload?folder=music&name=t.mp3", raw=data)[0] == 400
+    assert jcall("/api/music")[1] == []
     library.STATUS.unlink(missing_ok=True)
 
 

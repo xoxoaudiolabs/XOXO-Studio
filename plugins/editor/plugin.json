@@ -1,3 +1,0 @@
-{"id": "editor", "name": "Sample editor", "version": "1.0", "api": 1, "author": "XOXO Audio Labs", "license": "GPL-3.0",
- "entry": "plugin.py", "order": 1,
- "description": "The EDITOR tab: trim, fade, normalize a take or a sample into a new sample; a pad's TRIM; the web page's Editor."}

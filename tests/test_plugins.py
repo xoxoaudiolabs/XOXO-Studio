@@ -190,36 +190,6 @@ def test_sound_source_of_its_own():
     assert bridge.pick_nodes(objects, host)[1] == []
 
 
-def test_studio_plugins_are_ordinary():
-    """the sampler, the editor and the decks (the repository's plugins/): plug-ins like any other, listed with the rest, off until
-    switched on (the trust question is the screen's, as for anyone's), kept; a plug-in whose manifest says
-    "restart" starts the Studio app again when it's switched"""
-    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
-    make(base, "fm1", GOOD)
-    app = App()
-    restarts = []
-    app.restart_app = lambda: restarts.append(True)
-    host = plugins.Host(app, [ROOT / "plugins", base])
-    host.start()
-    listed = {p["id"]: p for p in host.listing()}
-    assert list(listed) == ["sampler", "editor", "decks", "fm1"] and not any(p["on"] for p in listed.values())
-    assert listed["decks"]["name"] == "DJ decks" and not hasattr(plugins, "BUILTINS") and "xo4" not in listed
-    assert host.loaded == {} and not plugins.switched_on(app.state, "editor") and not plugins.switched_on({}, "decks")
-    assert host.set_on("editor", True) == "Sample editor on" and plugins.switched_on(app.state, "editor")
-    assert host.tabs()[0][:2] == ("editor", "EDITOR") and not restarts
-    assert host.set_on("decks", True) == "DJ decks on" and [t[1] for t in host.tabs()] == ["EDITOR", "DECKS"]
-    again = plugins.Host(app, [ROOT / "plugins", base])             # kept at the next start
-    again.start()
-    assert list(again.loaded) == ["editor", "decks"]
-    restart = make(base, "restarts", GOOD)                          # a plug-in whose manifest says "restart"
-    manifest = json.loads((restart / "plugin.json").read_text())
-    (restart / "plugin.json").write_text(json.dumps(dict(manifest, restart=True)))
-    again.start()
-    assert again.set_on("restarts", True).endswith("starts again") and restarts == [True]
-    assert again.set_on("restarts", False).endswith("starts again") and restarts == [True, True]
-    assert again.set_on("restarts", False) == "RESTARTS off" and len(restarts) == 2   # (already off: no restart)
-
-
 TABBED = '''
 API = 1
 def setup(studio):
@@ -281,12 +251,22 @@ def test_tabs_sounds_settings_controllers():
     assert plugins.read_manifest(folder)["controller_maps"] is None
 
 
-def test_the_decks_plugin_takes_the_hercules():
-    """the repository's plugins/decks: its manifest's Hercules, kept off the routes only while it's on"""
-    found = plugins.find([ROOT / "plugins"])
-    assert found["decks"][1]["name"] == "DJ decks" and found["decks"][1]["controllers"] == ["djcontrol"]
-    on = {"plugins": {"decks": {"on": True}}}
-    assert plugins.taken_controllers(on, dirs=[ROOT / "plugins"])[0][0] == ["djcontrol"]
+def test_a_restart_plugin_starts_the_app_again():
+    """no plug-in is special (no BUILTINS): each is off until switched on; one whose manifest says "restart" (the
+    sampler's: its pads are a process of their own) starts the Studio app again when it's switched"""
+    base = Path(tempfile.mkdtemp(prefix="xoxo-plugins-"))
+    app = App()
+    restarts = []
+    app.restart_app = lambda: restarts.append(True)
+    restart = make(base, "restarts", GOOD)
+    manifest = json.loads((restart / "plugin.json").read_text())
+    (restart / "plugin.json").write_text(json.dumps(dict(manifest, restart=True)))
+    host = plugins.Host(app, [base])
+    host.start()
+    assert not hasattr(plugins, "BUILTINS") and host.loaded == {} and not plugins.switched_on(app.state, "restarts")
+    assert host.set_on("restarts", True).endswith("starts again") and restarts == [True]
+    assert host.set_on("restarts", False).endswith("starts again") and restarts == [True, True]
+    assert host.set_on("restarts", False) == "RESTARTS off" and len(restarts) == 2   # (already off: no restart)
 
 
 if __name__ == "__main__":

@@ -40,24 +40,14 @@ install -D -m 755 "$DIR/library.py"                             ~/.local/share/f
 install -D -m 755 "$DIR/web.py"                                 ~/.local/share/fm1-bridge/web.py
 install -D -m 755 "$DIR/update.py"                              ~/.local/share/fm1-bridge/update.py
 mkdir -p ~/fm1-library/samples ~/fm1-library/recordings ~/xoxo-plugins   # (plug-ins: plugins.py)
-# The plug-ins in the Studio's repository (plugins/: the sampler, the sample editor, the DJ decks) go into
-# ~/xoxo-plugins like anyone's, each folder put in whole (switched on or off is in the settings, kept). Their files
-# used to be the app's own: those old copies go, or they'd be imported before the plug-in's.
+# The sampler, the sample editor and the DJ decks are plug-ins from XOXO-Studio-Plugins (cloned into ~/xoxo-plugins;
+# copies an earlier install put in ~/xoxo-plugins/<id> are kept). Their files used to be the app's own: those old
+# copies go, or they'd be imported before the plug-in's.
 rm -f ~/.local/share/fm1-bridge/decks.py ~/.local/share/fm1-bridge/djlib.py ~/.local/share/fm1-bridge/deskdecks.py ~/.local/share/fm1-bridge/xo4synth.py \
       ~/.local/share/fm1-bridge/xo4.py ~/.local/share/fm1-bridge/deskxo4.py \
       ~/.local/share/fm1-bridge/pads.py ~/.local/share/fm1-bridge/padfx.py ~/.local/share/fm1-bridge/deskpads.py
 rm -rf ~/.local/share/fm1-bridge/kits      # (the 808 KIT's sounds: the sampler plug-in's own folder now)
 rm -rf ~/.local/share/fm1-bridge/default-plugins ~/xoxo-plugins/xo4   # (XO-4 is gone: the sequencer is SEQ)
-if [ -d "$DIR/../plugins" ]; then
-    for src in "$DIR"/../plugins/*/; do
-        id="$(basename "$src")"
-        rm -rf ~/xoxo-plugins/"$id.new"
-        cp -r "$src" ~/xoxo-plugins/"$id.new"
-        find ~/xoxo-plugins/"$id.new" -name __pycache__ -type d -prune -exec rm -rf {} +
-        rm -rf ~/xoxo-plugins/"$id"
-        mv ~/xoxo-plugins/"$id.new" ~/xoxo-plugins/"$id"
-    done
-fi
 mkdir -p ~/.local/share/fm1-bridge/vendor/fonts
 install -m 644 "$DIR"/vendor/fonts/*                            ~/.local/share/fm1-bridge/vendor/fonts/
 mkdir -p ~/.local/share/fm1-bridge/icons

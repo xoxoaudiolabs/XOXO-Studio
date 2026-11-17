@@ -5,7 +5,7 @@
 plug-ins. Tried on a Studio (a Pi 3 B+) with XOXO Audio Labs' Synths and Tester Tools plug-ins (their repository,
 XOXO-Studio-Plugins, says what each was tried with); the rest tested on a PC. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own
 repository (XOXO-Studio-Plugins): it isn't part of this beta, and this repository's docs make no claims for it. The device registry (section 1) is a design, not built; of
-section 3, the editor and the decks are plug-ins like anyone's, in the repository's `plugins/` (tried on a PC);
+section 3, the sampler, the editor and the decks are plug-ins like anyone's, in XOXO-Studio-Plugins (tried on a PC);
 XO-4 is gone, the sequencer is SEQ. Plug-ins are open to anyone from the start, so the API
 below is versioned and kept stable. The first plug-in from outside the core is **FM-1 Companion**: the FM-1 as sound and
 MIDI, and its library.
@@ -119,8 +119,8 @@ change that breaks plug-ins makes a new one, and the old one stays supported for
 (upload a `.zip`). Each is switched on or off in MORE › PLUG-INS and on the web page; one that's off leaves no
 trace: no tab, no device profiles, no process. First-party plug-ins live in their own repository,
 **xoxoaudiolabs/XOXO-Studio-Plugins** (one folder per plug-in, the same layout as anyone's), apart from the Studio's code,
-except the **Studio's own plug-ins** (the editor, the decks, the Pocket link, the computer link: section 3), which stay in the
-Studio's repository (`plugins/`), so a new Studio works without a second download.
+the sampler, the sample editor and the DJ decks among them (section 3). The Studio's repository has none: it runs
+without any, and the Pocket link and the computer link are its own.
 
 **Trust:** a plug-in is Python running as the Studio does, with its access to the files and the network. The
 Studio says so when one is switched on from outside the repository, and only runs plug-ins someone switched on.
@@ -129,23 +129,24 @@ A plug-in that raises an error is switched off with a message on the screen, ins
 ## 3. The built-ins move onto it
 
 **Built so far (2026-11-17, tried on a PC only):** the sampler, the sample editor and the DJ decks are plug-ins like anyone's:
-each a folder in the repository's `plugins/` with a `plugin.json` and a `plugin.py`, put into `~/xoxo-plugins` by
-`install-app.sh`, found, listed, switched (with the same trust question) and loaded by the same host, off until
+each a folder in **XOXO-Studio-Plugins** (`sampler/`, `editor/`, `decks/`, with their tests) with a `plugin.json`
+and a `plugin.py`, installed into `~/xoxo-plugins` like anyone's (`install-app.sh` doesn't; copies an earlier one
+put there are kept), found, listed, switched (with the same trust question) and loaded by the same host, off until
 switched on (`state["plugins"][id]["on"]`). The core has no special case for them, and the Studio runs without
 them.
 
-- **Sampler** (`plugins/sampler`: `pads.py`, `padfx.py`, `deskpads.py`, `padkit.py`, the 808 KIT's sounds): the PADS
+- **Sampler** (`sampler`: `pads.py`, `padfx.py`, `deskpads.py`, `padkit.py`, the 808 KIT's sounds): the PADS
   tab (`add_tab`), PADS in the mixer (`add_sound_source`: its channel's node is still "fm1-xo4", so its level
   stays), the web page's kits (`add_web`). Its pads run in a process of their own, started with the Studio app
   before the MIDI process while the plug-in is on (manifest `"process": "pads"`: `pads.start_process`, by
   `plugins.start_processes`; the plug-in has it as `studio.process()`), so `"restart"`; the routes' SMP notes go to
   it, and its MIDI IN (a setting of its own) decides whether they play. Its kit, note repeat and MIDI IN are its
   settings (an older Studio's are moved there).
-- **Sample editor** (`plugins/editor`: `deskeditor.py`): the EDITOR tab (`add_tab`) and the touch editor
+- **Sample editor** (`editor`: `deskeditor.py`): the EDITOR tab (`add_tab`) and the touch editor
   (`add_editor_screen`), which a pad's TRIM and "Edit as sample" open while it's on; the web app's Editor
   (`/api/edit-info` and `/api/save-sample` answer 403 while it's off). What it edits (`sampleui.SampleEditor`) and
   the sums (`sampler.py`) stay in the core: sampling a pad uses them, and so does the Pocket's own OLED editor.
-- **DJ decks** (`plugins/decks`: `decks.py`, `djlib.py`, `deskdecks.py`): the DECKS tab (`add_tab`; the decks'
+- **DJ decks** (`decks`: `decks.py`, `djlib.py`, `deskdecks.py`): the DECKS tab (`add_tab`; the decks'
   program started when it first opens, stopped when switched off), their sound in the mixer (`add_app_sound`),
   MORE › AUDIO › DJ decks out (`add_setting`), the web app's DJ decks (`add_web`) and DJ music (the web server
   finds `djlib` in the plug-in's folder: `plugins.plugin_module`). The Hercules and learnt controllers are kept off

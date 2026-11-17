@@ -1,5 +1,0 @@
-{"id": "decks", "name": "DJ decks", "version": "1.0", "api": 1, "author": "XOXO Audio Labs", "license": "GPL-3.0",
- "entry": "plugin.py", "order": 2,
- "description": "Two decks for the Studio DJ Music folder, with the Hercules Inpulse and learnt DJ controllers: the DECKS tab and DECKS in the mixer.",
- "controllers": ["djcontrol"],
- "controller_maps": "Studio DJ Music/.studio-dj-controllers.json"}

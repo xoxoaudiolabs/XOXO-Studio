@@ -6,7 +6,7 @@ meter, REC / STOP, Record parts, the takes), MIDI (the routes: tap to switch one
 surface for a DAW on a computer, such as Kraken, over network MIDI: netmidi.py) and MORE (settings, the theme,
 the DJ decks, shut down). Nothing of the Pocket's screens shows here: settings, lists, confirmations, jobs and the
 rest are the Studio's own pages (deskpages.py), and the sample editor has a touch screen of its own (the editor
-plug-in's, plugins/editor: drag the markers), opened from its EDITOR tab or a pad's TRIM. The plug-ins' tabs
+plug-in's, from XOXO-Studio-Plugins: drag the markers), opened from its EDITOR tab or a pad's TRIM. The plug-ins' tabs
 (Studio.add_tab: PADS, EDITOR, DECKS) sit before MORE.
 
 Drawing and touches run on the app's own thread (touches arrive through App.post): DeskUI calls the same App
