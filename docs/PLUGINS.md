@@ -1,6 +1,6 @@
 # Plug-ins and devices: the design
 
-**Where it stands (beta 0.2.2, 2026-11-07):** built in this repository: the plug-in host
+**Where it stands (beta 0.3.0, 2026-11-17):** built in this repository: the plug-in host
 (`fm1-bt-bridge/plugins.py`, API 1), MORE › PLUG-INS (`deskplugins.py`), and the web app's status and commands for
 plug-ins. Tried on a Studio (a Pi 3 B+) with XOXO Audio Labs' Synths and Tester Tools plug-ins (their repository,
 XOXO-Studio-Plugins, says what each was tried with); the rest tested on a PC. FM-1 Companion (the FM-1 as sound and MIDI, and its library) is a plug-in of its own, in its own

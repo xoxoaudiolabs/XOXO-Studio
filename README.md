@@ -1,4 +1,4 @@
-# XOXO Studio (beta 0.2.2)
+# XOXO Studio (beta 0.3.0)
 
 [![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:36)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
 
@@ -6,7 +6,7 @@
 
 A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: an 8-track MIDI sequencer (SEQ), a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument.
 
-> **This is a beta.** Version 0.2.2 has been built and used on three Studios: two Raspberry Pi 3s and one Raspberry Pi 4. Much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) and [Known limitations](#known-limitations). Nothing here is claimed beyond what's been tried.
+> **This is a beta.** Version 0.3.0 takes XO-4 out (SEQ, an 8-track MIDI sequencer, takes its place) and makes the sampler, the sample editor and the DJ decks plug-ins. Its build has run on one Studio, a Raspberry Pi 4; versions up to 0.2.2 were used on three (two Raspberry Pi 3s and the Pi 4). Much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) and [Known limitations](#known-limitations). Nothing here is claimed beyond what's been tried.
 
 The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 
@@ -26,6 +26,7 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 | Web app | on a phone and a PC: the tabs, Settings, the MIDI grid | adding music from a phone; USB out and the link settings from it |
 | Updates | from GitHub on a Pi 3 B+ (v0.2.0, then v0.2.1); without a password on a Pi 3 B | going back when a new version won't start (tried on a PC only) |
 | Shutting down | ends on SAFE TO UNPLUG (a Pi 3 B, SPI screen) | — |
+| Over SSH (`xoxo`, [docs/SSH.md](docs/SSH.md)) | — | every `xoxo` command on a Studio (tried on a PC only) |
 
 ## Hardware
 
@@ -43,10 +44,10 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 1. **Flash the card** with Raspberry Pi Imager: your Pi (*Raspberry Pi 4* or *3*), *Raspberry Pi OS Lite (64-bit)*. In its settings, set a hostname (`XOXOStudio`; give a second Studio its own name), a user name and password, your Wi-Fi, and **enable SSH**.
 2. **Boot the Pi** (give it a few minutes the first time).
 3. **Get the app onto the Pi**, one of these ways:
-   - **A release, downloaded on the Pi** (tried on the Pi 4). On the Pi (`ssh YOUR_USER@xoxostudio.local`), for the newest tag (here v0.2.2):
+   - **A release, downloaded on the Pi** (tried on the Pi 4). On the Pi (`ssh YOUR_USER@xoxostudio.local`), for the newest tag (here v0.3.0):
      ```
-     curl -fsSL https://github.com/xoxoaudiolabs/XOXO-Studio/archive/refs/tags/v0.2.2.tar.gz | tar xz
-     mv XOXO-Studio-0.2.2 XOXO-Studio && cd XOXO-Studio
+     curl -fsSL https://github.com/xoxoaudiolabs/XOXO-Studio/archive/refs/tags/v0.3.0.tar.gz | tar xz
+     mv XOXO-Studio-0.3.0 XOXO-Studio && cd XOXO-Studio
      ```
    - **The ZIP from a computer** (tried on a Pi 3 B+): on GitHub, *Code › Download ZIP*, unzip it, and from the unzipped folder: `scp -r fm1-bt-bridge YOUR_USER@xoxostudio.local:~`
    - **With git** (not yet tried): `sudo apt-get install -y git && git clone https://github.com/xoxoaudiolabs/XOXO-Studio.git && cd XOXO-Studio`
@@ -65,9 +66,11 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 
 ## Updating
 
-**From the Studio or the web app:** MORE › STUDIO SETTINGS › SOFTWARE UPDATE on the screen, or Settings › Software in the web app, shows the version installed and the newest release on GitHub (its tags: `v0.2.2` …). **Update** (from the web app, after a hold on the Studio's screen) installs that release with its own installer and restarts the app; if the new version doesn't start, the one before is put back (tried on a PC only). Settings, pairings, kits, songs, samples, recordings and plug-ins are kept, and so are the boot settings (the screen, the DAC), Bluetooth and the network settings, which change only when `install.sh` is run by hand. Where the Studio's sudo asks for a password, the update installs the Studio's own files without one. A Studio installed before 0.1 needs `install.sh` run by hand once first.
+**From the Studio or the web app:** MORE › STUDIO SETTINGS › SOFTWARE UPDATE on the screen, or Settings › Software in the web app, shows the version installed and the newest release on GitHub (its tags: `v0.3.0` …). **Update** (from the web app, after a hold on the Studio's screen) installs that release with its own installer and restarts the app; if the new version doesn't start, the one before is put back (tried on a PC only). Settings, pairings, kits, songs, samples, recordings and plug-ins are kept, and so are the boot settings (the screen, the DAC), Bluetooth and the network settings, which change only when `install.sh` is run by hand. Where the Studio's sudo asks for a password, the update installs the Studio's own files without one. A Studio installed before 0.1 needs `install.sh` run by hand once first.
 
 Tried: a Pi 3 B+ updated itself from GitHub to v0.2.0 and then v0.2.1 (2026-11-07; v0.2.1's update left `config.txt` untouched); a Pi 3 B installed an update without a password (from a local release file). A Studio whose Wi-Fi has dropped says it couldn't ask GitHub: switching Wi-Fi off and on in STUDIO SETTINGS brings it back.
+
+**From 0.2.x to 0.3.0:** the sampler (PADS), the sample editor and the DJ decks are no longer part of the app. After the update a Studio has none of them until they're put into `~/xoxo-plugins` from [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins) (see its README) and switched on in MORE › PLUG-INS. XO-4 is gone: a song's XO-4 tracks become SEQ's MIDI tracks. (An update from 0.2.x to 0.3.0 hasn't been tried yet.)
 
 **With git** (not yet tried): `cd XOXO-Studio && git pull && bash fm1-bt-bridge/install.sh`, then `sudo reboot`.
 
@@ -147,7 +150,7 @@ Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and th
 
 ### MORE and STUDIO SETTINGS
 
-**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS, STUDIO SETTINGS and SHUT DOWN (it ends on SAFE TO UNPLUG: tried). **PLUG-INS** lists the plug-ins in `~/xoxo-plugins` and switches each on or off (the Studio asks first: a plug-in is code that runs as the Studio does). None ships with the Studio: XOXO Audio Labs' own are in their own repository, [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins), with what each has been tried with, installed into `~/xoxo-plugins` like anyone's (a clone of that repository there works: see its README) and off until switched on. They include the **sampler** (`sampler`; the PADS tab, PADS in the mixer; switching it starts the Studio app again), the **sample editor** (`editor`; off: no EDITOR tab, no TRIM or "Edit as sample", no Editor in the web app) and the **DJ decks** (`decks`; off: no DECKS tab or decks program; a Hercules is then a MIDI device in the routes), and Synths, Tester Tools and FM-1 Companion; Synths and Tester Tools have run on a Pi 3 B+ Studio. The sequencer (SEQ) is the Studio's own, and it runs without any of them. Songs, settings and music are kept while one is off or not installed (tried on a PC only). A Studio installed before 2026-11-17 keeps the copies of the sampler, editor and decks its installer put in `~/xoxo-plugins`. **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, SOFTWARE UPDATE, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
+**MORE:** PLAYING, AUDIO and MIDI settings, PLUG-INS, STUDIO SETTINGS and SHUT DOWN (it ends on SAFE TO UNPLUG: tried). **PLUG-INS** lists the plug-ins in `~/xoxo-plugins` and switches each on or off (the Studio asks first: a plug-in is code that runs as the Studio does). None ships with the Studio: XOXO Audio Labs' own are in their own repository, [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins), with what each has been tried with, installed into `~/xoxo-plugins` like anyone's (a clone of that repository there works: see its README) and off until switched on. They include the **sampler** (`sampler`; the PADS tab, PADS in the mixer; switching it starts the Studio app again), the **sample editor** (`editor`; off: no EDITOR tab, no TRIM or "Edit as sample", no Editor in the web app) and the **DJ decks** (`decks`; off: no DECKS tab or decks program; a Hercules is then a MIDI device in the routes), and Synths, Tester Tools and FM-1 Companion; Synths and Tester Tools have run on a Pi 3 B+ Studio. The sequencer (SEQ) is the Studio's own, and it runs without any of them. Songs, settings and music are kept while one is off or not installed (tried on a PC only). Copies of the sampler, editor and decks that a 0.3.0 test build put in `~/xoxo-plugins` are kept. **STUDIO SETTINGS:** Wi-Fi, BLUETOOTH DEVICES (everything paired or connected: speakers, saved Bluetooth MIDI keyboards, phones or computers on Bluetooth MIDI; tap one and hold 2 s to forget it), the theme, the touch setup, SOFTWARE UPDATE, and ABOUT (the version, and QR codes for a phone: the Studio's code on GitHub, the XOXO Audio Labs website, and this Studio's web app at its address on the network now).
 
 | | |
 |---|---|
@@ -205,6 +208,7 @@ What has been tried on hardware, by Studio. "The user's report" is what was seen
 - a USB keyboard (an M-Audio Keystation 61es) playing XO-4's SYN 1 and SYN 2 live through MIDI IN, with its pitch and mod wheels and a sustain pedal (the user's report); at Latency SAFE the delay was noticeable, at LOWER it felt tighter (the user's report; not measured)
 - the DAC's −6 dB analog setting: the hiss in IEMs quieter (the user's report); the app sets it each start
 - the plug-ins' packages (FluidSynth 2.4.4, TimGM6mb, FluidR3) installed. The plug-ins themselves not yet switched on there
+- 0.3.0's build (2026-11-17, before the plug-ins moved to their own repository): the app starts with the sampler, editor and decks off, and the tab bar reads HOME, MIXER, MIDI, RECORD, SEQ, MORE (read from the screen). Not yet tried there: SEQ's tracks, switching a plug-in on, the `xoxo` commands
 
 **The first Studio** (from 2026-10-28: Raspberry Pi 3 B+, Raspberry Pi OS Lite 64-bit (Trixie), Hosyond 3.5" SPI touchscreen, a PiSugar battery, the DAC HAT from 2026-11-01):
 - install, boot, the screen and touch, the touch calibration and theme kept; the battery's charge with a charging bolt (the user's report)
