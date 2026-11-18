@@ -2319,6 +2319,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             self.battery_warned = False
 
     def shutdown(self):
+        self.wake(force=True)                 # (a screen switched off over SSH shows the shutdown too)
         self.busy = "Shutting down"
         self.render(force=True)
         self.recorder.stop()                  # finishes the WAV file
@@ -2345,7 +2346,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
     def on_key(self, key, held=False):
         self.last_activity = time.monotonic()
         if self.mode != "on":                 # the first press only wakes the screen
-            self.wake()
+            self.wake(force=True)
             return
         if key == "press" and held and self.screen not in ("confirm", "status"):
             return                            # holding press only confirms (the press itself already acted)
@@ -2405,15 +2406,35 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             elif key == "left" and not self.busy:
                 self.screen = self.back_to
 
-    def wake(self):
+    def wake(self, force=False):
+        """the screen on again; one switched off over SSH (screen_off: mode "off") only by a touch or a key"""
+        if self.mode == "off" and not force:
+            return
         if self.mode != "on":
             self.display.power(True)
             self.display.contrast(self.state["contrast"])
             self.mode = "on"
+            self.render(force=True)
+
+    def desk_touch(self, kind, x, y):
+        """a touch on the desk UI; with the screen switched off over SSH, the touch (down to up) only wakes it, so
+        no button under the finger is pressed in the dark"""
+        self.last_activity = time.monotonic()
+        if self.mode == "off" or getattr(self, "touch_waking", False):
+            if self.mode == "off":
+                self.wake(force=True)
+            self.touch_waking = kind != "up"
+            return
+        self.desk.touch(kind, x, y, time.monotonic())
+
+    def screen_off(self):
+        """xoxo screen off (SSH): the screen's backlight off until a touch or a key wakes it (the app runs on)"""
+        self.mode = "off"
+        self.display.power(False)
 
     def screensaver(self):
-        if self.desk:                         # an LCD doesn't burn in (and it's on the desk, plugged in)
-            return
+        if self.desk or self.mode == "off":   # an LCD doesn't burn in (and it's on the desk, plugged in); a screen
+            return                            # switched off over SSH stays off
         idle = time.monotonic() - self.last_activity
         if self.busy or self.scan_running():
             idle = 0
@@ -2657,8 +2678,7 @@ class App(LibraryScreens, MeterScreens, MidiScreens, SampleEditor, WebLink):
             if event and event[0] in KEYS:
                 self.on_key(event[0], len(event) > 1 and event[1])
             elif event and event[0] == "touch" and self.desk:   # the desk UI's screens (desk.Touch)
-                self.last_activity = time.monotonic()
-                self.desk.touch(*event[1:], time.monotonic())
+                self.desk_touch(*event[1:])
             elif event and event[0] == "status" and event[1]:
                 self.last_activity = time.monotonic()     # connects and disconnects wake the screen
                 self.wake()

@@ -24,14 +24,18 @@ before the web app is up (it waits 45 s after boot). The status comes from the a
   xoxo update [--check|--back]        install the newest release (asks yes), see what's there, or go back
   xoxo logs [app|web|pocket|update] [-f] [-n N]
   xoxo link [follow|rec|return on|off | audio mix|fm1s|midi]
-  xoxo screen [theme NAME]
+  xoxo screen [on|off | theme NAME]   off: the backlight off until a touch or a key (the app runs on)
   xoxo usb-out [auto|off|NODE]
   xoxo plugin [ID on|off]
   xoxo kit [NAME]
   xoxo xo4 [pattern A-H | play | midi-in on|off | sound 1|2 NAME]
+  xoxo shutdown                       as SETTINGS > Shut down: a recording is finished first (asks yes)
+  xoxo reboot                         sudo systemctl reboot: asks yes, then sudo asks the password (ssh -t)
+  xoxo backup [FILE] [--all]          the settings (--all: and the library and plug-ins) in a .tar.gz
+  xoxo restore FILE [--all]           puts them back (asks yes); the app is stopped meanwhile
 
-Shutting down, rebooting, backups and switching the screen off aren't here yet (docs/SSH.md: they need new code).
-Add --json to status, midi, recordings or update --check for JSON. Python's standard library only.
+Add --json to status, midi, recordings or update --check for JSON; --yes answers yes. Python's standard
+library only.
 """
 import json
 import os
@@ -39,6 +43,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
+import tempfile
 import time
 from pathlib import Path
 
@@ -53,6 +59,10 @@ SERVICES = {"app": "fm1-bridge", "web": "fm1-web", "pocket": "fm1-pocket-in"}
 LATENCY = ("SAFE", "LOW", "LOWER", "LOWEST")
 LINK_AUDIO = ("mix", "fm1s", "midi")
 ONOFF = {"on": True, "off": False}
+SETTINGS_DIR = Path.home() / ".config" / "fm1-bridge"   # the settings and pairings (bridge.STATE_FILE's folder)
+PLUGINS_DIR = Path.home() / "xoxo-plugins"              # (plugins.py)
+CACHE = Path.home() / ".cache" / "fm1-bridge"
+SPARE = 50 * 1024 * 1024                                # bytes a backup leaves free on the SD card
 
 
 class Fail(Exception):
@@ -86,6 +96,14 @@ def send(command):
     status()                                  # (the web page's 503: nobody would take it)
     library.queue_command(checked)
     return checked
+
+
+def send_local(command):
+    """a command only xoxo sends (shutdown, screen): web.py's check_command refuses them, so the web page can't;
+    the commands file is the Studio's user's alone (its runtime folder)"""
+    status()
+    library.queue_command(command)
+    return command
 
 
 def on_off(word):
@@ -146,6 +164,8 @@ def status_text(s, services):
         f"clock      {s.get('clock_text') or settings.get('bpm')}  ({settings.get('clock_mode')}, "
         f"metronome {'on' if settings.get('metronome') else 'off'})",
         f"recording  {'no' if rec is None else f'{rec // 60}:{rec % 60:02d}'}",
+        f"usb-c      {'a computer plugged in' if s.get('computer') else 'no computer'}",
+        f"screen     {s.get('screen', 'on')}",
         f"latency    {s.get('latency')}",
         f"link       follow studio {'on' if s.get('follow_studio') else 'off'}"
         + (f" ({s['follows']})" if s.get("follows") else "")
@@ -340,8 +360,13 @@ def cmd_link(args):
 
 def cmd_screen(args):
     if not args:
-        theme = status().get("theme") or {}
-        return f"theme  {theme.get('value')}\nthemes {' '.join(theme.get('choices') or [])}"
+        s = status()
+        theme = s.get("theme") or {}
+        return (f"screen {s.get('screen', 'on')}\ntheme  {theme.get('value')}"
+                f"\nthemes {' '.join(theme.get('choices') or [])}")
+    if len(args) == 1 and args[0] in ("on", "off"):
+        send_local({"cmd": "screen", "value": args[0]})
+        return f"sent: screen {args[0]}" + (" (a touch or a key wakes it)" if args[0] == "off" else "")
     if len(args) == 2 and args[0] == "theme":
         return setting("desk_theme", args[1], f"theme {args[1]}")
     raise Fail("screen, or screen theme NAME")
@@ -388,11 +413,146 @@ def cmd_xo4(args):
     raise Fail("xo4, xo4 play, xo4 pattern A-H, xo4 midi-in on|off, or xo4 sound 1|2 NAME")
 
 
+# ---------------------------------------------------------------- power
+
+def cmd_shutdown(args, yes):
+    if args:
+        raise Fail("shutdown takes nothing")
+    answering = library.read_status()
+    if not confirm("Shut the Studio down? It stays off until its power is switched off and on again.", yes):
+        return "nothing done"
+    if answering:                             # the app's own shutdown: the recording finished, SAFE TO UNPLUG
+        send_local({"cmd": "shutdown", "from": "ssh"})
+        return "shutting down: a recording is finished first; SSH drops when it goes off"
+    code, text = run(["sudo", "-n", "systemctl", "poweroff"], timeout=15)   # (install.sh's sudoers: no password)
+    if code:
+        raise Fail(f"the app isn't answering and poweroff was refused: {text[-80:]}")
+    return "the app isn't answering: powering off"
+
+
+def cmd_reboot(args, yes, force):
+    if args:
+        raise Fail("reboot takes nothing")
+    s = library.read_status()
+    if s and s.get("recording") is not None and not force:
+        raise Fail("a recording is running: xoxo rec stop first (or --force to cut it off)")
+    if not confirm("Reboot the Studio? It's back in about a minute.", yes):
+        return "nothing done"
+    command = ["sudo", "systemctl", "reboot"]  # (not in install.sh's sudoers: sudo asks for the password)
+    return os.execvp(command[0], command)
+
+
+# ---------------------------------------------------------------- backup
+
+def backup_sources(everything):
+    """[(name in the archive, folder)] there is to back up"""
+    out = [("settings", SETTINGS_DIR)]
+    if everything:
+        out += [("library", library.LIBRARY), ("plugins", PLUGINS_DIR)]
+    return [(name, path) for name, path in out if path.is_dir()]
+
+
+def tree_size(path):
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file() and not f.is_symlink())
+
+
+def cmd_backup(args, everything, force):
+    if len(args) > 1:
+        raise Fail("backup [FILE] [--all]")
+    target = Path(args[0]).expanduser() if args else \
+        Path.home() / f"xoxo-backup-{time.strftime('%Y%m%d-%H%M%S')}.tar.gz"
+    if target.exists():
+        raise Fail(f"{target} is there already")
+    s = library.read_status()
+    if everything and s and s.get("recording") is not None and not force:
+        raise Fail("a recording is running: its file would be caught half-written (xoxo rec stop, or --force)")
+    sources = backup_sources(everything)
+    if not sources:
+        raise Fail("nothing to back up: no settings yet")
+    need, free = sum(tree_size(path) for _, path in sources), shutil.disk_usage(target.parent).free
+    if need + SPARE > free:
+        raise Fail(f"not enough room: {need / 1e6:.0f} MB to back up, {free / 1e6:.0f} MB free")
+    part = target.with_name(target.name + ".part")
+    try:
+        with tarfile.open(part, "w:gz") as tar:
+            for name, path in sources:
+                tar.add(path, arcname=name)
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+    host, user = socket.gethostname() + ".local", os.environ.get("USER") or "xoxo"
+    where = target.relative_to(Path.home()).as_posix() if target.is_relative_to(Path.home()) else str(target)
+    return (f"{target}  {target.stat().st_size / 1e6:.1f} MB: {', '.join(n for n, _ in sources)}\n"
+            f"on the computer:  scp {user}@{host}:{where} .\n"
+            "(Bluetooth pairings' keys are BlueZ's, root's: not in it)")
+
+
+def checked_members(tar, everything):
+    """the archive's files to put back: plain files and folders under settings/ (and library/, plugins/ with
+    --all), nothing outside them, no links -> [TarInfo]; Fail if it isn't a Studio backup"""
+    allowed = ("settings", "library", "plugins") if everything else ("settings",)
+    out, tops = [], set()
+    for m in tar.getmembers():
+        parts = Path(m.name).parts
+        if not parts or m.name.startswith(("/", "\\")) or ".." in parts or not (m.isfile() or m.isdir()):
+            raise Fail(f"not a Studio backup: {m.name!r}")
+        tops.add(parts[0])
+        if parts[0] in allowed:
+            out.append(m)
+    if "settings" not in tops or not tops <= {"settings", "library", "plugins"}:
+        raise Fail("not a Studio backup (xoxo backup makes one)")
+    return out
+
+
+def cmd_restore(args, everything, yes, force):
+    if len(args) != 1:
+        raise Fail("restore FILE [--all]")
+    source = Path(args[0]).expanduser()
+    if not source.is_file():
+        raise Fail(f"no file {source}")
+    try:
+        with tarfile.open(source, "r:gz") as tar:
+            members = checked_members(tar, everything)
+    except tarfile.TarError as e:
+        raise Fail(f"not a backup: {e}")
+    s = library.read_status()
+    if s and s.get("recording") is not None and not force:
+        raise Fail("a recording is running: xoxo rec stop first (or --force to cut it off)")
+    what = "the settings" + (", library and plug-ins" if everything else "")
+    keep = SETTINGS_DIR.with_name(f"fm1-bridge.before-restore-{time.strftime('%Y%m%d-%H%M%S')}")
+    if not confirm(f"Put back {what} from {source.name}? The app restarts; today's settings are kept in "
+                   f"{keep}.", yes):
+        return "nothing done"
+    if SETTINGS_DIR.is_dir():
+        shutil.copytree(SETTINGS_DIR, keep, symlinks=True)
+    code, text = run(["systemctl", "--user", "stop", "fm1-bridge"], timeout=60)   # (else its next save writes
+    if code:                                                                      # over what's put back)
+        raise Fail(f"couldn't stop the app: {text[-80:]}")
+    try:
+        CACHE.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=CACHE) as tmp:
+            with tarfile.open(source, "r:gz") as tar:
+                if hasattr(tarfile, "data_filter"):
+                    tar.extractall(tmp, members=members, filter="data")
+                else:
+                    tar.extractall(tmp, members=members)
+            shutil.rmtree(SETTINGS_DIR, ignore_errors=True)
+            shutil.copytree(Path(tmp) / "settings", SETTINGS_DIR)
+            for name, folder in (("library", library.LIBRARY), ("plugins", PLUGINS_DIR)):
+                if everything and (Path(tmp) / name).is_dir():   # added to, same names replaced, nothing deleted
+                    shutil.copytree(Path(tmp) / name, folder, dirs_exist_ok=True)
+    finally:
+        code, text = run(["systemctl", "--user", "start", "fm1-bridge"], timeout=60)
+    if code:
+        raise Fail(f"put back, but the app didn't start: {text[-80:]} (xoxo logs app)")
+    return f"put back {what} from {source.name}; the app started again\n(before: {keep})"
+
+
 # ---------------------------------------------------------------- the command line
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    flags = {f for f in argv if f in ("--json", "--force", "--yes", "-f", "--check", "--back")}
+    flags = {f for f in argv if f in ("--json", "--force", "--yes", "-f", "--check", "--back", "--all")}
     lines = 100
     if "-n" in argv:
         i = argv.index("-n")
@@ -466,6 +626,14 @@ def main(argv=None):
             out = cmd_kit(args)
         elif name == "xo4":
             out = cmd_xo4(args)
+        elif name == "shutdown":
+            out = cmd_shutdown(args, "--yes" in flags)
+        elif name == "reboot":
+            out = cmd_reboot(args, "--yes" in flags, "--force" in flags)
+        elif name == "backup":
+            out = cmd_backup(args, "--all" in flags, "--force" in flags)
+        elif name == "restore":
+            out = cmd_restore(args, "--all" in flags, "--yes" in flags, "--force" in flags)
         else:
             raise Fail(f"no command {name!r} (xoxo help)")
     except Fail as e:

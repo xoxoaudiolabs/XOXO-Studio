@@ -59,6 +59,9 @@ class WebLink:
             "usb_out": self.state.get("usb_out", "auto"),   # USB out (no DAC HAT): "auto", "off" or a node name;
             "usb_outs": [dict(o) for o in getattr(self, "usb_outs", [])],   # the USB outputs there are
             "usb_out_now": getattr(self, "usb_out", None) and self.usb_out["name"],   # the one getting the master
+            "computer": bool(getattr(self, "computer", None)),   # a computer on the USB-C port (a Pi 4 as its
+                                              # USB interface: bridge.computer_node)
+            "screen": "off" if getattr(self, "mode", "on") == "off" else "on",   # switched off over SSH: xoxo
             "follows": getattr(self.midi, "follows", None) if self.state.get("follow_studio") else None,   # the
                                               # Studio it follows, while linked (a Studio following can't lead)
             "speaker": self.sink and self.sink["label"], "speaker_name": self.state["last_name"],
@@ -280,6 +283,15 @@ class WebLink:
                 return "Web: " + self.plugin_host.set_on(c["id"], bool(c["on"]))
             text = self.plugin_host.web_command(c["id"], c["name"], c.get("args") or {})
             return text if isinstance(text, str) else None
+        if cmd == "shutdown" and c.get("from") == "ssh":   # xoxo shutdown: only from the commands file (web.py's
+            self.shutdown()                   # check_command never queues it), so only the Studio's own user
+            return None
+        if cmd == "screen" and c.get("value") in ("on", "off"):   # xoxo screen on|off (SSH), as shutdown
+            if c["value"] == "off":
+                self.screen_off()
+            else:
+                self.wake(force=True)
+            return None
         if cmd == "kit":                      # (the sampler plug-in's kits)
             if not self.plugin_on("sampler"):
                 return "Web: the sampler is off (MORE > PLUG-INS)"

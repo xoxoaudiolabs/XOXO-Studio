@@ -7,10 +7,12 @@ ssh xoxo@xoxostudio.local
 xoxo status
 ```
 
-## Built so far: the "Covered" rows
+## Built so far
 
-`xoxo` (`fm1-bt-bridge/xoxo.py`; `install-app.sh` puts it in `~/.local/bin/xoxo`) has the rows of the table
-below that the existing code already covers. `xoxo help` lists them all:
+`xoxo` (`fm1-bt-bridge/xoxo.py`; `install-app.sh` puts it in `~/.local/bin/xoxo`). `xoxo help` lists every
+command.
+
+**The "Covered" rows:**
 
 - status, restart, logs;
 - volume, master, tempo, clock, metronome, latency, play/stop, rec;
@@ -19,30 +21,56 @@ below that the existing code already covers. `xoxo help` lists them all:
 - update (`--check`, the newest release with a typed yes, `--back`);
 - link, screen theme, usb-out, plugin, kit, xo4.
 
-Settings go through `web.check_command` and `library.queue_command`, so the app takes them exactly as it takes the
-web page's.
+These settings go through `web.check_command` and `library.queue_command`, so the app takes them exactly as it
+takes the web page's.
 
-**Not built** (they need new code; waiting for Pat):
+**The rows that needed new code:**
 
-- shutdown and reboot;
-- backup and restore;
-- the USB-C computer in the status;
-- screen off/on;
-- update `--tag`.
+- `xoxo shutdown`: asks for a typed "yes" (or `--yes`).
+  - While the app is answering, it queues `{"cmd": "shutdown", "from": "ssh"}`. The app then runs its own
+    `shutdown()`, the same as SETTINGS > Shut down: the recording is finished, SAFE TO UNPLUG is drawn, then
+    poweroff.
+  - If the app isn't answering, it runs `sudo -n systemctl poweroff` (already in install.sh's sudoers).
+- `xoxo reboot`: refused while recording unless `--force`. Asks "yes", then runs `sudo systemctl reboot`, so sudo
+  asks for Pat's password. **sudoers is not changed.** Use `ssh -t` so sudo has a terminal.
+- `xoxo backup [FILE] [--all]`: a `.tar.gz` of `~/.config/fm1-bridge`. `--all` adds `~/fm1-library` and
+  `~/xoxo-plugins`, and is refused while recording unless `--force`.
+  - It checks for free space first, never writes over a file that's already there, and prints the `scp` line.
+  - Bluetooth pairing keys live in BlueZ (root's), so they aren't in it.
+- `xoxo restore FILE [--all]`:
+  - It first checks the archive: only plain files and folders under `settings/` (`library/`, `plugins/`), with no
+    `..` and no links.
+  - Then it asks "yes", keeps today's settings in `~/.config/fm1-bridge.before-restore-<time>`, and stops
+    `fm1-bridge`.
+  - It replaces the settings folder. With `--all` it also adds the library and plug-ins: same names are replaced
+    and nothing is deleted.
+  - Then it starts the app again.
+- `xoxo screen off|on`: off turns the backlight off with the app still running. Only a touch or a key turns it back
+  on; a speaker connecting doesn't. The touch that wakes it presses nothing under the finger.
+- The status now has `computer` (a computer on the USB-C port) and `screen`, and `xoxo status` shows both.
+- `shutdown` and `screen` can't come from the web page. `web.check_command` refuses them, so only the Studio's own
+  user, through the commands file in its runtime folder, can send them.
+- **Not built:** `update --tag`. It's still not recommended, because the root updater takes no input on purpose.
 
 **Tested:**
 
-- `tests/test_xoxo.py`, on Windows with Python 3.14. A status file is written by the test; `systemctl`,
-  `journalctl` and the updater are stood in for.
+- `tests/test_xoxo.py` (19 tests), on Windows with Python 3.14. The test writes a status file, and `systemctl`,
+  `journalctl`, `sudo` and the updater are stood in for.
 - Each command queues what the page would. Bad values queue nothing. Nothing is queued while the app isn't
   answering.
 - restart refuses while recording. update asks for "yes", and a closed input isn't a yes.
+- shutdown queues, or falls back to poweroff. The web page can't send shutdown or screen.
+- A real `bridge.App`: screen off stays off through a wake and the screensaver. The waking touch presses nothing.
+  A key wakes it. `computer` is in the status.
+- reboot's recording guard. Backup and restore round-trip settings only and `--all`. A backup with `../` or not
+  from a Studio is refused before anything is stopped.
 - The rest of the suite still passes.
 
 **Not tested:**
 
-- `xoxo` on a Studio over SSH: the app taking its commands, `systemctl --user` and `journalctl --user` from an SSH
-  login, and a real update or `--back`;
+- Anything on a Studio over SSH: the app taking the commands, a real shutdown, reboot with sudo's password prompt,
+  the backlight going off and a touch waking it on the 3.5" screen, `systemctl --user` and `journalctl --user`
+  from an SSH login, a real update or `--back`, a backup and restore of a real Studio's settings;
 - `~/.local/bin` being on PATH for an SSH login (Pi OS's `~/.profile` adds it if it exists at login);
 - the `/run/user/<uid>` fallback for a bare `ssh host xoxo ...`.
 
@@ -204,6 +232,5 @@ All of it. The proposal is from reading the code. Nothing above has been run ove
 
 ## Next
 
-The "Covered" rows are built (above). The rest are next if Pat wants them: the few app changes they need (shutdown,
-reboot, screen off, the computer in the status), with tests. All of `xoxo` gets tried on a Studio once the Studio
-session hands it over.
+All of it but `update --tag` is built (above).
+Next: try `xoxo` on a Studio once the Studio session hands it over.

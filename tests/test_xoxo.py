@@ -271,6 +271,205 @@ def test_help_and_installed():
     assert '"$DIR/xoxo.py"' in app and "~/.local/bin/xoxo" in app
 
 
+
+# ---------------------------------------------------------------- shutdown, reboot, screen, backup (new code)
+
+def yes_to(answer):
+    xoxo.input = lambda prompt: answer
+
+
+def no_input():
+    if "input" in vars(xoxo):
+        del xoxo.input
+
+
+def test_shutdown():
+    box()
+    yes_to("no")
+    try:
+        assert xo("shutdown")[1].strip() == "nothing done" and queued() == []
+        yes_to("yes")
+        code, out, _ = xo("shutdown")
+        assert code == 0 and queued() == [{"cmd": "shutdown", "from": "ssh"}], out
+    finally:
+        no_input()
+    box()
+    RAN.clear()
+    assert xo("shutdown", "--yes")[0] == 0 and queued() == [{"cmd": "shutdown", "from": "ssh"}] and RAN == []
+    library.STATUS.unlink()                    # the app not answering: the system's poweroff (sudoers, no password)
+    library.COMMANDS.unlink(missing_ok=True)
+    assert xo("shutdown", "--yes")[0] == 0 and RAN == [["sudo", "-n", "systemctl", "poweroff"]] and queued() == []
+
+
+def test_the_web_page_cant_shut_down_or_blank_the_screen():
+    import web
+    for c in ({"cmd": "shutdown", "from": "ssh"}, {"cmd": "shutdown"}, {"cmd": "screen", "value": "off"}):
+        try:
+            web.check_command(c)
+        except ValueError:
+            continue
+        raise AssertionError(c)
+
+
+def test_the_app_takes_shutdown_and_screen_from_xoxo():
+    import weblink
+    done = []
+
+    class Box:
+        def shutdown(self):
+            done.append("shutdown")
+
+        def screen_off(self):
+            done.append("off")
+
+        def wake(self, force=False):
+            done.append(("wake", force))
+    for c in ({"cmd": "shutdown", "from": "ssh"}, {"cmd": "screen", "value": "off"},
+              {"cmd": "screen", "value": "on"}):
+        assert weblink.WebLink.web_command(Box(), c) is None
+    assert done == ["shutdown", "off", ("wake", True)]
+    for c in ({"cmd": "shutdown"}, {"cmd": "screen", "value": "dim"}):   # (not xoxo's: refused)
+        try:
+            weblink.WebLink.web_command(Box(), c)
+        except ValueError:
+            continue
+        raise AssertionError(c)
+    assert done == ["shutdown", "off", ("wake", True)]
+
+
+def test_screen_off_until_a_touch():
+    os.environ.setdefault("FM1_SETTINGS", str(TMP / "settings.json"))
+    import bridge
+
+    class Screen:
+        def __init__(self):
+            self.power_calls = []
+
+        def show_rgb(self, img):
+            pass
+
+        def power(self, on):
+            self.power_calls.append(on)
+
+        def contrast(self, value):
+            pass
+    app = bridge.App(Screen(), dict(bridge.DEFAULTS))
+    app.save_settings = lambda: None
+    touches = []
+
+    class UI:
+        decks_proc = None
+
+        def touch(self, *a):
+            touches.append(a[0])
+    app.desk, app.render = UI(), lambda force=False: None
+    app.screen_off()
+    assert app.mode == "off" and app.display.power_calls == [False] and app.web_status()["screen"] == "off"
+    app.wake()                                 # a speaker connecting: the screen stays off
+    app.screensaver()
+    assert app.mode == "off" and app.display.power_calls == [False]
+    for kind in ("down", "move", "up"):        # the touch that wakes it presses nothing
+        app.desk_touch(kind, 10, 10)
+    assert app.mode == "on" and app.display.power_calls == [False, True] and touches == []
+    app.desk_touch("down", 10, 10)             # the next one does
+    app.desk_touch("up", 10, 10)
+    assert touches == ["down", "up"] and app.web_status()["screen"] == "on"
+    app.mode = "off"
+    app.on_key("press")                        # a key wakes it too (the OLED box)
+    assert app.mode == "on"
+    assert app.web_status()["computer"] is False
+    app.computer = {"id": 1, "name": "alsa_output.usb-gadget", "label": "COMPUTER"}
+    assert app.web_status()["computer"] is True
+
+
+def test_screen_and_status_show_it():
+    box(computer=True, screen="off")
+    _, out, _ = xo("status")
+    assert "a computer plugged in" in out and "screen     off" in out
+    assert xo("screen")[1].startswith("screen off")
+    assert xo("screen", "off")[0] == 0 and queued() == [{"cmd": "screen", "value": "off"}]
+    box()
+    assert xo("screen", "dim")[0] == 1 and queued() == []
+
+
+def test_reboot():
+    calls = []
+    real, xoxo.os.execvp = xoxo.os.execvp, lambda f, a: calls.append(a)
+    try:
+        box(recording=5)
+        assert xo("reboot", "--yes")[0] == 1 and calls == []            # a recording: not without --force
+        assert xo("reboot", "--yes", "--force")[0] == 0 and calls == [["sudo", "systemctl", "reboot"]]
+        box()
+        calls.clear()
+        yes_to("nope")
+        assert xo("reboot")[1].strip() == "nothing done" and calls == []
+    finally:
+        xoxo.os.execvp = real
+        no_input()
+
+
+def test_backup_and_restore():
+    import shutil
+    import tarfile
+    home = TMP / "home"
+    xoxo.SETTINGS_DIR = home / ".config" / "fm1-bridge"
+    xoxo.PLUGINS_DIR, xoxo.CACHE = home / "xoxo-plugins", home / "cache"
+    xoxo.SETTINGS_DIR.mkdir(parents=True)
+    (xoxo.SETTINGS_DIR / "fm1-bridge.json").write_text('{"bpm": 99}')
+    (xoxo.PLUGINS_DIR / "mine").mkdir(parents=True)
+    (xoxo.PLUGINS_DIR / "mine" / "plugin.json").write_text("{}")
+    (library.folder("samples") / "kick.wav").write_bytes(b"RIFF")
+    box()
+    settings_only, everything = TMP / "settings.tar.gz", TMP / "all.tar.gz"
+    assert xo("backup", str(settings_only))[0] == 0
+    with tarfile.open(settings_only) as tar:
+        assert sorted(tar.getnames()) == ["settings", "settings/fm1-bridge.json"]
+    assert xo("backup", str(settings_only))[0] == 1                    # (never over a file that's there)
+    box(recording=3)
+    assert xo("backup", str(everything), "--all")[0] == 1             # a take half-written: not without --force
+    box()
+    assert xo("backup", str(everything), "--all")[0] == 0
+    with tarfile.open(everything) as tar:
+        names = tar.getnames()
+    assert "library/samples/kick.wav" in names and "plugins/mine/plugin.json" in names
+
+    (xoxo.SETTINGS_DIR / "fm1-bridge.json").write_text('{"bpm": 140}')   # changed since; a sample lost
+    (xoxo.SETTINGS_DIR / "new.json").write_text("{}")
+    (library.folder("samples") / "kick.wav").unlink()
+    RAN.clear()
+    yes_to("no")
+    try:
+        assert xo("restore", str(settings_only))[1].strip() == "nothing done" and RAN == []
+    finally:
+        no_input()
+    code, out, err = xo("restore", str(settings_only), "--yes")
+    assert code == 0, err
+    assert json.loads((xoxo.SETTINGS_DIR / "fm1-bridge.json").read_text()) == {"bpm": 99}
+    assert not (xoxo.SETTINGS_DIR / "new.json").exists()               # the settings folder as it was backed up
+    before = sorted((home / ".config").glob("fm1-bridge.before-restore-*"))
+    assert before and json.loads((before[0] / "fm1-bridge.json").read_text()) == {"bpm": 140}   # today's kept
+    assert RAN == [["systemctl", "--user", "stop", "fm1-bridge"], ["systemctl", "--user", "start", "fm1-bridge"]]
+    assert not (library.folder("samples") / "kick.wav").exists()       # (settings only, without --all)
+    for old in before:
+        shutil.rmtree(old)
+    assert xo("restore", str(everything), "--all", "--yes")[0] == 0
+    assert (library.folder("samples") / "kick.wav").read_bytes() == b"RIFF"
+
+    bad = TMP / "bad.tar.gz"                   # anything outside the Studio's folders: refused, nothing stopped
+    with tarfile.open(bad, "w:gz") as tar:
+        tar.add(xoxo.SETTINGS_DIR, arcname="settings")
+        info = tarfile.TarInfo("../escape.txt")
+        info.size = 0
+        tar.addfile(info, io.BytesIO(b""))
+    RAN.clear()
+    code, _, err = xo("restore", str(bad), "--yes")
+    assert code == 1 and "not a Studio backup" in err and RAN == [] and not (TMP / "escape.txt").exists()
+    other = TMP / "other.tar.gz"
+    with tarfile.open(other, "w:gz") as tar:
+        tar.add(xoxo.PLUGINS_DIR, arcname="plugins")
+    assert xo("restore", str(other), "--yes")[0] == 1 and RAN == []
+
+
 if __name__ == "__main__":
     tests = [(n, f) for n, f in globals().items() if n.startswith("test_")]
     for name, fn in tests:
