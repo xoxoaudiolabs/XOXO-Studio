@@ -4,7 +4,7 @@
 
 **[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen on a real Studio (a Pi 3 B+), with the Studio's own sound. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in. Credits are at the end of the video.
 
-A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: an 8-track MIDI sequencer (SEQ), a 16-pad sampler, two DJ decks, a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument.
+A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: an 8-track MIDI sequencer (SEQ), a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument. More comes as plug-ins, each off until switched on: a 16-pad sampler, a sample editor, two DJ decks and synths, from [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins).
 
 > **This is a beta.** Version 0.3.0 takes XO-4 out (SEQ, an 8-track MIDI sequencer, takes its place) and makes the sampler, the sample editor and the DJ decks plug-ins. Its build has run on one Studio, a Raspberry Pi 4; versions up to 0.2.2 were used on three (two Raspberry Pi 3s and the Pi 4). Much of it has been tried on them, but not all of it. Before relying on it, read [Tested](#tested) and [Known limitations](#known-limitations). Nothing here is claimed beyond what's been tried.
 
