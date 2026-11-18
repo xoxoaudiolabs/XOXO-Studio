@@ -1,8 +1,8 @@
 # XOXO Studio (beta 0.3.0)
 
-[![The XOXO Studio tour: every screen on a real Studio, with a song made on XO-4 and the Synths plug-in (3:36)](docs/images/studio-tour.jpg)](docs/video/xoxo-studio-tour.mp4)
+<img src="docs/images/studio-hero.png" width="640" alt="SEQ, the Studio's 8-track MIDI sequencer">
 
-**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen on a real Studio (a Pi 3 B+), with the Studio's own sound. The song, "Pocket Groove", was made on XO-4 with the Synths plug-in. Credits are at the end of the video.
+**[Watch the tour](docs/video/xoxo-studio-tour.mp4)** (3:36): every screen on a real Studio (a Pi 3 B+), with the Studio's own sound. The tour shows beta 0.2, before SEQ took XO-4's place; the song, "Pocket Groove", was made on XO-4 with the Synths plug-in. Credits are at the end of the video.
 
 A portable music studio on a Raspberry Pi with a 3.5" touchscreen, by XOXO Audio Labs: an 8-track MIDI sequencer (SEQ), a mixer and recorder for USB sound sources, MIDI routing, a web app for your phone, and, on a Pi 4, a USB audio + MIDI interface for your computer. It's made for USB and Bluetooth MIDI gear and USB sound sources, not tied to one instrument. More comes as plug-ins, each off until switched on: a 16-pad sampler, a sample editor, two DJ decks and synths, from [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins).
 
@@ -16,13 +16,13 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
 |---|---|---|
 | Install, boot, touchscreen | Pi 4 (Waveshare 3.5" (C), DAC HAT); Pi 3 B+ (Hosyond 3.5" SPI); Pi 3 B (UCTRONICS 3.5" HDMI) | Waveshare (A); a fresh install with the `xoxo35` screen set-up; the `--screen hdmi` option itself |
 | Pi 4 as a USB interface | Windows 11, no driver: audio and MIDI both ways | a DAW; macOS or Linux; the power/data splitter; latency |
-| SEQ and the pads | the pads used by hand and measured (with XO-4, before SEQ replaced it); SEQ on a PC only | SEQ on a Studio: its tracks, timing, MIDI out to real gear |
+| SEQ | its screen seen on the Pi 4 | its tracks, timing, MIDI out to real gear (tried on a PC only) |
 | Mixer and sound out | USB sources heard (two FM-1s, an Ember Nanocore, a USB mic); the DAC HAT's outs; a Bluetooth speaker; mute, solo and level measured | the Pi's own 3.5 mm jack; CUE |
-| DJ decks | played by touch, music from a USB drive; SYNC to the Studio's clock measured (with XO-4) | a controller (the Hercules, MIDI LEARN) |
+| Plug-ins: sampler, sample editor, DJ decks, synths | in 0.2, when they were part of the app: the pads used by hand and measured; the decks played by touch from a USB drive, their SYNC measured; Synths and Tester Tools on a Pi 3 B+ | 0.3.0's plug-ins switched on on a Studio; the sample editor on hardware; the decks with a controller (the Hercules, MIDI LEARN) |
 | Two Studios linked | clock, start/stop, REC from the leader on both, the link's latency measured | sound heard across by ear; REC from the follower |
 | A Pocket linked | its link and its sound into the Studio | the speaker handover; the mix back to a Pocket; its FM-1s on their own streams |
-| MIDI | network MIDI; clock out a route to a USB device; a USB keyboard playing XO-4's synth (Pi 4) | a keyboard's notes out to other gear through the routes; arp and chord |
-| Recording | takes from the web page on two linked Studios | a take listened back on the Studio; the sample EDITOR |
+| MIDI | network MIDI; clock out a route to a USB device; a USB keyboard playing XO-4's synth (Pi 4, in 0.2) | a keyboard's notes out to other gear through the routes; arp and chord |
+| Recording | takes from the web page on two linked Studios | a take listened back on the Studio |
 | Web app | on a phone and a PC: the tabs, Settings, the MIDI grid | adding music from a phone; USB out and the link settings from it |
 | Updates | from GitHub on a Pi 3 B+ (v0.2.0, then v0.2.1); without a password on a Pi 3 B | going back when a new version won't start (tried on a PC only) |
 | Shutting down | ends on SAFE TO UNPLUG (a Pi 3 B, SPI screen) | — |
@@ -61,7 +61,7 @@ The version shows on the boot screen and in MORE › STUDIO SETTINGS › ABOUT.
    - `--screen c`: the Waveshare 3.5" (C) (tried on the Pi 4: right side up).
    - No `--screen`: the Hosyond 3.5" / Waveshare (A), with the Studio's `xoxo35` overlay for blacker blacks (made and used on a running Studio; a fresh install with it not yet tried).
    - `--screen hdmi`: the UCTRONICS 3.5" HDMI touchscreen (its settings tried, set by hand; the option itself not yet run).
-   - On a Pi 4 the installer also sets up the USB interface on its USB-C port, with nothing to choose (tried: see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)), and the Studio plays more at once: up to 32 pad voices (16 on a Pi 3) (measured, not yet listened to).
+   - On a Pi 4 the installer also sets up the USB interface on its USB-C port, with nothing to choose (tried: see [The Pi 4 as a USB interface](#the-pi-4-as-a-usb-interface)), and the sampler plug-in plays more at once: up to 32 pad voices (16 on a Pi 3) (measured in 0.2, not yet listened to).
 5. **On the first start** the Studio asks for the touch setup (four targets) before HOME.
 
 ## Updating
@@ -80,14 +80,14 @@ At `http://xoxostudio.local` (or the address in MORE › STUDIO SETTINGS › ABO
 
 Its tabs:
 - **Status:** the tempo, start / stop, the metronome, speaker, volume, the mixer (with DECKS while they play), a linked Pocket, keyboard, Record
-- **Studio:** the sequencer's patterns A–H, Play / Stop, MIDI IN; the pads' kits; the DJ decks; the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
+- **Studio:** SEQ's patterns A–H, Play / Stop; with the plug-ins on, the pads' kits and MIDI IN (sampler), the DJ decks and the Studio DJ Music folder, where tracks can be added from the page (not yet tried from a phone)
 - **MIDI:** the routes and presets (on a phone the grid's destination names stand up, so every route fits across)
-- **Library** (samples), **Editor**, **Rec** (the recordings)
+- **Library** (samples), **Editor** (while the sample editor plug-in is on), **Rec** (the recordings)
 - **Settings:** the clock, the audio rate and Latency, USB out, the Studio link, the screen's theme, About, and Software (updates)
 
 ## What's inside
 
-The pictures are drawn on a PC by the Studio's own drawing code with a made-up studio (`python tools/studio_screens.py docs/images`), at twice the screen's 480×320: they're not photos of the device.
+The pictures are drawn on a PC by the Studio's own drawing code with a made-up studio (`python tools/studio_screens.py docs/images`, with a clone of XOXO-Studio-Plugins beside this one), at twice the screen's 480×320: they're not photos of the device. They show the sampler, sample editor and DJ decks plug-ins switched on; without them the tab bar is HOME, MIXER, MIDI, RECORD, SEQ, MORE.
 
 The tab bar: HOME, MIXER, MIDI, RECORD, SEQ, MORE, and the plug-ins' tabs before MORE (PADS, EDITOR, DECKS while they're on). SEQ, PADS, EDITOR, DECKS and RECORD are full screen: "< HOME", top left, leads back. MIXER, MIDI and MORE keep the tab bar and have "< HOME" too.
 
@@ -102,12 +102,6 @@ The tempo with − / +; every source (each USB device, the pads, the decks while
 Every source a level, with M (mute) and S (solo) above its fader (also on the web page; HOME says MUTE or OFF), recorded as one mix (or a part each), with meters. Mute and solo leave CUE and Record parts as they are, and a restart clears them.
 
 <img src="docs/images/studio-mixer.png" width="480" alt="MIXER">
-
-### EDITOR
-
-The sample editor (full screen): a recording or a sample trimmed, faded, its note found, saved as a new sample, or put straight on a pad (TO PAD). Not yet tried on hardware.
-
-<img src="docs/images/studio-editor.png" width="480" alt="EDITOR">
 
 ### SEQ, the sequencer
 
@@ -136,15 +130,21 @@ The 16-pad sampler is a plug-in (`sampler` in [XOXO-Studio-Plugins](https://gith
 |---|---|
 | <img src="docs/images/studio-pads.png" width="400" alt="PADS"><br>**PADS** | <img src="docs/images/studio-pad-page.png" width="400" alt="A pad's page"><br>**A pad's page** |
 
-### DECKS
+### EDITOR, the sample editor (a plug-in)
 
-Two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch (tried), a Hercules DJControl Inpulse 200 MK2 (its mapping is built in; not yet tried on the Studio), or another MIDI controller after MIDI LEARN (not yet tried). Each deck has its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out). **SYNC** follows the other deck's tempo and beat, or, while the sequencer plays, the Studio's clock (the deck shows SYNC SEQ). A synced deck started lands on its lead's bar: the track's first beat is taken as a bar's first, which is a guess. SYNC pressed while a deck plays moves it less than a beat. A deck fades over 6 ms when it starts, stops, cues or jumps (no click).
+The sample editor is a plug-in (`editor` in [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins)), off until switched on: the EDITOR tab (full screen), where a recording or a sample is trimmed, faded, its note found, saved as a new sample, or put straight on a pad (TO PAD, with the sampler on). Not yet tried on hardware.
+
+<img src="docs/images/studio-editor.png" width="480" alt="EDITOR">
+
+### DECKS, the DJ decks (a plug-in)
+
+The DJ decks are a plug-in (`decks` in [XOXO-Studio-Plugins](https://github.com/xoxoaudiolabs/XOXO-Studio-Plugins)), off until switched on: the DECKS tab and DECKS in the mixer. What follows was tried in 0.2, when they were part of the app. Two DJ decks (full screen), from the Studio DJ Music folder or a USB drive, played by touch (tried), a Hercules DJControl Inpulse 200 MK2 (its mapping is built in; not yet tried on the Studio), or another MIDI controller after MIDI LEARN (not yet tried). Each deck has its own FX (ECHO on the beat, REVERB, FLANGER, BRAKE: FX tapped on or off, held for the next one; echo and reverb ring out). **SYNC** follows the other deck's tempo and beat, or, while the sequencer plays, the Studio's clock (the deck shows SYNC SEQ). A synced deck started lands on its lead's bar: the track's first beat is taken as a bar's first, which is a guess. SYNC pressed while a deck plays moves it less than a beat. A deck fades over 6 ms when it starts, stops, cues or jumps (no click).
 
 <img src="docs/images/studio-decks.png" width="480" alt="DECKS">
 
 ### MIDI
 
-Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW) and the pads, with channels, transpose, velocity, chord memory and an arpeggiator per route. On hardware so far: network MIDI, and the clock sent out a route to a USB device. Notes from a keyboard through the routes, arp and chord are tried on a PC only.
+Routes between Bluetooth MIDI, each USB MIDI device, network MIDI (a DAW), SEQ and the plug-ins (the sampler's SMP), with channels, transpose, velocity, chord memory and an arpeggiator per route. On hardware so far: network MIDI, and the clock sent out a route to a USB device. Notes from a keyboard through the routes, arp and chord are tried on a PC only.
 
 <img src="docs/images/studio-midi.png" width="480" alt="MIDI">
 
@@ -199,7 +199,7 @@ Tried (2026-11-07, the Pi 4 on Windows 11, no driver installed): Windows listed 
 
 ## Tested
 
-What has been tried on hardware, by Studio. "The user's report" is what was seen or heard by the person testing; everything else was measured on the Pi.
+What has been tried on hardware, by Studio. "The user's report" is what was seen or heard by the person testing; everything else was measured on the Pi. What names XO-4, the pads, the decks or the sample editor was tried in 0.2, when they were part of the app (XO-4 is gone in 0.3.0; the others are plug-ins).
 
 **The Pi 4 Studio** (2026-11-07: Raspberry Pi 4 B 1 GB, Raspberry Pi OS Lite 64-bit (Trixie), Waveshare 3.5" (C), InnoMaker HiFi DAC HAT):
 - installed from the v0.2.1 release downloaded on the Pi, `install.sh --dac --screen c`: the DAC (BossDAC), the screen and the USB interface came up after the reboot. The screen was upside down at `rotate=90`; at `rotate=270` it's right side up (the user's report), and `--screen c` now sets 270
@@ -235,7 +235,7 @@ What has been tried on hardware, by Studio. "The user's report" is what was seen
 - the link's latency (`tools/snake_time.py`): about 12-22 ms one way, settled, also over a 100 ft cable; with Tester Tools, a pad on the follower: 172 ms round trip at SAFE, 87 at LOWEST
 - a Pocket: over Wi-Fi and a direct Ethernet cable it links, and its FM-1 plays out of the Studio's speaker as POCKET (the user's report); its MIDI with a stand-in Pocket on a PC
 
-**Not yet tried on hardware:** a Pi 4's own Bluetooth; the Pi 4 on the power/data splitter; the USB interface with a DAW, macOS or Linux; the Pi 4's extra voices by ear; sound out of the Pi's 3.5 mm jack; XO-4 by ear (its timing against the pads, its MIDI track to real gear); the mixer by ear and CUE; a Pocket's FM-1s on their own streams; linked REC with a Pocket; a take listened back on the Studio; XO-4's DRUMS by hand (finger drumming, ratchets, nudge, live REC, RPT); the EDITOR and the sample editor; a keyboard's notes out to other gear through the MIDI routes, arp and chord; the DJ decks with a controller; Bluetooth headphones; Bluetooth MIDI on a dongle; sound heard across two linked Studios; an update putting the old version back.
+**Not yet tried on hardware:** a Pi 4's own Bluetooth; the Pi 4 on the power/data splitter; the USB interface with a DAW, macOS or Linux; the Pi 4's extra voices by ear; sound out of the Pi's 3.5 mm jack; SEQ on a Studio (its tracks and timing, its MIDI to real gear); the plug-ins switched on in 0.3.0; the mixer by ear and CUE; a Pocket's FM-1s on their own streams; linked REC with a Pocket; a take listened back on the Studio; the sample editor; a keyboard's notes out to other gear through the MIDI routes, arp and chord; the DJ decks with a controller; Bluetooth headphones; Bluetooth MIDI on a dongle; sound heard across two linked Studios; an update putting the old version back.
 
 **On a PC:** the test suite passes, file by file (each `tests/test_*.py` with its own runner; `tests/test_desk.py` and `tests/test_netmidi.py` through pytest). The screen pictures under [What's inside](#whats-inside) are drawn by the Studio's own code on a PC.
 
@@ -262,20 +262,20 @@ Not affiliated with Roland or Hercules. TR-808 is a trademark of Roland Corporat
 |---|---|---|
 | Raspberry Pi OS (Debian) and the Linux kernel | the system; the screen's drivers (fbtft, SPI, I2C); its `piscreen` overlay, which `config/xoxo35.sh` turns into the Studio's `xoxo35` on the Pi | GPL-2.0 (the kernel); Debian's packages each their own |
 | the Device Tree Compiler (`dtc`) | making the `xoxo35` screen overlay | GPL-2.0-or-later |
-| PipeWire (`pw-cat`, `pw-record`, `pw-loopback` …) and its Bluetooth plugin | all the sound: the mixer, Bluetooth audio, recording, the pads, the decks | MIT, with some parts LGPL-2.1-or-later |
+| PipeWire (`pw-cat`, `pw-record`, `pw-loopback` …) and its Bluetooth plugin | all the sound: the mixer, Bluetooth audio, recording, and the sampler's and the decks' plug-ins | MIT, with some parts LGPL-2.1-or-later |
 | WirePlumber (`wpctl`) | PipeWire's session manager; levels | MIT |
 | BlueZ | Bluetooth: speakers, Bluetooth MIDI | GPL-2.0-or-later (its libraries LGPL-2.1-or-later) |
 | D-Bus | talking to BlueZ | GPL-2.0-or-later or AFL-2.1 (some parts MIT, BSD) |
 | systemd | the app's services | LGPL-2.1-or-later (some parts GPL-2.0-or-later) |
 | NetworkManager (`nmcli`) | Wi-Fi on / off | GPL-2.0-or-later (its libraries LGPL-2.1-or-later) |
 | RealtimeKit (rtkit) | real-time priority for the sound | GPL-3.0-or-later (some parts MIT) |
-| udisks2, exfatprogs, ntfs-3g | USB drives of music for the decks | GPL-2.0-or-later (udisks2's library LGPL-2.0-or-later) |
+| udisks2, exfatprogs, ntfs-3g | USB drives of music for the decks plug-in | GPL-2.0-or-later (udisks2's library LGPL-2.0-or-later) |
 | Python 3 | the app itself | PSF License |
 | Pillow | drawing every screen, the icons | the PIL Software License (MIT-CMU) |
 | python-qrcode (`python3-qrcode`) | the QR codes in STUDIO SETTINGS > ABOUT | BSD-3-Clause |
-| NumPy | meters, the sampler, the sample editor | BSD-3-Clause |
+| NumPy | meters, and the sampler and sample editor plug-ins | BSD-3-Clause |
 | mido and python-rtmidi (RtMidi) | MIDI | MIT |
-| libsndfile, with mpg123 | the DJ decks reading MP3, FLAC, WAV, AIFF and Ogg | LGPL-2.1-or-later (some parts Apache-2.0); mpg123 LGPL-2.1 |
+| libsndfile, with mpg123 | the DJ decks plug-in reading MP3, FLAC, WAV, AIFF and Ogg | LGPL-2.1-or-later (some parts Apache-2.0); mpg123 LGPL-2.1 |
 | dbus-python | BlueZ over D-Bus | MIT (some parts AFL-2.1 or GPL-2.0-or-later) |
 | PyGObject | BlueZ's events (GLib) | LGPL-2.1-or-later |
 | spidev, libgpiod's Python bindings, smbus2, i2c-tools | the pocket build's screen and keys; the PiSugar battery | MIT; LGPL-2.1-or-later; MIT; GPL-2.0-or-later |
