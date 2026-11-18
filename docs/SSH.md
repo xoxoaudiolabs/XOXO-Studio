@@ -19,7 +19,7 @@ command.
 - midi (devices, routes on, one route on/off, presets);
 - recordings and pull;
 - update (`--check`, the newest release with a typed yes, `--back`);
-- link, screen theme, usb-out, plugin, kit, xo4.
+- link, screen theme, usb-out, plugin, kit, seq (the sequencer; XO-4 is gone).
 
 These settings go through `web.check_command` and `library.queue_command`, so the app takes them exactly as it
 takes the web page's.
@@ -98,12 +98,12 @@ through two files in `$XDG_RUNTIME_DIR` (`/run/user/<uid>`):
 | `POST /api/delete` | Deletes a library file |
 | `POST /api/upload?folder=&name=` | Uploads a sample (checked), or a track to the music folder |
 | `GET /api/update[?fresh=1]` | Installed version, newest on GitHub, whether an update can run |
-| `GET /api/music` | The DJ decks' music folder |
+| `GET /api/music` | The DJ decks' music folder (the decks plug-in) |
 
 `/api/status` already reports: the sources and the mixer (levels, mute, solo, inputs), the Bluetooth speaker, its
-volume and battery, the master level, MIDI (peer, controllers, network MIDI, pads, XO-4), the MIDI route matrix and
+volume and battery, the master level, MIDI (peer, controllers, network MIDI, pads, the sequencer), the MIDI route matrix and
 its presets, the clock and tempo, recording seconds (or `null`), the latency step, the link settings (Pocket link,
-Follow Studio, link audio, link return, link REC), USB out, Wi-Fi, the version, the theme, XO-4, kits, decks and
+Follow Studio, link audio, link return, link REC), USB out, Wi-Fi, the version, the theme, the sequencer (under its old key `xo4`), kits, decks and
 plug-ins.
 
 It does **not** report whether a computer is plugged into the USB-C port. The box tracks that
@@ -117,7 +117,7 @@ The commands `/api/command` accepts (`web.check_command`; `weblink.web_command` 
   `mix_<src>`, `mute_<src>`, `solo_<src>`, `input_<src>`
 - `transport` start/stop; `record` start/stop
 - `routes` (the whole MIDI route list); `preset` load/save/clear for slots 1–4
-- `xo4` pattern / midi_in / sound / play; `kit`; `plugin` on/off or a plug-in's own command
+- `xo4` (the sequencer, SEQ) pattern / play; `kit` (the sampler plug-in's); `plugin` on/off or a plug-in's own command
 - `update`. **This one doesn't work headless:** the box answers it with "Update?" on its screen and waits for a
   hold-press (`weblink.update_checked`).
 
@@ -211,7 +211,7 @@ Columns:
 | 17b | `xoxo screen off\|on` | Blanks the touchscreen to save power in a case | **New**: a web command. The app owns the screen (`TftDisplay.power` in desk.py writes `/sys/class/graphics/fbN/blank`), and the Studio's LCD never sleeps today | No (the app already writes `blank`) | A screen left off looks like a dead Studio: any touch wakes it |
 | 18 | `xoxo usb-out [auto\|off\|NODE]` | USB out's choice (no DAC HAT) | Covered | No | None |
 | 19 | `xoxo plugin [ID on\|off]` | Lists plug-ins; switches one | Covered | No | None |
-| 20 | `xoxo xo4 …`, `xoxo kit NAME` | Pattern, play, MIDI IN, synth sounds; the pads' kit | Covered | No | None |
+| 20 | `xoxo seq …`, `xoxo kit NAME` | The sequencer's pattern and play; the sampler's kit | Covered | No | None |
 
 ### Left out on purpose
 

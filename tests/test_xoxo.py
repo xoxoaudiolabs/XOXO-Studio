@@ -26,20 +26,19 @@ import xoxo  # noqa: E402
 RAN = []
 xoxo.run = lambda command, timeout=30: (RAN.append(command), (0, "active"))[1]
 
-ROUTES = {"BT>USB": {"on": True}, "USB>BT": {"on": True}, "XO4>BT": {"on": False}}
+ROUTES = {"BT>USB": {"on": True}, "USB>BT": {"on": True}, "SEQ>BT": {"on": False}}
 STATUS = {"box": "xoxo-studio", "version": "0.2.2", "sources": ["FM-1", "POCKET"], "live": True,
           "speaker": "JBL", "volume": 40, "speaker_battery": 80, "master": 70, "usb_out": "auto", "usb_outs": [],
           "usb_out_now": None, "latency": "SAFE", "follow_studio": False, "follows": None, "link_audio": "mix",
           "link_return": 46010, "link_rec": True, "pocket": None, "wifi": "home",
           "midi": {"peer": "FM-1", "enabled": True, "error": None, "controllers": ["Launchkey"], "net": [],
                    "pads": True, "xo4": True},
-          "matrix": {"sources": ["BT", "USB", "XO4"], "dests": ["BT", "USB"]},
+          "matrix": {"sources": ["BT", "USB", "SEQ"], "dests": ["BT", "USB"]},
           "clock_text": "120 BPM", "recording": None,
           "settings": {"metronome": False, "bpm": 120, "clock_mode": "box", "click": "mid", "audio_rate": 48000},
           "routes": ROUTES, "presets": {"1": {"name": "live"}},
           "theme": {"value": "XOXO", "choices": ["XOXO", "MONO"]},
-          "xo4": {"pattern": "A", "queued": None, "used": ["A"], "playing": False, "midi_in": False,
-                  "sounds": ["KEYS", "BASS"], "choices": ["KEYS", "BASS"]},
+          "xo4": {"pattern": "A", "queued": None, "used": ["A"], "playing": False},   # (SEQ's, under its old key)
           "kits": {"current": "808", "list": ["808"]},
           "plugins": {"list": [{"id": "fm1-companion", "name": "FM-1 Companion", "on": True}], "status": {}}}
 
@@ -82,10 +81,8 @@ def test_settings_go_to_the_box_as_the_page_sends_them():
         (("play",), {"cmd": "transport", "value": "start"}),
         (("stop",), {"cmd": "transport", "value": "stop"}),
         (("rec", "start"), {"cmd": "record", "value": "start"}),
-        (("xo4", "pattern", "c"), {"cmd": "xo4", "action": "pattern", "value": "C", "track": None}),
-        (("xo4", "play"), {"cmd": "xo4", "action": "play", "value": None, "track": None}),
-        (("xo4", "midi-in", "on"), {"cmd": "xo4", "action": "midi_in", "value": True, "track": None}),
-        (("xo4", "sound", "2", "bass"), {"cmd": "xo4", "action": "sound", "value": "BASS", "track": 2}),
+        (("seq", "pattern", "c"), {"cmd": "xo4", "action": "pattern", "value": "C"}),
+        (("seq", "play"), {"cmd": "xo4", "action": "play", "value": None}),
         (("kit", "808"), {"cmd": "kit", "name": "808"}),
         (("plugin", "fm1-companion", "off"), {"cmd": "plugin", "id": "fm1-companion", "on": False}),
         (("midi", "preset", "2", "save", "my", "set"), {"cmd": "preset", "slot": "2", "action": "save",
@@ -102,7 +99,7 @@ def test_settings_go_to_the_box_as_the_page_sends_them():
 def test_bad_values_are_refused_and_nothing_is_queued():
     for argv in [("tempo", "500"), ("tempo", "fast"), ("volume", "101"), ("latency", "FASTEST"),
                  ("clock", "usb"), ("metronome", "maybe"), ("rec", "pause"), ("link", "audio", "loud"),
-                 ("xo4", "pattern", "Z"), ("xo4", "sound", "3", "BASS"), ("midi", "preset", "5", "load"),
+                 ("seq", "pattern", "Z"), ("seq", "sound", "1", "BASS"), ("xo4", "play"), ("midi", "preset", "5", "load"),
                  ("plugin", "Bad Id", "on"), ("play", "now"), ("nothing",)]:
         box()
         code, out, err = xo(*argv)
@@ -148,11 +145,11 @@ def test_status():
 def test_midi_routes_one_at_a_time():
     box()
     code, out, _ = xo("midi")
-    assert code == 0 and "BT->USB" in out and "USB->BT" in out and "XO4->BT" not in out and "1:live" in out
-    code, out, _ = xo("midi", "route", "XO4", "BT", "on")
+    assert code == 0 and "BT->USB" in out and "USB->BT" in out and "SEQ->BT" not in out and "1:live" in out
+    code, out, _ = xo("midi", "route", "SEQ", "BT", "on")
     assert code == 0, out
     sent = queued()[0]
-    assert sent["cmd"] == "routes" and sent["routes"]["XO4>BT"]["on"] is True
+    assert sent["cmd"] == "routes" and sent["routes"]["SEQ>BT"]["on"] is True
     assert sent["routes"]["BT>USB"]["on"] is True and sent["routes"]["USB>BT"]["on"] is True   # the rest kept
     box()
     code, _, err = xo("midi", "route", "NOPE", "BT", "on")

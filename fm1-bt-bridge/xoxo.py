@@ -28,7 +28,7 @@ before the web app is up (it waits 45 s after boot). The status comes from the a
   xoxo usb-out [auto|off|NODE]
   xoxo plugin [ID on|off]
   xoxo kit [NAME]
-  xoxo xo4 [pattern A-H | play | midi-in on|off | sound 1|2 NAME]
+  xoxo seq [pattern A-H | play]      the sequencer (SEQ)
   xoxo shutdown                       as SETTINGS > Shut down: a recording is finished first (asks yes)
   xoxo reboot                         sudo systemctl reboot: asks yes, then sudo asks the password (ssh -t)
   xoxo backup [FILE] [--all]          the settings (--all: and the library and plug-ins) in a .tar.gz
@@ -392,25 +392,20 @@ def cmd_kit(args):
     return f"sent: kit {name}"
 
 
-def cmd_xo4(args):
+def cmd_seq(args):
+    """the sequencer (SEQ); the app's command and status key for it is still "xo4" (web.py, weblink.py)"""
     if not args:
         x = status().get("xo4") or {}
         return (f"pattern  {x.get('pattern')}" + (f" (next {x['queued']})" if x.get("queued") else "")
-                + f"\nplaying  {'yes' if x.get('playing') else 'no'}\nmidi in  {'on' if x.get('midi_in') else 'off'}"
-                f"\nsounds   {', '.join(x.get('sounds') or [])}\nused     {' '.join(x.get('used') or []) or 'none'}")
+                + f"\nplaying  {'yes' if x.get('playing') else 'no'}"
+                f"\nused     {' '.join(x.get('used') or []) or 'none'}")
     if args == ["play"]:
         send({"cmd": "xo4", "action": "play"})
-        return "sent: XO-4 play"
+        return "sent: SEQ play"
     if len(args) == 2 and args[0] == "pattern":
         send({"cmd": "xo4", "action": "pattern", "value": args[1].upper()})
-        return f"sent: XO-4 pattern {args[1].upper()}"
-    if len(args) == 2 and args[0] == "midi-in":
-        send({"cmd": "xo4", "action": "midi_in", "value": on_off(args[1])})
-        return f"sent: XO-4 MIDI IN {args[1]}"
-    if len(args) == 3 and args[0] == "sound" and args[1] in ("1", "2"):
-        send({"cmd": "xo4", "action": "sound", "track": int(args[1]), "value": args[2].upper()})
-        return f"sent: SYN {args[1]} {args[2].upper()}"
-    raise Fail("xo4, xo4 play, xo4 pattern A-H, xo4 midi-in on|off, or xo4 sound 1|2 NAME")
+        return f"sent: SEQ pattern {args[1].upper()}"
+    raise Fail("seq, seq play, or seq pattern A-H")
 
 
 # ---------------------------------------------------------------- power
@@ -624,8 +619,8 @@ def main(argv=None):
             out = cmd_plugin(args)
         elif name == "kit":
             out = cmd_kit(args)
-        elif name == "xo4":
-            out = cmd_xo4(args)
+        elif name == "seq":
+            out = cmd_seq(args)
         elif name == "shutdown":
             out = cmd_shutdown(args, "--yes" in flags)
         elif name == "reboot":
